@@ -1,0 +1,58 @@
+{
+  "name": "dsh-terraria-agent",
+  "version": "0.1.0",
+  "description": "A DeepSeek Harness plugin for Terraria through a local tModLoader bridge",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "terraria",
+    "tmodloader",
+    "agent"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "src/",
+    "artifacts/DshTerrariaBridge.tmod",
+    "artifacts/README.txt",
+    "DshTerrariaBridge/*.cs",
+    "DshTerrariaBridge/*.csproj",
+    "DshTerrariaBridge/*.txt",
+    "DshTerrariaBridge/Localization/",
+    "cordis.patch.yml",
+    "install-mod.ps1",
+    "build-bridge-roslyn.ps1",
+    "tModLoader.targets",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test --test-isolation=none",
+    "pack:check": "npm pack --dry-run",
+    "install:mod": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\install-mod.ps1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

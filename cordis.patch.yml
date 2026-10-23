@@ -1,0 +1,8 @@
+# DSH Terraria Agent bundle mount.
+#
+# The package is a host-side plugin: this row makes DSH load index.js and
+# register the terraria_* tools in the active profile. Add the package with
+# `dsh plugin --profile desktop add <path>` and restart DSH after changing it.
+- insert:
+    - id: dsh-terraria-agent
+      name: dsh-terraria-agent

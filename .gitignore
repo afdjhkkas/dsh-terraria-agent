@@ -1,0 +1,8 @@
+node_modules/
+.npm-cache*/
+*.tgz
+tmp-*.mjs
+artifacts/*.previous-installed.tmod
+DshTerrariaBridge/bin/
+DshTerrariaBridge/obj/
+build-save/

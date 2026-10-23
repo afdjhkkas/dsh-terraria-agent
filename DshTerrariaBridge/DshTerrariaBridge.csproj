@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\tModLoader.targets" />
+  <PropertyGroup>
+    <AssemblyName>DshTerrariaBridge</AssemblyName>
+    <RootNamespace>DshTerrariaBridge</RootNamespace>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12.0</LangVersion>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+</Project>
