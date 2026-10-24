@@ -1,8 +1,21 @@
 # DSH Terraria Agent bundle mount.
 #
-# The package is a host-side plugin: this row makes DSH load index.js and
-# register the terraria_* tools in the active profile. Add the package with
-# `dsh plugin --profile desktop add <path>` and restart DSH after changing it.
+# The package is a host-side plugin: this row makes DSH load index.js and register
+# the terraria_* tools in the active profile. Add the package with
+#   dsh plugin --profile <name> add "<absolute repo path>"
+# and restart DSH after changing anything in it.
+#
+# `config` is the object index.js `apply(ctx, rawConfig)` receives. Without it the
+# plugin silently falls back to its built-in defaults, so the values below are those
+# defaults made explicit; this file is the only supported place to override them
+# (the plugin has no settings UI).
+#   host       must stay 127.0.0.1 -- apply() throws for anything else, on purpose
+#   port       must match the tModLoader mod listener (DshTerrariaBridge/BridgeSystem.cs Port)
+#   timeoutMs  per-request client deadline, 500..20000 ms
 - insert:
     - id: dsh-terraria-agent
       name: dsh-terraria-agent
+      config:
+        host: 127.0.0.1
+        port: 7777
+        timeoutMs: 5000

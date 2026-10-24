@@ -1,6 +1,6 @@
 {
   "name": "dsh-terraria-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A DeepSeek Harness plugin for Terraria through a local tModLoader bridge",
   "keywords": [
     "dsh",
@@ -12,7 +12,7 @@
   ],
   "license": "MIT",
   "engines": {
-    "node": ">=22"
+    "node": ">=20"
   },
   "type": "module",
   "main": "index.js",
@@ -23,6 +23,8 @@
   "files": [
     "index.js",
     "src/",
+    "test/",
+    "PROTOCOL.md",
     "artifacts/DshTerrariaBridge.tmod",
     "artifacts/README.txt",
     "DshTerrariaBridge/*.cs",
@@ -38,7 +40,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test --test-isolation=none",
+    "test": "node --test",
     "pack:check": "npm pack --dry-run",
     "install:mod": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\install-mod.ps1"
   },

@@ -1,0 +1,124 @@
+# Terraria mechanics cheat sheet (for this agent)
+
+Everything here is either **verified on this machine** (measured against tModLoader
+`2026.8.3.0` / Terraria 1.4.4 with the bridge live) or **cited from the official wiki**.
+`[measured]` = observed in-game through the bridge; `[wiki]` = from terraria.wiki.gg.
+
+Keep this file next to the code: every future test session needs these numbers.
+
+## Coordinates and world sizes
+
+- 1 tile = 16 px. `x` grows right, `y` grows **down**. Player centre = `Player.Center`.
+- World sizes `[wiki]`: small 4200×1200, medium 6400×1800, large 8400×2400.
+  The test world `DshTest` is 4200×1200 (small, Journey mode).
+- `Main.maxTilesX/maxTilesY` are the authoritative bounds; `Main.tile[x, y]` is
+  invalid outside them.
+
+## Tile encoding (the convention this bridge uses)
+
+- **`type = -1` means empty.** `type = 0` is **Dirt**.
+  > This is the single most important thing to get right. Terraria's `TileID.Dirt == 0`,
+  > so "0 = air" silently makes dirt invisible to scans and unmineable.
+- `shape`: `0` solid · `1` half brick · `2..5` slopes
+  (`SlopeType`: Solid=0, SlopeDownLeft=1, SlopeDownRight=2, SlopeUpLeft=3, SlopeUpRight=4).
+  Watch out: a naive `SlopeType + 1` collides half bricks (5) with `SlopeUpRight` (5).
+- `liquid`: `LiquidAmount` 0..255; `LiquidType` water/lava/honey/shimmer.
+- `wall`: 0 = no wall. Walls are a **separate** layer: they drive housing validity and
+  are not removed by breaking the tile in front of them.
+
+Common tile ids `[wiki]`: 0 Dirt · 1 Stone · 2 Grass · 3 Plants · 4 Torch · 5 Tree ·
+6 Iron Ore · 7 Copper Ore · 8 Gold Ore · 9 Silver Ore · 10 Closed Door · 30 Wood? —
+always confirm with `tile` rather than trusting a table from memory.
+
+## Player physics `[measured]`
+
+- Horizontal: forcing `velocity.X = ±2.8` px/tick gives ≈ 11 tiles/s; 800 ms of `right`
+  moved ≈ 8.8 tiles, then friction brings it to rest within ~100 ms.
+- Jump: one impulse of `velocity.Y = -5.6` raises the player ≈ 2.3 tiles, airborne ≈ 350 ms.
+- Gravity/friction still run on top of any forced velocity, so a forced velocity does not
+  survive once the hold ends.
+- **Wings** `[wiki]`: with wings equipped, *holding jump after the jump ends starts flight*.
+  A long `jump` on a winged character is legitimate flight, not a bug. The bridge sets
+  `controlJump` and lets vanilla decide; it does not fake flight.
+- Consequences of overriding `velocity` directly: knockback, dash, mounts, conveyor belts,
+  ice skid, wind and `confused` are all bypassed. Collision still applies because
+  position integration happens after the override.
+
+## Combat `[wiki]`
+
+- Net damage = `floor(attack - defense × f)`, `f` = 0.5 classic / 0.75 expert / 1.0 master;
+  **minimum 1** whenever a hit lands.
+- Crits: chance from `GetTotalCritChance(DamageClass)`, multiplier ×2.
+- Real damage uses the player pipeline: `GetTotalDamage(class).ApplyTo(item.damage)`
+  (armor, accessories, buffs, prefixes). Passing raw `item.damage` ignores all of it.
+- **Invincibility frames**: 10 ticks (≈167 ms) of *global* invincibility is the default
+  after a hit from a piercing source. Melee hits are **affected by** global i-frames but do
+  not apply them. A hit inside the i-frame window does 0 damage — so count hits by comparing
+  `npc.life` before/after, not by counting attempts.
+- `NPC.CanBeChasedBy()` means "damageable and chaseable", which is what auto-target should
+  use; it is `false` for invulnerable phases (e.g. some boss states), so it is *not* a
+  reliable "is hostile" test on its own.
+
+## Item use `[measured]`
+
+- `use` sets `itemAnimation`/`itemTime` immediately; with an iron shortsword
+  `itemAnimation` went 8 → 4 → 0 over ~150 ms, i.e. `useAnimation ≈ 8-10` ticks.
+- `useTime` gates how often an item can be used; ignoring it turns any weapon into a
+  no-cooldown auto-attack.
+
+## Recipes `[measured]`
+
+- Lookup by output type works: `Main.recipe[i].createItem.type == itemType`.
+- Station check: `recipe.requiredTile` (list of tile ids) must be nearby (vanilla uses
+  `adjTile` range, the bridge searched ±5 tiles).
+- **Recipe groups** (`recipe.acceptedGroups`, e.g. "any wood"): a recipe that accepts a
+  group must consume *any* member of the group. Wooden Arrows (item 40) are a group recipe —
+  rejecting groups makes the most basic ammo uncraftable.
+- **Conditions** (`recipe.Conditions`, 1.4.4): e.g. near water, in graveyard, hardmode,
+  time of night. Ignoring them lets the caller craft things the game would not allow.
+- `craft` clamps `times` to 20 in the mod; the tool accepts up to 99.
+
+## Pausing and focus `[wiki + measured]`
+
+- Terraria has settings **"Pause when unfocused"** (Settings → General; single-player only)
+  and **"auto pause"** (pauses while the inventory / NPC dialogue is open). Either sets
+  `Main.gamePaused`, and the world stops ticking.
+- The bridge keeps answering while paused, so a tick-driven command would report success and
+  do nothing. This is why every tick-driven command checks `Main.gamePaused` first and why
+  `state`/`ping` expose `paused` and `hasFocus`.
+- Measured: with this machine's settings, **minimising** the window did **not** pause — tick
+  kept advancing and movement still worked. Pause state is user-configurable, so always ask
+  `ping`/`state` rather than assuming.
+
+## Journey mode `[measured]`
+
+`DshTest` is Journey (`GameMode: 3`): duplication, difficulty slider, time/weather control,
+and `give`-style creative actions are all available. Useful for tests — you can spawn
+items and enemies freely.
+
+## Testing notes for this repo
+
+- Launch straight into a world, no menus:
+  `D:\STEAM\steamapps\common\tModLoader\dotnet\dotnet.exe tModLoader.dll -world <abs .wld> -player <abs .plr>`
+  with the tModLoader folder as cwd. Note: on this install the `-world` argument was
+  **ignored** and the last-played world loaded instead — always confirm with `state.world.name`.
+- Launching that way does not need Steam; the log says "Launched outside steam client" and
+  the game runs anyway.
+- The bridge listens on `127.0.0.1:7777` as soon as mods finish loading (menu is enough for
+  `ping`, but `state`/`scan` need a loaded world).
+- tModLoader worlds and players live in
+  `Documents/My Games/Terraria/tModLoader/{Worlds,Players}` — **not** the vanilla
+  `Documents/My Games/Terraria/{Worlds,Players}` folder.
+- The mod must be rebuilt from `ModSources/DshTerrariaBridge` with the .NET 8 SDK
+  (`%LOCALAPPDATA%\Microsoft\dotnet\dotnet.exe build -c Release`) and the game must be
+  **closed** first (tModLoader locks the .tmod).
+
+## Sources
+
+- Wings / flight: https://terraria.wiki.gg/wiki/Wings
+- Invincibility frames: https://terraria.wiki.gg/wiki/Invincibility_frame
+- Defense formula: https://terraria.wiki.gg/wiki/Defense
+- World size: https://terraria.wiki.gg/wiki/World_size
+- Settings (pause options): https://terraria.wiki.gg/wiki/Settings
+- Tile IDs: https://terraria.wiki.gg/wiki/Tile_IDs
+- Recipe groups / conditions: https://github.com/tModLoader/tModLoader/wiki/Basic-Recipes
