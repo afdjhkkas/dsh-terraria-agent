@@ -238,6 +238,8 @@ namespace DshTerrariaBridge
                     lavaWet = pl.lavaWet,
                     honeyWet = pl.honeyWet,
                     hpPercent = pl.statLifeMax2 > 0 ? (int)(100f * pl.statLife / pl.statLifeMax2) : 0,
+                    // 生物群系标志：找腐化/猩红/丛林/沙漠时不用盲挖，读这里就知道走到哪了。
+                    zones = Zones(pl),
                 };
                 data["attack"] = BridgeSystem.AttackStatus();
                 data["path"] = new
@@ -277,6 +279,27 @@ namespace DshTerrariaBridge
             }
 
             return Json.Ok(data);
+        }
+
+        private static string[] Zones(Player p)
+        {
+            var list = new List<string>();
+            if (p.ZoneCorrupt) list.Add("corrupt");
+            if (p.ZoneCrimson) list.Add("crimson");
+            if (p.ZoneJungle) list.Add("jungle");
+            if (p.ZoneSnow) list.Add("snow");
+            if (p.ZoneDesert) list.Add("desert");
+            if (p.ZoneBeach) list.Add("beach");
+            if (p.ZoneDungeon) list.Add("dungeon");
+            if (p.ZoneGlowshroom) list.Add("glowshroom");
+            if (p.ZoneMeteor) list.Add("meteor");
+            if (p.ZoneHallow) list.Add("hallow");
+            if (p.ZoneUnderworldHeight) list.Add("underworld");
+            if (p.ZoneRockLayerHeight) list.Add("rocklayer");
+            else if (p.ZoneDirtLayerHeight) list.Add("dirtlayer");
+            if (p.ZoneSkyHeight) list.Add("sky");
+            list.Add(p.ZoneOverworldHeight ? "surface" : "underground");
+            return list.ToArray();
         }
 
         private static object[] Buffs(Player pl)

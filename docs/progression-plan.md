@@ -732,3 +732,21 @@ wet=true 的位置，9 个相邻格尝试 place，全部失败（放了 0 块）
 1. 沿桥走到西端（约 200 格，分几次走）
 2. 在桥面上（y≈288，远离 NPC）夜里守怪
 3. 攒 6 个晶状体 → 继续向西找腐化 / 恶魔祭坛
+
+## 四十、`zones` 字段 + 补上通往台阶的地板（第 78 轮）
+
+### 新能力：`state.player.zones`
+
+给 bridge 加了生物群系标志（`ZoneCorrupt/ZoneCrimson/ZoneJungle/ZoneSnow/ZoneDesert/ZoneBeach/
+ZoneDungeon/ZoneGlowshroom/ZoneMeteor/ZoneHallow/ZoneUnderworldHeight/ZoneRockLayerHeight/
+ZoneSkyHeight/ZoneOverworldHeight`），输出成 `["surface","rocklayer",...]`。
+
+**意义**：找腐化/猩红不用再盲扫方块，走一路读一路 `zones` 就行。
+
+### 又一个地形坑：基地西端地板缺口
+
+打印地图才发现：**基地实心板只到 x=2083，2074-2082 完全是空的**，所以每次往西走都在 2077 掉下去。
+补了 2070-2085 的 302/303/304/305 四层之后，**从 2100 一路走到 2068 不再掉**（只有 2074 还剩一个缺口）。
+
+教训：**基地"有地板"不等于"整片连续"**，要知道人能走到哪，必须逐列检查**顶层**（y=303），
+而不是检查"300-306 之间有没有实心"。
