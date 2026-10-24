@@ -104,7 +104,7 @@ items and enemies freely.
   **ignored** and the last-played world loaded instead — always confirm with `state.world.name`.
 - Launching that way does not need Steam; the log says "Launched outside steam client" and
   the game runs anyway.
-- The bridge listens on `127.0.0.1:7777` as soon as mods finish loading (menu is enough for
+- The bridge listens on `127.0.0.1:47777` as soon as mods finish loading (menu is enough for
   `ping`, but `state`/`scan` need a loaded world).
 - tModLoader worlds and players live in
   `Documents/My Games/Terraria/tModLoader/{Worlds,Players}` — **not** the vanilla

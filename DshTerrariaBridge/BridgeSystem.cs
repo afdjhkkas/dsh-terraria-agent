@@ -15,7 +15,7 @@ using Microsoft.Xna.Framework;
 namespace DshTerrariaBridge
 {
     /// <summary>
-    /// 本地桥：127.0.0.1:7777，一行一个 JSON 请求 / 响应。
+    /// 本地桥：127.0.0.1:47777，一行一个 JSON 请求 / 响应。
     /// 与 dsh-terraria-agent 的 win.ps1 共用同一套协议，宿主侧只换传输层。
     ///
     /// 线程模型：
@@ -25,8 +25,10 @@ namespace DshTerrariaBridge
     /// </summary>
     public class BridgeSystem : ModSystem
     {
-        public const int Port = 7777;
+        public const int Port = 47777;
 
+        /// <summary>Logger reachable from the static connection threads.</summary>
+        private static Mod modRef;
         private static TcpListener listener;
         private static Thread acceptThread;
         private static volatile bool running;
@@ -62,6 +64,7 @@ namespace DshTerrariaBridge
 
         public override void Load()
         {
+            modRef = Mod;
             try
             {
                 listener = new TcpListener(IPAddress.Loopback, Port);
@@ -69,12 +72,15 @@ namespace DshTerrariaBridge
                 running = true;
                 acceptThread = new Thread(AcceptLoop) { IsBackground = true, Name = "dsh-bridge" };
                 acceptThread.Start();
-                Mod.Logger.Info($"[dsh] bridge listening on 127.0.0.1:{Port}");
+                modRef?.Logger.Info($"[dsh] bridge listening on 127.0.0.1:{Port}");
             }
             catch (Exception e)
             {
                 running = false;
-                Mod.Logger.Warn($"[dsh] bridge failed to start on {Port}: {e.Message}");
+                // A silent failure here looks exactly like "the tools are broken", so say
+                // what happened and why: this is almost always another program on the port.
+                modRef?.Logger.Error($"[dsh] bridge could not listen on 127.0.0.1:{Port}: {e.Message}. "
+                    + "Another program may already use that port; DSH Terraria tools will be unavailable this session.");
             }
         }
 
@@ -120,12 +126,25 @@ namespace DshTerrariaBridge
                 while (running && (line = reader.ReadLine()) != null)
                 {
                     if (string.IsNullOrWhiteSpace(line)) continue;
+                    // Anything that is not our JSON envelope gets closed immediately and
+                    // quietly. Terraria's own netcode speaks a binary/text handshake, so a
+                    // stray client (or a port scan) must not see a stack trace, and must
+                    // never be answered as if it were a command.
+                    if (line[0] != '{')
+                    {
+                        modRef?.Logger.Debug($"[dsh] bridge: ignoring non-JSON client input ({line.Length} bytes)");
+                        break;
+                    }
                     string response;
                     try
                     {
                         // Echo the caller's correlation id (if any) so it can discard
                         // lines that are not the answer to its own request.
                         response = ExecuteOnMainThread(line, ReadReq(line));
+                    }
+                    catch (System.Text.Json.JsonException)
+                    {
+                        break;
                     }
                     catch (Exception e)
                     {

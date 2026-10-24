@@ -1,6 +1,10 @@
 # Bridge protocol (v0.2.0)
 
-Transport: TCP `127.0.0.1:7777`, one JSON object per line, UTF-8, `\n` terminated.
+Transport: TCP `127.0.0.1:47777`, one JSON object per line, UTF-8, `\n` terminated.
+
+> **Not 7777.** Terraria's own multiplayer server listens on 7777, so a bridge on that
+> port steals the connection a Host & Play client is trying to make and multiplayer
+> stops working. Any client that is not speaking this protocol is now closed at once.
 
 - Request: `{"cmd":"<name>","params":{...},"req":<optional id>}`
 - Success: `{"ok":true,"data":{...},"req":<echoed id>}`

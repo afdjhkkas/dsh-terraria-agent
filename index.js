@@ -118,7 +118,7 @@ export function apply(ctx, rawConfig = {}) {
     // Do not take the whole plugin down for a typo: warn and stay on loopback.
     ctx.logger?.warn?.(`[terraria] ignoring host "${config.host}": only loopback is allowed`)
   }
-  const port = bounded(config.port, 1, 65535, 7777)
+  const port = bounded(config.port, 1, 65535, 47777)
   const timeoutMs = bounded(config.timeoutMs, 500, 30000, 5000)
   const client = createBridgeClient({ host: '127.0.0.1', port, timeoutMs })
   const request = makeSerialRunner(client)

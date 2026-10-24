@@ -37,12 +37,15 @@
     "tModLoader.targets",
     "README.md",
     "README.zh-CN.md",
-    "LICENSE"
+    "LICENSE",
+    "scripts/",
+    "docs/"
   ],
   "scripts": {
     "test": "node --test",
     "pack:check": "npm pack --dry-run",
-    "install:mod": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\install-mod.ps1"
+    "install:mod": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\install-mod.ps1",
+    "smoke": "node scripts/live-smoke.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": "*"

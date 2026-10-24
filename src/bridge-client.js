@@ -1,7 +1,7 @@
 /**
  * Terraria bridge client.
  * ============================================================================
- * Transport: TCP 127.0.0.1:7777, one JSON object per line (protocol v0.2.0).
+ * Transport: TCP 127.0.0.1:47777, one JSON object per line (protocol v0.2.0).
  *   request  {"cmd":"<name>","params":{...},"req":<n>}
  *   success  {"ok":true,"data":{...},"req":<n>}
  *   failure  {"ok":false,"error":"<actionable message>","req":<n>}
@@ -71,7 +71,7 @@ function classifyLine(line, req) {
  *
  * @param {{host?:string,port?:number,timeoutMs?:number}} [options]
  */
-export function stopBestEffort({ host = '127.0.0.1', port = 7777, timeoutMs = STOP_TIMEOUT_MS } = {}) {
+export function stopBestEffort({ host = '127.0.0.1', port = 47777, timeoutMs = STOP_TIMEOUT_MS } = {}) {
   try {
     const socket = net.createConnection({ host, port })
     // Never keep the process alive just for a courtesy stop.
@@ -107,7 +107,7 @@ export function stopBestEffort({ host = '127.0.0.1', port = 7777, timeoutMs = ST
  * @param {{host?:string,port?:number,timeoutMs?:number,createConnection?:Function}} [options]
  *   `createConnection` is a test seam only; production always uses net.createConnection.
  */
-export function createBridgeClient({ host = '127.0.0.1', port = 7777, timeoutMs = 5000, createConnection = net.createConnection } = {}) {
+export function createBridgeClient({ host = '127.0.0.1', port = 47777, timeoutMs = 5000, createConnection = net.createConnection } = {}) {
   const sockets = new Set()
   let nextReq = 1
 

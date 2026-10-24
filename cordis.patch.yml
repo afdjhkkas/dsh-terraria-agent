@@ -17,5 +17,5 @@
       name: dsh-terraria-agent
       config:
         host: 127.0.0.1
-        port: 7777
+        port: 47777
         timeoutMs: 5000

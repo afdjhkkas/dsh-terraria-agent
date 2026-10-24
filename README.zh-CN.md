@@ -45,7 +45,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install-mod.ps1
 `%USERPROFILE%\Documents\My Games\Terraria\tModLoader\Mods\` → 打印 SHA-256。内容完全相同则直接跳过。
 
 也可以手工把 `artifacts/DshTerrariaBridge.tmod` 复制到同一目录。之后在 tModLoader 的模组管理器启用
-**DSH Terraria Bridge**，进入单人世界后桥才开始监听 `127.0.0.1:7777`。
+**DSH Terraria Bridge**，进入单人世界后桥才开始监听 `127.0.0.1:47777`。
 
 回滚上一版：
 
@@ -76,7 +76,7 @@ dsh plugin --profile <profile> remove dsh-terraria-agent
 ```yaml
 config:
   host: 127.0.0.1     # 只允许回环地址，其它值会直接拒绝启动
-  port: 7777          # 必须与 Mod 侧 BridgeSystem.Port 一致
+  port: 47777          # 必须与 Mod 侧 BridgeSystem.Port 一致
   timeoutMs: 5000     # 单次请求超时
 ```
 
@@ -94,7 +94,7 @@ config:
 
 协议要点（细节全在 `PROTOCOL.md`）：
 
-- 传输：TCP `127.0.0.1:7777`，一行一个 UTF-8 JSON；请求 `{"cmd","params"}`（客户端另带一个
+- 传输：TCP `127.0.0.1:47777`，一行一个 UTF-8 JSON；请求 `{"cmd","params"}`（客户端另带一个
   `req` 关联号），成功 `{"ok":true,"data"}`，失败 `{"ok":false,"error"}`。
 - **`{"ok":false}` 是正常的游戏侧拒绝**（越界、暂停中、材料不足……），说明命令没有生效，
   不代表桥坏了，也不该立刻重连重试。

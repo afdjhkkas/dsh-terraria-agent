@@ -6,7 +6,7 @@
 
 ## 工作前提
 
-- 桥接监听 `127.0.0.1:7777`（`cordis.patch.yml` 里的 `config` 可改 host/port/timeoutMs，
+- 桥接监听 `127.0.0.1:47777`（`cordis.patch.yml` 里的 `config` 可改 host/port/timeoutMs，
   Mod 侧的端口在 `DshTerrariaBridge/BridgeSystem.cs` 里固定，两边必须一致）。
 - 用户需要自己选择人物并进入世界。DS 不负责选择人物或进入世界。
 - 世界坐标使用 tile 坐标，1 tile = 16 像素；x 向右增加，y 向下增加。
