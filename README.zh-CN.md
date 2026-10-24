@@ -3,6 +3,12 @@
 这个项目把 `dsh-mc-agent` 的"DSH 工具插件 + 游戏侧桥接"结构移植到泰拉瑞亚。
 当前版本 **0.2.0**，桥接协议见 [`PROTOCOL.md`](PROTOCOL.md)（以它为准，本文只做导览）。
 
+## 项目总目标
+
+**让 AI 以玩家身份把 Terraria 打到通关（击败月亮领主）。**
+自己合装备、盖房招 NPC、挖矿升级、按进度打 Boss，不使用世界编辑作弊，每步都有回读证据。
+目标与不变量见 [`GOAL.md`](GOAL.md)，进度与踩坑记录见 [`docs/playthrough.md`](docs/playthrough.md)。
+
 ## 目录结构
 
 | 路径 | 作用 |

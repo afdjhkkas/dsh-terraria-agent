@@ -4,6 +4,12 @@
 `terraria_*` 工具，所有工具结果都是字符串化的 JSON；读取结果时先按 JSON 理解，再决定
 下一步。协议的权威定义是同目录的 [`PROTOCOL.md`](PROTOCOL.md)，本文是用法与环境/安装说明。
 
+## 项目总目标
+
+这个项目的目标不是"能走能挖"，而是**让 AI 以玩家身份把 Terraria 打到通关（击败月亮领主）**：
+自己合装备、盖房招 NPC、挖矿升级、按进度打 Boss，全程不使用世界编辑作弊，每一步都有回读证据。
+目标、不变量与判定标准见 [`GOAL.md`](GOAL.md)；里程碑进度与踩坑记录见 [`docs/playthrough.md`](docs/playthrough.md)。
+
 ## 工作前提
 
 - 桥接监听 `127.0.0.1:47777`（`cordis.patch.yml` 里的 `config` 可改 host/port/timeoutMs，
