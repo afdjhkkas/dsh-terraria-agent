@@ -35,6 +35,7 @@ namespace DshTerrariaBridge
                 case "accessory": return Accessory(p);
                 case "walkto": return WalkTo(p);
                 case "path": return PathTo(p);
+                case "fill": return FillArea(p);
                 case "housing": return Housing(p);
                 case "needs": return RoomDiagnostics(p);
                 case "items": return DroppedItems(p);
@@ -1214,6 +1215,54 @@ namespace DshTerrariaBridge
         /// <summary>
         /// 用 A* 算一条到目标的路并逐格执行（实心就挖、悬空就垫、上下自动）。非阻塞。
         /// </summary>
+        /// <summary>
+        /// 矩形填充：用背包里真实的方块铺地（WorldGen.PlaceTile，就是物品放置走的那个函数）。
+        /// 只用于修地/搭平台这类施工，方块从背包扣，材料不够就停。
+        /// 距离放宽到 30 格（普通放置是 5 格），因为这是"施工"不是"打怪捡东西"。
+        /// </summary>
+        private static string FillArea(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int x1 = Json.Int(p, "x1", -1), y1 = Json.Int(p, "y1", -1);
+            int x2 = Json.Int(p, "x2", -1), y2 = Json.Int(p, "y2", -1);
+            int type = Json.Int(p, "type", 30);
+            if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0) return Json.Error("fill 需要 x1,y1,x2,y2");
+            int loX = Math.Min(x1, x2), hiX = Math.Max(x1, x2);
+            int loY = Math.Min(y1, y2), hiY = Math.Max(y1, y2);
+            long area = (long)(hiX - loX + 1) * (hiY - loY + 1);
+            if (area > 400) return Json.Error($"区域太大（{area} 格，上限 400）");
+
+            int slot = -1;
+            for (int i = 0; i < pl.inventory.Length; i++)
+            {
+                Item it = pl.inventory[i];
+                if (it != null && it.type > 0 && it.stack > 0 && it.createTile == type) { slot = i; break; }
+            }
+            if (slot < 0) return Json.Error($"背包里没有能放成方块 {type} 的物品");
+
+            int placed = 0, skipped = 0, outOfRange = 0;
+            for (int x = loX; x <= hiX; x++)
+            {
+                for (int y = loY; y <= hiY; y++)
+                {
+                    Tile t = Main.tile[x, y];
+                    if (t.HasTile) { skipped++; continue; }
+                    if (Vector2.Distance(pl.Center, new Vector2(x * 16f + 8f, y * 16f + 8f)) > 30 * 16f) { outOfRange++; continue; }
+                    if (pl.inventory[slot].stack <= 0) break;
+                    if (WorldGen.PlaceTile(x, y, type, false, false, -1, pl.whoAmI))
+                    {
+                        pl.inventory[slot].stack--;
+                        placed++;
+                    }
+                    else skipped++;
+                    if (pl.inventory[slot].stack <= 0) { pl.inventory[slot].SetDefaults(0); break; }
+                }
+            }
+            return Json.Ok(new { placed, skipped, outOfRange, left = pl.inventory[slot]?.stack ?? 0 });
+        }
+
         private static string PathTo(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
