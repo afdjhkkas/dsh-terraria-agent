@@ -4,15 +4,25 @@ import { createBridgeClient } from './src/bridge-client.js'
 export const name = 'dsh-terraria-agent'
 export const inject = ['tools']
 
+/**
+ * Shared rules for the model. These used to live only in the README, which the model
+ * never sees, so the essential operating knowledge now travels with every description.
+ */
+const RULES = [
+  'Tiles: 1 tile = 16 px, x grows right, y grows DOWN.',
+  'Tile ids: -1 = empty, 0 = Dirt, 1 = Stone (use terraria_tile to confirm).',
+  'Tool results are JSON strings; read them, do not guess.',
+  'After every action, verify with terraria_observe / terraria_scan before the next step.',
+  'A {"ok":false} answer is a normal game-side refusal with a reason, not a broken bridge.',
+].join(' ')
+
 const textOutput = {
   schema: { type: 'string' },
   render: (_args, value) => [{ type: 'text', text: String(value) }],
 }
 
-// DSH's schema DSL deliberately accepts a small JSON-Schema subset.  In
-// particular, `required` is only valid when it is true and numeric
-// `minimum`/`maximum` keywords are not supported.  Keep range enforcement in
-// the bridge argument mappers below, and only emit supported schema fields.
+// The host's schema DSL only accepts `required: true` on a property and rejects
+// numeric `minimum`/`maximum`, so ranges are enforced in the mappers below.
 const integer = (description, { required = false } = {}) => ({
   type: 'integer',
   ...(required ? { required: true } : {}),
@@ -32,6 +42,17 @@ function bounded(value, min, max, fallback) {
   const number = Number(value)
   return Number.isFinite(number) ? Math.min(max, Math.max(min, Math.trunc(number))) : fallback
 }
+
+/** Required coordinate/id: refuse instead of silently substituting 0. */
+function mustInt(value, name, min = 0, max = 1e9) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) throw new Error(`${name} is required and must be a number.`)
+  const truncated = Math.trunc(number)
+  if (truncated < min || truncated > max) throw new Error(`${name} must be between ${min} and ${max}.`)
+  return truncated
+}
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 function makeSerialRunner(client) {
   const queues = new Map()
@@ -56,213 +77,373 @@ function makeSerialRunner(client) {
   }
 }
 
+/**
+ * Compact rendering. `JSON.stringify(value, null, 2)` was turning a radius-48 scan into
+ * 340 KB (~97k tokens); the same payload without indentation is ~4x smaller, and the
+ * scan tool additionally offers ascii/rle summaries.
+ */
 function displayResult(result) {
-  return JSON.stringify(result.data ?? result, null, 2)
+  return JSON.stringify(result.data ?? result)
+}
+
+function playerVec(state) {
+  const tile = state?.player?.tile
+  return Array.isArray(tile) ? tile : null
+}
+
+/**
+ * Turn the raw flags into the next action the caller should take. The most common
+ * dead end is Terraria's "pause when unfocused": the user is typing in DSH, the game
+ * loses focus, the world freezes and every action is refused.
+ */
+const HINTS = {
+  paused: 'The game is PAUSED (Main.gamePaused), so the world is not simulating and movement/jump/use/attack will be refused. '
+    + 'Ask the user to turn off Settings > General > "Pause when unfocused", or to click the game window. '
+    + 'Reading commands (status/observe/scan/tile/inventory/npcs) still work.',
+  menu: 'Still on the main menu: ask the user to pick a character and enter a world, then call terraria_status again.',
+}
+
+function withHints(data) {
+  if (!data || typeof data !== 'object') return data
+  const out = { ...data }
+  if (out.inWorld === false) out.hint = HINTS.menu
+  else if (out.paused === true) out.hint = HINTS.paused
+  return out
 }
 
 export function apply(ctx, rawConfig = {}) {
   const config = { ...(rawConfig ?? {}) }
-  const host = config.host ?? '127.0.0.1'
-  if (host !== '127.0.0.1') {
-    throw new TypeError('dsh-terraria-agent only connects to 127.0.0.1.')
+  const host = String(config.host ?? '127.0.0.1').trim().toLowerCase() || '127.0.0.1'
+  if (host !== '127.0.0.1' && host !== 'localhost') {
+    // Do not take the whole plugin down for a typo: warn and stay on loopback.
+    ctx.logger?.warn?.(`[terraria] ignoring host "${config.host}": only loopback is allowed`)
   }
   const port = bounded(config.port, 1, 65535, 7777)
-  const timeoutMs = bounded(config.timeoutMs, 500, 20000, 5000)
-  const client = createBridgeClient({ host, port, timeoutMs })
+  const timeoutMs = bounded(config.timeoutMs, 500, 30000, 5000)
+  const client = createBridgeClient({ host: '127.0.0.1', port, timeoutMs })
   const request = makeSerialRunner(client)
 
-  const register = ({ name: toolName, description, parameters = {}, command, mapArgs = () => ({}) }) => {
+  const register = ({ name: toolName, description, parameters = {}, command, timeout, mapArgs = () => ({}), run }) => {
     ctx.tools.register(defineTool({
       name: toolName,
       description,
       parameters,
       output: textOutput,
+      ...(timeout ? { timeoutMs: timeout } : {}),
       async execute(args, exec) {
-        const result = await request(command, mapArgs(args), exec)
-        return displayResult(result)
+        try {
+          if (run) return run(args ?? {}, exec)
+          const result = await request(command, mapArgs(args ?? {}), exec)
+          return displayResult(result)
+        } catch (error) {
+          if (error?.name === 'AbortError') {
+            // A cancelled move/attack would otherwise keep steering the character.
+            client.stopBestEffort()
+            throw new Error(`${error.message} The bridge was told to stop all movement, jump, use and attack holds.`)
+          }
+          throw error
+        }
       },
     }))
   }
 
+  /* ── 状态 ─────────────────────────────────────────────────────── */
+
   register({
     name: 'terraria_status',
-    description: 'Check whether the local tModLoader bridge is reachable and whether Terraria has loaded a world.',
+    description: `Check the local tModLoader bridge: reachable, in a world, paused, window focus, tick. ${RULES}`,
     command: 'ping',
+    async run(args, exec) {
+      const result = await request('ping', {}, exec)
+      return JSON.stringify({ ok: true, data: withHints(result.data) })
+    },
   })
+
   register({
     name: 'terraria_observe',
-    description: 'Read the current world, player position, health, mana, held item, buffs, weather, and time.',
+    description: 'Read the current world and player: position, health, mana, held item, buffs, weather, time and the live/last attack state. '
+      + 'paused=true means the world is not simulating (Terraria pauses when unfocused or when the inventory is open), so movement, jump, use and attack will refuse. '
+      + `Call this before and after every action. ${RULES}`,
     command: 'state',
+    async run(args, exec) {
+      const result = await request('state', {}, exec)
+      return JSON.stringify({ ok: true, data: withHints(result.data) })
+    },
   })
+
+  /* ── 世界读取 ─────────────────────────────────────────────────── */
+
   register({
     name: 'terraria_scan',
-    description: 'Read a square region of Terraria tiles around a tile coordinate. The radius is limited to 48 tiles.',
+    description: 'Read a square region of tiles around a tile coordinate. '
+      + 'format:"ascii" returns a compact map (. air, # solid, ^ half/slope, ~ liquid, L lava) — use it for large areas; '
+      + 'format:"rle" returns "<count>x<type>" runs; the default format:"rows" returns exact data where tiles[j] is row y0+j and cell i occupies tiles[j][i*stride .. i*stride+stride-1]. '
+      + 'type is -1 for empty. radius 1..48 costs context fast: r=12 ≈ 6 KB compact, r=48 ≈ 76 KB; prefer ascii/rle above r=24. '
+      + RULES,
     parameters: {
-      x: integer('Center tile X. Defaults to the player or world spawn.', { minimum: 0 }),
-      y: integer('Center tile Y. Defaults to the player or world spawn.', { minimum: 0 }),
-      radius: integer('Scan radius in tiles, from 1 to 48.', { minimum: 1, maximum: 48 }),
-      walls: boolean('Include wall, liquid, and shape values.'),
+      x: integer('Center tile X. Defaults to the player.'),
+      y: integer('Center tile Y. Defaults to the player.'),
+      radius: integer('Scan radius in tiles, 1..48 (default 12).'),
+      walls: boolean('Include wall, liquid and shape values (rows format only).'),
+      format: string('Output shape: rows (exact), ascii (compact map), rle (run-length).', { enum: ['rows', 'ascii', 'rle'] }),
     },
     command: 'scan',
+    timeout: 15000,
     mapArgs: args => ({
-      ...(args.x === undefined ? {} : { x: args.x }),
-      ...(args.y === undefined ? {} : { y: args.y }),
+      ...(args.x === undefined ? {} : { x: mustInt(args.x, 'x') }),
+      ...(args.y === undefined ? {} : { y: mustInt(args.y, 'y') }),
       r: bounded(args.radius, 1, 48, 12),
       ...(args.walls === undefined ? {} : { walls: args.walls }),
+      format: args.format ?? (bounded(args.radius, 1, 48, 12) > 24 ? 'ascii' : 'rows'),
     }),
   })
+
   register({
     name: 'terraria_tile',
-    description: 'Inspect the tile, wall, liquid, slope, and actuator state at one world tile coordinate.',
+    description: 'Inspect exactly one tile: hasTile, type (-1 = empty), name, wall, liquid, slope, half-brick, actuator. '
+      + `x and y are required. Use it to confirm what terraria_scan shows. ${RULES}`,
     parameters: {
-      x: integer('World tile X.', { required: true, minimum: 0 }),
-      y: integer('World tile Y.', { required: true, minimum: 0 }),
+      x: integer('World tile X (required).', { required: true }),
+      y: integer('World tile Y (required).', { required: true }),
     },
     command: 'tile',
-    mapArgs: ({ x, y }) => ({ x, y }),
+    mapArgs: ({ x, y }) => ({ x: mustInt(x, 'x'), y: mustInt(y, 'y') }),
   })
+
   register({
     name: 'terraria_inventory',
-    description: 'Read the local player inventory and currently selected slot.',
+    description: 'Read the inventory, the equipped armor/accessories (so you can tell whether you are armoured or have wings) and the selected slot.',
     command: 'inventory',
   })
+
   register({
     name: 'terraria_npcs',
-    description: 'List active NPCs near the player or world spawn.',
-    parameters: { radius: integer('Search radius in tiles.', { minimum: 1, maximum: 200 }) },
+    description: 'List active NPCs near the player with who/type/name/tile/life/friendly/boss/hostile. '
+      + 'hostile means damageable and chaseable, which is what terraria_attack will target. '
+      + `Pass the returned who to terraria_attack. ${RULES}`,
+    parameters: { radius: integer('Search radius in tiles, 1..200 (default 40).') },
     command: 'npc',
-    mapArgs: args => ({ r: bounded(args.radius, 1, 200, 80) }),
+    mapArgs: args => ({ r: bounded(args.radius, 1, 200, 40) }),
   })
+
+  /* ── 动作 ─────────────────────────────────────────────────────── */
+
   register({
     name: 'terraria_move',
-    description: 'Hold a movement direction briefly. The bridge caps each move at 5 seconds.',
+    description: 'Hold a movement direction, then report how far the player actually went (from/to/dx/dy). '
+      + 'direction is required. 250-1000 ms is one useful step; long holds overshoot pits and enemies. '
+      + 'movement works even when the window is unfocused. '
+      + `Read "moved": false as "nothing happened" and re-check the world. ${RULES}`,
     parameters: {
       direction: string('Direction to hold.', { required: true, enum: ['left', 'right', 'up', 'down'] }),
-      ms: integer('Duration in milliseconds, from 1 to 5000.', { minimum: 1, maximum: 5000 }),
+      ms: integer('Duration in milliseconds, 1..5000 (default 500).'),
     },
     command: 'move',
-    mapArgs: ({ direction, ms }) => ({ dir: direction, ms: bounded(ms, 1, 5000, 500) }),
+    timeout: 15000,
+    async run(args, exec) {
+      const dir = String(args.direction ?? '')
+      if (!['left', 'right', 'up', 'down'].includes(dir)) throw new Error('direction must be left, right, up or down.')
+      const ms = bounded(args.ms, 1, 5000, 500)
+      const started = await request('move', { dir, ms }, exec)
+      const from = started.data?.from ?? null
+      // Wait out the hold on this side: sleeping inside the game's main thread would
+      // freeze the world. Then measure what really happened.
+      await sleep(ms + 220)
+      const after = await request('state', {}, exec)
+      const to = playerVec(after.data)
+      const state = { ...started.data }
+      state.to = to
+      if (Array.isArray(from) && Array.isArray(to)) {
+        state.dx = Math.round((to[0] - from[0]) * 10) / 10
+        state.dy = Math.round((to[1] - from[1]) * 10) / 10
+        state.moved = Math.abs(state.dx) + Math.abs(state.dy) > 0.2
+      }
+      return JSON.stringify({ ok: true, data: state })
+    },
   })
+
   register({
     name: 'terraria_jump',
-    description: 'Hold jump briefly. The bridge caps the hold at 2 seconds.',
-    parameters: { ms: integer('Duration in milliseconds, from 1 to 2000.', { minimum: 1, maximum: 2000 }) },
+    description: 'Jump once from the ground, then report the height change. Airborne it only holds the jump key, so wings '
+      + '(hold jump to fly after the jump) still behave as in vanilla. '
+      + `One impulse per call - call it again to jump again. ${RULES}`,
+    parameters: { ms: integer('How long to hold jump, 1..2000 (default 150).') },
     command: 'jump',
-    mapArgs: args => ({ ms: bounded(args.ms, 1, 2000, 150) }),
+    timeout: 15000,
+    async run(args, exec) {
+      const ms = bounded(args.ms, 1, 2000, 150)
+      const started = await request('jump', { ms }, exec)
+      const from = started.data?.from ?? null
+      const grounded = started.data?.grounded
+      await sleep(ms + 380)
+      const after = await request('state', {}, exec)
+      const to = playerVec(after.data)
+      const data = { ...started.data, to }
+      if (Array.isArray(from) && Array.isArray(to)) {
+        data.dY = Math.round((to[1] - from[1]) * 10) / 10
+        data.jumped = data.dY < -0.2
+        if (!data.jumped) data.note = grounded === false ? 'not standing on the ground, so no jump impulse was applied' : 'no height change observed'
+      }
+      return JSON.stringify({ ok: true, data })
+    },
   })
+
   register({
     name: 'terraria_use_item',
-    description: 'Use the selected inventory item briefly, optionally selecting a slot first. Set right=true for alternate/right-click use.',
+    description: 'Use the selected item for a moment, optionally selecting a slot first (right:true for right-click / tile interaction). '
+      + 'anim > 0 in the answer proves the swing started. '
+      + `Mining is faster with terraria_mine. ${RULES}`,
     parameters: {
-      slot: integer('Inventory slot to select before use.'),
-      right: boolean('Use alternate/right-click action.'),
-      ms: integer('Duration in milliseconds, from 1 to 2000.', { minimum: 1, maximum: 2000 }),
+      slot: integer('Inventory slot to select first.'),
+      right: boolean('Use the alternate / right-click action.'),
+      ms: integer('Duration in milliseconds, 1..2000 (default 220).'),
     },
     command: 'use',
     mapArgs: args => ({
-      ...(args.slot === undefined ? {} : { slot: args.slot }),
+      ...(args.slot === undefined ? {} : { slot: mustInt(args.slot, 'slot', 0, 200) }),
       ...(args.right === undefined ? {} : { right: args.right }),
       ms: bounded(args.ms, 1, 2000, 220),
     }),
   })
+
   register({
     name: 'terraria_attack',
-    description: 'Continuously attack the nearest hostile NPC, or a specific NPC who index. The bridge keeps attacking for the requested duration and retargets nearby enemies when auto-targeting.',
+    description: 'Attack a hostile NPC for a while. Omit who to pick the nearest one. '
+      + 'Hits need line of sight, use your real damage/crit/use-speed, and respect invincibility frames. '
+      + 'The task keeps running in the background; keep attacking is reported through state.attack, and state.attack.last keeps the '
+      + 'hit count and the target\'s remaining life after the task ends (and even after terraria_stop), so verify with terraria_observe. '
+      + `The held item must deal damage. ${RULES}`,
     parameters: {
-      who: integer('NPC who index from terraria_npcs. Omit to choose the nearest hostile NPC.', { minimum: 0 }),
-      radius: integer('Auto-target radius in tiles.', { minimum: 1, maximum: 200 }),
-      durationMs: integer('How long to keep attacking, from 100 to 15000 milliseconds.', { minimum: 100, maximum: 15000 }),
-      intervalMs: integer('Delay between hits, from 30 to 2000 milliseconds.', { minimum: 30, maximum: 2000 }),
-      slot: integer('Inventory slot containing the weapon to use.'),
+      who: integer('NPC who index from terraria_npcs. Omit to auto-target the nearest hostile.'),
+      radius: integer('Auto-target radius in tiles, 1..200 (default 40).'),
+      durationMs: integer('How long to keep attacking, 100..15000 ms (default 3000).'),
+      intervalMs: integer('Delay between hits, 30..2000 ms (default 180).'),
+      slot: integer('Inventory slot holding the weapon.'),
     },
     command: 'attack',
     mapArgs: args => ({
-      ...(args.who === undefined ? {} : { who: args.who }),
+      ...(args.who === undefined ? {} : { who: mustInt(args.who, 'who') }),
       r: bounded(args.radius, 1, 200, 40),
       ms: bounded(args.durationMs, 100, 15000, 3000),
       interval: bounded(args.intervalMs, 30, 2000, 180),
-      ...(args.slot === undefined ? {} : { slot: args.slot }),
+      ...(args.slot === undefined ? {} : { slot: mustInt(args.slot, 'slot', 0, 200) }),
     }),
   })
+
   register({
     name: 'terraria_stop',
-    description: 'Clear all movement, jump, use-item, and attack holds issued through the bridge.',
+    description: 'Clear every movement, jump, use-item and attack hold issued through the bridge. '
+      + 'Use it when something runs away, and after cancelling a call. It does not erase state.attack.last.',
     command: 'stop',
   })
+
   register({
     name: 'terraria_spawn_npc',
-    description: 'Spawn an NPC near the local player for controlled testing. This is a creative/admin action.',
+    description: 'Spawn an NPC near the player for testing. Creative/admin action - use it to practise combat, not while exploring.',
     parameters: {
-      type: integer('Terraria NPC type ID.', { minimum: 1 }),
-      x: integer('World tile X. Defaults to five tiles right of the player.'),
-      y: integer('World tile Y. Defaults to the player.'),
+      type: integer('Terraria NPC type id (default BlueSlime = 1).'),
+      x: integer('World tile X (default five tiles right of the player).'),
+      y: integer('World tile Y (default the player).'),
     },
     command: 'spawn_npc',
     mapArgs: ({ type, x, y }) => ({
-      type: type ?? 1,
-      ...(x === undefined ? {} : { x }),
-      ...(y === undefined ? {} : { y }),
+      type: type === undefined ? 1 : mustInt(type, 'type', 1, 100000),
+      ...(x === undefined ? {} : { x: mustInt(x, 'x') }),
+      ...(y === undefined ? {} : { y: mustInt(y, 'y') }),
     }),
   })
+
+  /* ── 世界写入 ─────────────────────────────────────────────────── */
+
   register({
     name: 'terraria_mine',
-    description: 'Mine the tile at world tile coordinates. This changes the world and may drop items.',
+    description: 'Remove the tile at x,y (works on Dirt too - it is tile id 0, not "air"). '
+      + 'walls:true also removes the background wall behind it, which is off by default because walls drive housing. '
+      + 'noItem:true suppresses drops. Read removedTile/removedWall to see what actually changed. '
+      + `Confirm the coordinate with terraria_tile first. ${RULES}`,
     parameters: {
-      x: integer('World tile X.', { required: true, minimum: 0 }),
-      y: integer('World tile Y.', { required: true, minimum: 0 }),
+      x: integer('World tile X (required).', { required: true }),
+      y: integer('World tile Y (required).', { required: true }),
       noItem: boolean('Suppress item drops.'),
+      walls: boolean('Also remove the background wall (default false).'),
     },
     command: 'mine',
-    mapArgs: ({ x, y, noItem }) => ({ x, y, ...(noItem === undefined ? {} : { noItem }) }),
+    mapArgs: ({ x, y, noItem, walls }) => ({
+      x: mustInt(x, 'x'),
+      y: mustInt(y, 'y'),
+      ...(noItem === undefined ? {} : { noItem }),
+      ...(walls === undefined ? {} : { walls }),
+    }),
   })
+
   register({
     name: 'terraria_place',
-    description: 'Place a tile at world tile coordinates using normal placement rules. This changes the world.',
+    description: 'Place a tile with Terraria\'s own placement rules. type is a tile id (0 = Dirt, 1 = Stone, 30 = Wood...). '
+      + 'after is what is really there afterwards (-1 = empty), so a failed placement is visible. '
+      + `Admin/world-edit action: it does not consume inventory. ${RULES}`,
     parameters: {
-      x: integer('World tile X.', { required: true, minimum: 0 }),
-      y: integer('World tile Y.', { required: true, minimum: 0 }),
-      type: integer('Terraria tile type ID.', { required: true, minimum: 1 }),
-      style: integer('Tile style, usually 0.', { minimum: 0 }),
+      x: integer('World tile X (required).', { required: true }),
+      y: integer('World tile Y (required).', { required: true }),
+      type: integer('Terraria tile type id (required).', { required: true }),
+      style: integer('Tile style, usually 0.'),
     },
     command: 'place',
-    mapArgs: ({ x, y, type, style }) => ({ x, y, type, style: style ?? 0, forced: false }),
+    mapArgs: ({ x, y, type, style }) => ({
+      x: mustInt(x, 'x'),
+      y: mustInt(y, 'y'),
+      type: mustInt(type, 'type', 1, 100000),
+      style: style === undefined ? 0 : mustInt(style, 'style'),
+      forced: false,
+    }),
   })
+
   register({
     name: 'terraria_teleport',
-    description: 'Teleport the local player to a world tile coordinate.',
+    description: 'Teleport to a tile coordinate. Rejects non-finite or out-of-world coordinates, and lifts the player out of solid rock '
+      + '(adjusted = tiles lifted). Teleporting into lava or next to enemies is still possible - observe right after. '
+      + `${RULES}`,
     parameters: {
-      x: integer('Destination tile X.', { required: true, minimum: 0 }),
-      y: integer('Destination tile Y.', { required: true, minimum: 0 }),
+      x: integer('Destination tile X (required).', { required: true }),
+      y: integer('Destination tile Y (required).', { required: true }),
     },
     command: 'teleport',
-    mapArgs: ({ x, y }) => ({ x, y }),
+    mapArgs: ({ x, y }) => ({ x: mustInt(x, 'x'), y: mustInt(y, 'y') }),
   })
+
   register({
     name: 'terraria_craft',
-    description: 'Craft an item by Terraria item type ID using the local player inventory and nearby crafting stations.',
+    description: 'Craft by output item id using the inventory and nearby stations. Handles recipe groups ("any wood") and recipe conditions. '
+      + 'crafted counts items that reached the inventory; dropped counts items that fell on the floor. '
+      + `times is capped at 20 per call. ${RULES}`,
     parameters: {
-      item: integer('Output item type ID.', { required: true, minimum: 1 }),
-      times: integer('Number of crafts.', { minimum: 1, maximum: 99 }),
+      item: integer('Output item type id (required).', { required: true }),
+      times: integer('Number of crafts, 1..20.'),
     },
     command: 'craft',
-    mapArgs: ({ item, times }) => ({ item, times: bounded(times, 1, 99, 1) }),
+    mapArgs: ({ item, times }) => ({ item: mustInt(item, 'item', 1, 100000), times: bounded(times, 1, 20, 1) }),
   })
+
   register({
     name: 'terraria_give_item',
-    description: 'Spawn an item stack into the local player inventory. This is a creative/admin action.',
+    description: 'Put an item stack into the inventory. Creative/admin action for testing; prefer terraria_mine / terraria_craft while playing.',
     parameters: {
-      type: integer('Terraria item type ID.', { required: true, minimum: 1 }),
-      stack: integer('Stack size.', { minimum: 1, maximum: 9999 }),
+      type: integer('Terraria item type id (required).', { required: true }),
+      stack: integer('Stack size, 1..9999.'),
     },
     command: 'give',
-    mapArgs: ({ type, stack }) => ({ type, stack: bounded(stack, 1, 9999, 1) }),
+    mapArgs: ({ type, stack }) => ({ type: mustInt(type, 'type', 1, 100000), stack: bounded(stack, 1, 9999, 1) }),
   })
+
   register({
     name: 'terraria_chat',
-    description: 'Send a message through the local Terraria client chat.',
-    parameters: { text: string('Message to send.', { required: true }) },
+    description: 'Print a message in the local client chat (Main.NewText only: it is not broadcast to a server). Truncated at 400 characters.',
+    parameters: { text: string('Message to send (required).', { required: true }) },
     command: 'chat',
-    mapArgs: ({ text }) => ({ text: String(text).slice(0, 400) }),
+    mapArgs: ({ text }) => {
+      const value = String(text ?? '')
+      if (!value.trim()) throw new Error('text is required and must not be blank.')
+      return { text: value.slice(0, 400) }
+    },
   })
 
   return () => client.close()
