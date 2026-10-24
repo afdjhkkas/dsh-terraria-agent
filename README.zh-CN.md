@@ -5,9 +5,11 @@
 
 ## 项目总目标
 
-**让 AI 以玩家身份把 Terraria 打到通关（击败月亮领主）。**
-自己合装备、盖房招 NPC、挖矿升级、按进度打 Boss，不使用世界编辑作弊，每步都有回读证据。
-目标与不变量见 [`GOAL.md`](GOAL.md)，进度与踩坑记录见 [`docs/playthrough.md`](docs/playthrough.md)。
+接入本项目的 AI 应当成为一个**会玩 Terraria 的玩家**：自己合装备、盖房招 NPC、挖矿升级、
+按进度打 Boss，直到击败月亮领主，不使用世界编辑作弊，每步都有回读证据。
+
+项目为此提供 **泰拉瑞亚知识**（[`docs/terraria-mechanics.md`](docs/terraria-mechanics.md)）与
+**最终目标与不变量**（[`GOAL.md`](GOAL.md)）。世界/角色/模式由运行环境决定，本项目不写死。
 
 ## 目录结构
 

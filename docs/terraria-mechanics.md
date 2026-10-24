@@ -96,6 +96,41 @@ always confirm with `tile` rather than trusting a table from memory.
 and `give`-style creative actions are all available. Useful for tests — you can spawn
 items and enemies freely.
 
+## Placing and digging in play `[measured]`
+
+- **Support**: a block can only be placed where it touches an existing block, or on
+  a solid/platform surface. Mid-air placement is refused. The game's own answer to
+  "is this support?" is `Main.tileSolid[type]` (surfaced by the bridge as `tile.solid`):
+  plants, grass tufts, tombstones and furniture are tiles but are **not** support.
+- **Reach**: tile interaction is about 5 tiles from the player centre; farther asks
+  are refused rather than silently ignored.
+- **Furniture** (workbench, chair, door, table) is a multi-tile object: it must be
+  placed through the object placement path (`WorldGen.PlaceObject`), not the
+  single-tile one (`WorldGen.PlaceTile`).
+- **Player body**: the hitbox is 20x42 px, i.e. it occupies **four tile rows**
+  around the centre (2 above, 1 below). Movement checks that only look at
+  `round(centre.y)` miss the tile above the head, which is the classic
+  "I am walking into a wall and do not know it" failure.
+- **Digging a path**: a player clears the blocking tiles of their body rows,
+  top-down, then walks. A move that produces no displacement is almost always a
+  solid tile in one of those rows, not a broken game.
+
+## Housing (what makes an NPC move in) `[wiki]`
+
+A room is valid when: interior area is at least 60 tiles (and not absurdly huge),
+every interior tile has a **player-placed** background wall, the space is enclosed
+by blocks with a door or platform entrance, and it contains a light source
+(torch), a comfort item (chair/bed/bench) and a flat surface item
+(table/dresser/work bench).
+
+## Progression route to the end `[wiki]`
+
+Wood and workbench -> wooden/iron gear -> valid house -> NPCs -> life crystals ->
+Eye of Cthulhu -> Eater of Worlds / Brain of Cthulhu -> Skeletron -> Queen Bee ->
+Wall of Flesh -> hardmode mechanical bosses -> Plantera -> Golem -> lunar events
+(4 pillars) -> **Moon Lord**. Optional side bosses (King Slime, Queen Slime,
+Duke Fishron, Empress of Light, Deerclops) can be skipped or done for gear.
+
 ## Testing notes for this repo
 
 - Launch straight into a world, no menus:
