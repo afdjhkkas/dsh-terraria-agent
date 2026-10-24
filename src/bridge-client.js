@@ -1,9 +1,115 @@
+/**
+ * Terraria bridge client.
+ * ============================================================================
+ * Transport: TCP 127.0.0.1:7777, one JSON object per line (protocol v0.2.0).
+ *   request  {"cmd":"<name>","params":{...},"req":<n>}
+ *   success  {"ok":true,"data":{...},"req":<n>}
+ *   failure  {"ok":false,"error":"<actionable message>","req":<n>}
+ *
+ * A `{"ok":false}` reply is a **command failure** (the command did not do the
+ * thing); it must reach the caller with its own message and no "Invalid ..."
+ * prefix. Only a line that is genuinely not a protocol payload gets that
+ * prefix. See classifyLine() for the exact rule.
+ *
+ * One socket per request: no FIFO queue to desync, no reconnect state to get
+ * wrong, and a game restart simply fails the in-flight call. `req` is an
+ * optional correlation echo so an unsolicited line on the same connection (a
+ * banner, a log line) can never be mistaken for this call's answer.
+ * ============================================================================
+ */
 import net from 'node:net'
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+/** `stop` is fire-and-forget: short deadline, never awaited, never reported. */
+const STOP_TIMEOUT_MS = 300
 
-export function createBridgeClient({ host = '127.0.0.1', port = 7777, timeoutMs = 5000 } = {}) {
+/** Whether a value may be used as a `req` correlation token. */
+const isReqToken = value => typeof value === 'number' || typeof value === 'string'
+
+/**
+ * Classify one line read from the bridge.
+ *
+ * - `skip`     not this call's answer, keep reading: a JSON object without a
+ *              boolean `ok` (banner/event line), a reply carrying another
+ *              call's `req`, or free text that cannot be a payload.
+ * - `response` `{"ok":true,...}` for this call.
+ * - `failure`  `{"ok":false,"error":"..."}` for this call; the message is the
+ *              mod's own actionable text.
+ * - `invalid`  a genuine protocol fault: unparseable JSON that looks like a
+ *              payload, or JSON that is not an object.
+ *
+ * @param {string} line - one trimmed line.
+ * @param {unknown} req - this call's correlation token.
+ * @returns {{kind:'skip'}|{kind:'response',response:object}|{kind:'failure',message:string}|{kind:'invalid',reason:string}}
+ */
+function classifyLine(line, req) {
+  let parsed
+  try {
+    parsed = JSON.parse(line)
+  } catch {
+    // Free text (a log line the mod wrote straight to the socket) is not a
+    // payload; skip it. A line that starts like a payload but does not parse is
+    // a truncated/corrupt response and must fail loudly.
+    if (!/^[[{]/.test(line)) return { kind: 'skip' }
+    return { kind: 'invalid', reason: 'line is not valid JSON' }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { kind: 'invalid', reason: 'response must be a JSON object' }
+  }
+  if (typeof parsed.ok !== 'boolean') return { kind: 'skip' }
+  if (isReqToken(parsed.req) && parsed.req !== req) return { kind: 'skip' }
+  if (parsed.ok !== true) {
+    return { kind: 'failure', message: String(parsed.error ?? 'Terraria bridge rejected the command.') }
+  }
+  return { kind: 'response', response: parsed }
+}
+
+/**
+ * Clear movement/jump/use/attack holds on a fresh short-lived connection.
+ * Fire-and-forget by design: used on the abort path, where the caller must not
+ * wait, must not throw, and must not turn a dead bridge into a second error.
+ *
+ * @param {{host?:string,port?:number,timeoutMs?:number}} [options]
+ */
+export function stopBestEffort({ host = '127.0.0.1', port = 7777, timeoutMs = STOP_TIMEOUT_MS } = {}) {
+  try {
+    const socket = net.createConnection({ host, port })
+    // Never keep the process alive just for a courtesy stop.
+    socket.unref?.()
+    let done = false
+    const timer = setTimeout(() => settle(), timeoutMs)
+    timer.unref?.()
+    function settle() {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      try { socket.destroy() } catch {}
+    }
+    socket.setNoDelay(true)
+    socket.on('error', settle)
+    socket.on('close', settle)
+    socket.on('connect', () => {
+      try {
+        socket.write(`${JSON.stringify({ cmd: 'stop', params: {} })}\n`, () => {
+          clearTimeout(timer)
+          try { socket.end() } catch { settle() }
+        })
+      } catch {
+        settle()
+      }
+    })
+  } catch {
+    // best effort: a throw here would mask the caller's original error
+  }
+}
+
+/**
+ * @param {{host?:string,port?:number,timeoutMs?:number,createConnection?:Function}} [options]
+ *   `createConnection` is a test seam only; production always uses net.createConnection.
+ */
+export function createBridgeClient({ host = '127.0.0.1', port = 7777, timeoutMs = 5000, createConnection = net.createConnection } = {}) {
   const sockets = new Set()
+  let nextReq = 1
 
   function request(command, params = {}, { signal } = {}) {
     if (signal?.aborted) {
@@ -12,10 +118,12 @@ export function createBridgeClient({ host = '127.0.0.1', port = 7777, timeoutMs 
       return Promise.reject(error)
     }
 
+    const req = nextReq++
     return new Promise((resolve, reject) => {
-      const socket = net.createConnection({ host, port })
+      const socket = createConnection({ host, port })
       sockets.add(socket)
       let buffer = Buffer.alloc(0)
+      let connected = false
       let settled = false
 
       const cleanup = () => {
@@ -37,7 +145,11 @@ export function createBridgeClient({ host = '127.0.0.1', port = 7777, timeoutMs 
         finish(error)
       }
       const timer = setTimeout(() => {
-        const error = new Error(`Timed out connecting to the Terraria bridge at ${host}:${port}.`)
+        // Distinguish "cannot reach the bridge" from "the bridge took the call
+        // and never answered": the two need completely different reactions.
+        const error = connected
+          ? new Error(`Timed out waiting for "${command}" after ${timeoutMs} ms (bridge connected, no reply)`)
+          : new Error(`Timed out connecting to the Terraria bridge at ${host}:${port}.`)
         error.code = 'ETIMEDOUT'
         finish(error)
       }, timeoutMs)
@@ -45,7 +157,8 @@ export function createBridgeClient({ host = '127.0.0.1', port = 7777, timeoutMs 
       signal?.addEventListener('abort', abort, { once: true })
       socket.setNoDelay(true)
       socket.on('connect', () => {
-        socket.write(`${JSON.stringify({ cmd: command, params })}\n`)
+        connected = true
+        socket.write(`${JSON.stringify({ cmd: command, params, req })}\n`)
       })
       socket.on('data', chunk => {
         buffer = Buffer.concat([buffer, chunk])
@@ -53,20 +166,17 @@ export function createBridgeClient({ host = '127.0.0.1', port = 7777, timeoutMs 
           finish(new Error(`Terraria bridge response exceeded ${MAX_RESPONSE_BYTES} bytes.`))
           return
         }
-        const newline = buffer.indexOf(0x0a)
-        if (newline < 0) return
-        const line = buffer.subarray(0, newline).toString('utf8').trim()
-        try {
-          const response = JSON.parse(line)
-          if (!response || typeof response !== 'object' || Array.isArray(response)) {
-            throw new Error('Bridge response must be a JSON object.')
-          }
-          if (response.ok !== true) {
-            throw new Error(String(response.error ?? 'Terraria bridge rejected the command.'))
-          }
-          finish(null, response)
-        } catch (error) {
-          finish(new Error(`Invalid Terraria bridge response: ${error.message}`))
+        while (!settled) {
+          const newline = buffer.indexOf(0x0a)
+          if (newline < 0) return
+          const line = buffer.subarray(0, newline).toString('utf8').trim()
+          buffer = buffer.subarray(newline + 1)
+          if (!line) continue
+          const verdict = classifyLine(line, req)
+          if (verdict.kind === 'skip') continue
+          if (verdict.kind === 'response') return finish(null, verdict.response)
+          if (verdict.kind === 'failure') return finish(new Error(verdict.message))
+          return finish(new Error(`Invalid Terraria bridge response: ${verdict.reason}`))
         }
       })
       socket.on('error', error => {
@@ -77,7 +187,18 @@ export function createBridgeClient({ host = '127.0.0.1', port = 7777, timeoutMs 
         }
       })
       socket.on('close', () => {
-        if (!settled) finish(new Error('Terraria bridge closed the connection before returning a response.'))
+        if (settled) return
+        // A writer that flushes and closes without the trailing newline still
+        // delivered a complete payload; accept it instead of reporting a
+        // truncated response.
+        const tail = buffer.toString('utf8').trim()
+        buffer = Buffer.alloc(0)
+        if (tail) {
+          const verdict = classifyLine(tail, req)
+          if (verdict.kind === 'response') return finish(null, verdict.response)
+          if (verdict.kind === 'failure') return finish(new Error(verdict.message))
+        }
+        finish(new Error('Terraria bridge closed the connection before returning a response.'))
       })
       if (signal?.aborted) abort()
     })
@@ -85,6 +206,8 @@ export function createBridgeClient({ host = '127.0.0.1', port = 7777, timeoutMs 
 
   return {
     request,
+    /** Short-timeout `stop` bound to this client's endpoint; see stopBestEffort(). */
+    stopBestEffort: (options = {}) => stopBestEffort({ host, port, timeoutMs: Math.min(timeoutMs, STOP_TIMEOUT_MS), ...options }),
     close() {
       for (const socket of sockets) socket.destroy()
       sockets.clear()
