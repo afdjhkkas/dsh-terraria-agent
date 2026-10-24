@@ -210,6 +210,11 @@ namespace DshTerrariaBridge
                     lastClickTick = BridgeSystem.LastClickTick,
                     aim = BridgeSystem.AimTileX >= 0 ? new[] { BridgeSystem.AimTileX, BridgeSystem.AimTileY } : null,
                     target = new[] { Player.tileTargetX, Player.tileTargetY },
+                    preItemCalls = BridgeSystem.PreItemCalls,
+                    setControlCalls = BridgeSystem.SetControlCalls,
+                    synthCalls = BridgeSystem.SynthCalls,
+                    controlUseItem = pl.controlUseItem,
+                    releaseUseItem = pl.releaseUseItem,
                 };
             }
             else
@@ -410,18 +415,28 @@ namespace DshTerrariaBridge
             return -1;
         }
 
-        private static string StartSwing(int slot, int x, int y, int ms, bool right)
+        private static string StartSwing(int slot, int x, int y, int ms, bool right, bool os)
         {
             Player pl = P;
             pl.selectedItem = slot;
-            // Keep the aim state purely for diagnostics; the actual input goes through the OS.
             BridgeSystem.SetAim(x, y);
             bool onScreen = BridgeSystem.ApplyAim();
             ulong until = BridgeSystem.Now + BridgeSystem.Ticks(ms);
             BridgeSystem.AimUntil = until + 40;
-            // A real mouse press on the tile: the game's own use pipeline runs (tool, swing,
-            // hardness, item consumption, drops). Never sleep here - this is the main thread.
-            BridgeSystem.InjectClickAsync(x, y, right, ms);
+
+            if (os)
+            {
+                // Real mouse: visible cursor, and it needs the game to be foreground.
+                BridgeSystem.InjectClickAsync(x, y, right, ms);
+            }
+            else
+            {
+                // Synthetic input, applied from PreItemCheck: no focus needed, the user's
+                // cursor is untouched, so the agent can act while the player plays.
+                if (right) { BridgeSystem.UseTileUntil = until; BridgeSystem.UseTileJustStarted = true; }
+                else { BridgeSystem.UseUntil = until; BridgeSystem.UseJustStarted = true; }
+            }
+
             Item held = pl.inventory[slot];
             return Json.Ok(new
             {
@@ -434,13 +449,15 @@ namespace DshTerrariaBridge
                 ms,
                 untilTick = until,
                 onScreen,
-                injected = true,
-                hint = "已经把光标移上去并按住鼠标了；等一下用 tile / inventory 确认结果。",
+                os,
+                hint = os
+                    ? "真实鼠标注入：光标已移过去并按住；需要游戏在前台。"
+                    : "合成输入：不需要前台，也不会动你的鼠标；等一下用 tile / inventory 确认结果。",
             });
         }
 
-        /// <summary>Arm a swing with whatever tool the tile needs. Returns null on success.</summary>
-        private static string BeginPlayerMine(int x, int y, int ms)
+        /// <summary>Arm a swing with whatever tool the tile needs.</summary>
+        private static string BeginPlayerMine(int x, int y, int ms, bool os)
         {
             Player pl = P;
             if (pl.dead) return "玩家已死亡，请先复活";
@@ -449,7 +466,24 @@ namespace DshTerrariaBridge
             bool needsAxe = t.TileType == TileID.Trees || t.TileType == TileID.PalmTree;
             int slot = needsAxe ? FindAxe(pl) : FindPickaxe(pl);
             if (slot < 0) return needsAxe ? "背包里没有斧头，砍树需要斧头" : "背包里没有镐子，挖方块需要镐子";
-            return StartSwing(slot, x, y, ms, false);
+
+            if (os) return StartSwing(slot, x, y, ms, false, os);
+
+            // Focus-free mining: the job calls Player.PickTile (what a swing calls internally)
+            // on the main thread each swing interval, with the tool selected and swinging.
+            BridgeSystem.StartMining(x, y, slot, ms + 400);
+            Item tool = pl.inventory[slot];
+            return Json.Ok(new
+            {
+                mode = "player",
+                x,
+                y,
+                slot,
+                held = new { type = tool.type, name = tool.Name, pick = tool.pick, axe = tool.axe },
+                ms,
+                direct = true,
+                hint = "已开始挥动（不需要前台）；等一下用 tile 确认是不是挖掉了。",
+            });
         }
 
         private static string Mine(JsonElement p)
@@ -464,7 +498,7 @@ namespace DshTerrariaBridge
                 // Player mode: take out a pickaxe/axe, aim at the tile and swing. The game
                 // decides whether it breaks, drops items and consumes tool durability.
                 if (!HasPlayer(out string perr)) return Json.Error(perr);
-                string started = BeginPlayerMine(x, y, Math.Clamp(Json.Int(p, "ms", 900), 100, 4000));
+                string started = BeginPlayerMine(x, y, Math.Clamp(Json.Int(p, "ms", 900), 100, 4000), Json.Bool(p, "os", false));
                 if (started != null && started.StartsWith("{")) return started;
                 if (started != null) return Json.Error(started);
                 return Json.Error("empty player-mode response");

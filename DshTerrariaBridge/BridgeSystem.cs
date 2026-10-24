@@ -66,6 +66,8 @@ namespace DshTerrariaBridge
         public override void Load()
         {
             modRef = Mod;
+            // Note: single player freezes when the window loses focus (measured: paused =
+            // true, nothing ticks), so co-op play uses Host & Play, which never pauses.
             try
             {
                 listener = new TcpListener(IPAddress.Loopback, Port);
@@ -239,6 +241,7 @@ namespace DshTerrariaBridge
 
         public override void PostUpdateEverything()
         {
+            TickMining();
             DrainPending();
         }
 
@@ -291,6 +294,7 @@ namespace DshTerrariaBridge
         internal static volatile int AimTileX = -1, AimTileY = -1;
         internal static ulong AimUntil;
         internal static volatile bool UseJustStarted, UseTileJustStarted;
+        internal static long PreItemCalls, SetControlCalls, SynthCalls;
 
         internal static void SetAim(int x, int y) { AimTileX = x; AimTileY = y; }
         internal static void ClearAim() { AimTileX = -1; AimTileY = -1; }
@@ -508,6 +512,104 @@ namespace DshTerrariaBridge
         internal static volatile bool LastClickOk;
         internal static volatile string LastClickError;
         internal static ulong LastClickTick;
+
+        /// <summary>
+        /// Point the cursor at the armed tile and pretend the mouse button is held. Called
+        /// from PreItemCheck, so vanilla's own use/placement/mining logic runs.
+        /// </summary>
+        internal static void ApplySyntheticInput()
+        {
+            SynthCalls++;
+            if (AimTileX >= 0) ApplyAim();
+            ulong now = Now;
+            Player p = Main.LocalPlayer;
+            if (p == null || !p.active) return;
+
+            if (UseUntil > now)
+            {
+                Main.mouseLeft = true;
+                p.controlUseItem = true;
+                if (UseJustStarted)
+                {
+                    Main.mouseLeftRelease = true;
+                    p.releaseUseItem = true;
+                    UseJustStarted = false;
+                }
+            }
+            if (UseTileUntil > now)
+            {
+                Main.mouseRight = true;
+                p.controlUseTile = true;
+                if (UseTileJustStarted)
+                {
+                    Main.mouseRightRelease = true;
+                    UseTileJustStarted = false;
+                }
+            }
+        }
+
+        /* ── 直接挖掘任务 ────────────────────────────────────────────────
+         * 不用按键、不抢焦点：每帧在主线程调用原版挥镐时用的 Player.PickTile
+         * （它有耐久/硬度/掉落逻辑），按物品 useTime 控制节奏，并播放挥动动画。
+         * 这样玩家在同一窗口里打怪、AI 在后台挖矿，互不抢输入。
+         */
+        internal struct MiningJob
+        {
+            public bool Active;
+            public int X, Y, Slot, Hits;
+            public ulong NextHit, Deadline;
+        }
+
+        internal static MiningJob Mine;
+
+        internal static void StartMining(int x, int y, int slot, int ms)
+        {
+            Mine = new MiningJob
+            {
+                Active = true,
+                X = x,
+                Y = y,
+                Slot = slot,
+                Hits = 0,
+                NextHit = Now,
+                Deadline = Now + Ticks(ms),
+            };
+        }
+
+        internal static void StopMining() => Mine.Active = false;
+
+        private static void TickMining()
+        {
+            if (!Mine.Active) return;
+            Tile t = Main.tile[Mine.X, Mine.Y];
+            if (!t.HasTile || Now > Mine.Deadline) { Mine.Active = false; return; }
+            if (Now < Mine.NextHit) return;
+
+            Player p = Main.LocalPlayer;
+            if (p == null || !p.active || p.dead) { Mine.Active = false; return; }
+            Item tool = p.inventory[Mine.Slot];
+            if (tool == null || tool.type <= 0) { Mine.Active = false; return; }
+
+            int power = tool.pick;
+            if (power > 0)
+            {
+                p.PickTile(Mine.X, Mine.Y, power);
+            }
+            else
+            {
+                // Axes (trees) and hammers do not go through PickTile.
+                WorldGen.KillTile(Mine.X, Mine.Y, false, false, false);
+            }
+            p.selectedItem = Mine.Slot;
+            if (tool.useAnimation > 0)
+            {
+                p.SetItemAnimation(Math.Max(1, tool.useAnimation));
+                p.SetItemTime(Math.Max(1, tool.useTime));
+            }
+            p.direction = Mine.X * 16f >= p.Center.X ? 1 : -1;
+            Mine.Hits++;
+            Mine.NextHit = Now + (ulong)Math.Max(6, (int)(tool.useTime * 0.6f));
+        }
 
         /// <summary>Arm one jump for the given deadline (a single ground impulse).</summary>
         internal static void BeginJump(ulong until)
@@ -759,6 +861,34 @@ namespace DshTerrariaBridge
         }
 
         // 真正逐帧生效的地方：Player.Update 结束时再推一次速度/标志
+        /// <summary>
+        /// Runs immediately before the vanilla item check. Everything written here is what
+        /// ItemCheck actually reads - writing it in PreUpdate/PostUpdate is overwritten by
+        /// the physical mouse before ItemCheck runs (measured: itemAnimation stayed 0).
+        /// This is what lets the agent mine and place while the window is unfocused, with
+        /// no OS input injection and no cursor movement.
+        /// </summary>
+        public override bool PreItemCheck()
+        {
+            if (Player.whoAmI == Main.myPlayer)
+            {
+                BridgeSystem.PreItemCalls++;
+                BridgeSystem.ApplySyntheticInput();
+            }
+            return false;   // false = let the vanilla item check run
+        }
+
+        /// <summary>
+        /// tModLoader calls this after the vanilla input has been read and before the player
+        /// acts on it, which is the documented place to override control flags.
+        /// </summary>
+        public override void SetControls()
+        {
+            if (Player.whoAmI != Main.myPlayer) return;
+            BridgeSystem.SetControlCalls++;
+            BridgeSystem.ApplySyntheticInput();
+        }
+
         public override void PostUpdate()
         {
             // ModPlayer hooks run for every player; without this guard the local player
