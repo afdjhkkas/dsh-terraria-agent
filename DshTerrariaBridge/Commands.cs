@@ -33,6 +33,7 @@ namespace DshTerrariaBridge
                 case "mine": return Mine(p);
                 case "mirror": return MirrorHome(p);
                 case "housing": return Housing(p);
+                case "needs": return RoomDiagnostics(p);
                 case "items": return DroppedItems(p);
                 case "save": return SaveWorld(p);
                 case "place": return Place(p);
@@ -557,6 +558,37 @@ namespace DshTerrariaBridge
             {
                 return Json.Error("存档失败：" + e.Message);
             }
+        }
+
+        /// <summary>
+        /// Run the game's room check and dump every room/needs-related static it touches, so
+        /// "why will nobody move in" can be answered by the game instead of by guessing.
+        /// </summary>
+        private static string RoomDiagnostics(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
+            if (x < 0 || y < 0) return Json.Error("needs 需要 x,y");
+            bool found = WorldGen.StartRoomCheck(x, y);
+            var fields = new Dictionary<string, object>();
+            foreach (var f in typeof(WorldGen).GetFields(System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+            {
+                if (!System.Text.RegularExpressions.Regex.IsMatch(f.Name, "(?i)room|need|house")) continue;
+                try { fields[f.Name] = f.GetValue(null)?.ToString(); } catch { }
+            }
+            var npcFields = new Dictionary<string, object>();
+            NPC guide = null;
+            for (int i = 0; i < Main.maxNPCs; i++)
+                if (Main.npc[i] != null && Main.npc[i].active && Main.npc[i].townNPC) { guide = Main.npc[i]; break; }
+            if (guide != null)
+            {
+                npcFields["name"] = guide.FullName;
+                npcFields["homeless"] = guide.homeless;
+                npcFields["homeTile"] = new[] { guide.homeTileX, guide.homeTileY };
+                npcFields["position"] = new[] { (int)(guide.Center.X / 16f), (int)(guide.Center.Y / 16f) };
+            }
+            return Json.Ok(new { x, y, found, worldFields = fields, npc = npcFields });
         }
 
         private static string Housing(JsonElement p)

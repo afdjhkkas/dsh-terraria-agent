@@ -181,6 +181,14 @@ Tile interaction is refused beyond roughly five tiles from the player centre. Th
 accept a request up to seven; the game then silently does nothing (no swing result, no item
 consumed). Build and dig within **four** tiles and walk between phases.
 
+## "I cannot move" is almost always un-dug terrain `[measured]`
+
+A player is 20x42 px, i.e. four tile rows (two above the centre, one below). When a move
+produces no displacement, the cause is a solid tile in one of those rows **in the direction of
+travel, including the diagonal above it** (a two-tile step needs both the step and the head
+clear). Dig every one of them before moving again; clearing a single column is not enough and
+looks like a physics bug when it is not.
+
 ## NPCs move in during the day `[wiki]`
 
 A valid room is not enough at night: town NPCs arrive while `dayTime` is true. So "the room

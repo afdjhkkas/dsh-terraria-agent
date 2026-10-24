@@ -86,4 +86,9 @@
   **roomFound: true**。
 - **持久化验证通过**：正常关窗重开后木墙 72/72、门/椅/火把都在，`housing` 仍为 true。
   这是本项目第一次"建好且留得住"的房子。
-- NPC 没入住是**因为当时是夜晚**（`dayTime=false`），入住要等白天。
+- NPC 没入住是**因为当时是夜晚**（`dayTime=false`），入住要等白天（用户确认：合格就别管，NPC 有延迟）。
+- 新增 `needs` 诊断：反射读 `WorldGen` 的 `room*` 字段，能看出 `roomFound / roomChair / roomTable /
+  roomOccupied / roomEvil / roomCheckFailureReason`，比只看 `roomFound` 准。
+- 用户指出并验证：**走不动往往是漏挖了正前方/斜上方的泥土**（这次是门外两块）。身体四行都要清。
+- 二号房已备料（木墙 106、门 2、椅 3、工作台 1）并量好地基（x=2106..2119，地表 303..305），
+  但清场/砌墙还没做完。
