@@ -157,7 +157,12 @@ namespace DshTerrariaBridge
                 Json.CurrentReq = req;
                 try
                 {
-                    return Main.RunOnMainThread(() => Commands.Handle(json)).Result;
+                    var task = Main.RunOnMainThread(() => Commands.Handle(json));
+                    // Bounded wait: .Result on a wedged main thread would pin this socket
+                    // thread forever and leak it one call at a time.
+                    if (!task.Wait(4000))
+                        return Json.Error("主线程 4 秒内没有响应（游戏可能卡住或正在加载）");
+                    return task.Result;
                 }
                 catch (Exception e)
                 {
