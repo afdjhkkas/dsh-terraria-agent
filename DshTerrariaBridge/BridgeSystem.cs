@@ -349,6 +349,8 @@ namespace DshTerrariaBridge
             int px = (int)(p.Center.X / 16f), py = (int)(p.Center.Y / 16f);
             int dx = WalkX - px, dy = WalkY - py;
             if (Math.Abs(dx) <= WalkTol && Math.Abs(dy) <= WalkTol) { StopWalk("arrived"); return; }
+            // 向下挖时容易一掉就冲过头（目标 y=347 却掉到 y=406）：超过目标就停
+            if (py > WalkY + 2) { StopWalk("overshoot"); return; }
 
             int sign = Math.Sign(dx);
             if (sign == 0) return;

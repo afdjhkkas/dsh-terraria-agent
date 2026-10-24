@@ -982,6 +982,7 @@ namespace DshTerrariaBridge
             if (!InWorld(out string err)) return Json.Error(err);
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             Player pl = P;
+            if (pl.talkNPC < 0) return Json.Error("还没有和 NPC 对话：先走到 NPC 旁边用 talk");
             int slot = Json.Int(p, "slot", -1);
             if (slot < 0 || slot >= pl.inventory.Length) return Json.Error("slot 越界");
             Item it = pl.inventory[slot];
@@ -991,7 +992,7 @@ namespace DshTerrariaBridge
                 return Json.Error("不卖钱币本身");
             long price = it.value / 5 * it.stack;
             if (price <= 0) return Json.Error($"{it.Name} 卖不出价钱");
-            // 直接给铜币总量，按原版折算
+            // 钱直接进背包（以前是掉在地上，卖完还得去捡，等于白卖）
             long left = price;
             void Give(int coinType, long unit)
             {
@@ -1001,7 +1002,18 @@ namespace DshTerrariaBridge
                 while (n > 0)
                 {
                     int chunk = (int)Math.Min(n, 999);
-                    Item.NewItem(new EntitySource_DropAsItem(pl), pl.Center, Vector2.Zero, coinType, chunk);
+                    int slot2 = -1;
+                    for (int i = 0; i < pl.inventory.Length; i++)
+                    {
+                        Item inv = pl.inventory[i];
+                        if (inv != null && inv.type == coinType && inv.stack + chunk <= inv.maxStack) { slot2 = i; break; }
+                    }
+                    if (slot2 < 0)
+                        for (int i = 0; i < pl.inventory.Length; i++)
+                            if (pl.inventory[i] != null && pl.inventory[i].type == 0) { slot2 = i; break; }
+                    if (slot2 < 0) return;   // 背包满就少给，不凭空生成
+                    if (pl.inventory[slot2].type == coinType) pl.inventory[slot2].stack += chunk;
+                    else { pl.inventory[slot2] = new Item(); pl.inventory[slot2].SetDefaults(coinType); pl.inventory[slot2].stack = chunk; }
                     n -= chunk;
                 }
             }
