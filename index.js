@@ -297,11 +297,15 @@ export function apply(ctx, rawConfig = {}) {
       slot: integer('Inventory slot to select first.'),
       right: boolean('Use the alternate / right-click action.'),
       ms: integer('Duration in milliseconds, 1..2000 (default 220).'),
+      x: integer('Aim at this tile X before using (for swings, bows, tools).'),
+      y: integer('Aim at this tile Y before using.'),
     },
     command: 'use',
     mapArgs: args => ({
       ...(args.slot === undefined ? {} : { slot: mustInt(args.slot, 'slot', 0, 200) }),
       ...(args.right === undefined ? {} : { right: args.right }),
+      ...(args.x === undefined ? {} : { x: mustInt(args.x, 'x') }),
+      ...(args.y === undefined ? {} : { y: mustInt(args.y, 'y') }),
       ms: bounded(args.ms, 1, 2000, 220),
     }),
   })
@@ -309,7 +313,7 @@ export function apply(ctx, rawConfig = {}) {
   register({
     name: 'terraria_attack',
     description: 'Attack a hostile NPC for a while. Omit who to pick the nearest one. '
-      + 'Hits need line of sight, use your real damage/crit/use-speed, and respect invincibility frames. '
+      + 'Hits need line of sight (targets within ~2 tiles are always reachable), use your real damage/crit/use-speed, and respect invincibility frames. '
       + 'The task keeps running in the background; keep attacking is reported through state.attack, and state.attack.last keeps the '
       + 'hit count and the target\'s remaining life after the task ends (and even after terraria_stop), so verify with terraria_observe. '
       + `The held item must deal damage. ${RULES}`,
@@ -357,44 +361,117 @@ export function apply(ctx, rawConfig = {}) {
 
   register({
     name: 'terraria_mine',
-    description: 'Remove the tile at x,y (works on Dirt too - it is tile id 0, not "air"). '
-      + 'walls:true also removes the background wall behind it, which is off by default because walls drive housing. '
-      + 'noItem:true suppresses drops. Read removedTile/removedWall to see what actually changed. '
-      + `Confirm the coordinate with terraria_tile first. ${RULES}`,
+    description: 'Mine a tile the way a player does: it selects your pickaxe (or axe for trees), aims at the tile and swings. '
+      + 'The game decides whether it breaks, drops the item and wears the tool. Read removed/after to see the result; '
+      + 'if removed is false, walk closer or swing longer (ms), or use a better tool. '
+      + 'admin:true skips the tool and edits the world directly - that is cheating, use it only for tests. '
+      + `${RULES}`,
     parameters: {
       x: integer('World tile X (required).', { required: true }),
       y: integer('World tile Y (required).', { required: true }),
-      noItem: boolean('Suppress item drops.'),
-      walls: boolean('Also remove the background wall (default false).'),
+      ms: integer('How long to swing, 100..4000 (default 900).'),
+      admin: boolean('Cheat: edit the world directly without a tool.'),
     },
     command: 'mine',
-    mapArgs: ({ x, y, noItem, walls }) => ({
-      x: mustInt(x, 'x'),
-      y: mustInt(y, 'y'),
-      ...(noItem === undefined ? {} : { noItem }),
-      ...(walls === undefined ? {} : { walls }),
-    }),
+    timeout: 15000,
+    async run(args, exec) {
+      const x = mustInt(args.x, 'x')
+      const y = mustInt(args.y, 'y')
+      const ms = bounded(args.ms, 100, 4000, 900)
+      if (args.admin === true) {
+        const direct = await request('mine', { x, y, admin: true }, exec)
+        return JSON.stringify({ ok: true, data: { ...direct.data, mode: 'admin' } })
+      }
+      const before = await request('tile', { x, y }, exec)
+      const swing = await request('mine', { x, y, ms }, exec)
+      await sleep(ms + 320)
+      const after = await request('tile', { x, y }, exec)
+      const removed = after.data?.hasTile === false
+      const data = {
+        x,
+        y,
+        mode: 'player',
+        tool: swing.data?.held,
+        aimed: swing.data?.onScreen,
+        before: before.data?.type,
+        after: after.data?.type,
+        removed,
+      }
+      if (!data.aimed) data.hint = '目标不在屏幕内：先走近一点再挖'
+      else if (!removed) data.hint = '还没挖掉：增大 ms 多挥几下，或者换更好的镐子'
+      return JSON.stringify({ ok: true, data })
+    },
   })
 
   register({
     name: 'terraria_place',
-    description: 'Place a tile with Terraria\'s own placement rules. type is a tile id (0 = Dirt, 1 = Stone, 30 = Wood...). '
-      + 'after is what is really there afterwards (-1 = empty), so a failed placement is visible. '
-      + `Admin/world-edit action: it does not consume inventory. ${RULES}`,
+    description: 'Place a tile the way a player does: it finds that block in your inventory, selects it, aims and places it - '
+      + 'so the stack is actually consumed and you need the block in hand. after is what is really there afterwards '
+      + '(-1 = empty). admin:true edits the world directly without using an item (cheating, tests only). '
+      + `Tile id 0 is Dirt, not "empty". ${RULES}`,
     parameters: {
       x: integer('World tile X (required).', { required: true }),
       y: integer('World tile Y (required).', { required: true }),
-      type: integer('Terraria tile type id (required).', { required: true }),
+      type: integer('Tile id to place (required; 0 = Dirt, 1 = Stone).', { required: true }),
       style: integer('Tile style, usually 0.'),
+      admin: boolean('Cheat: place without consuming an item.'),
     },
     command: 'place',
-    mapArgs: ({ x, y, type, style }) => ({
-      x: mustInt(x, 'x'),
-      y: mustInt(y, 'y'),
-      type: mustInt(type, 'type', 1, 100000),
-      style: style === undefined ? 0 : mustInt(style, 'style'),
-      forced: false,
-    }),
+    timeout: 15000,
+    async run(args, exec) {
+      const x = mustInt(args.x, 'x')
+      const y = mustInt(args.y, 'y')
+      const type = mustInt(args.type, 'type', 0, 100000)
+      if (args.admin === true) {
+        const direct = await request('place', { x, y, type, style: args.style ?? 0, admin: true }, exec)
+        return JSON.stringify({ ok: true, data: { ...direct.data, mode: 'admin' } })
+      }
+      const placeReq = await request('place', { x, y, type, ms: 300 }, exec)
+      await sleep(520)
+      const after = await request('tile', { x, y }, exec)
+      const placed = after.data?.hasTile === true && after.data?.type === type
+      const data = { x, y, type, mode: 'player', item: placeReq.data?.held, placed, after: after.data?.type }
+      if (!placed) data.hint = after.data?.hasTile ? '这一格已经有别的方块了' : '没放上：确认背包里有这种方块，且目标格有支撑'
+      return JSON.stringify({ ok: true, data })
+    },
+  })
+
+  register({
+    name: 'terraria_wall',
+    description: 'Place or remove a background wall like a player: it takes the wall item (or a hammer when removing), aims and uses it. '
+      + 'Walls decide whether a room counts as housing and every NPC needs a valid room, so this is what makes "build a house" possible. '
+      + 'The cell must have no block in it. admin:true edits directly (cheating, tests only). '
+      + `${RULES}`,
+    parameters: {
+      x: integer('World tile X (required).', { required: true }),
+      y: integer('World tile Y (required).', { required: true }),
+      type: integer('Wall id to place (default 2 = wood wall).'),
+      remove: boolean('Remove the wall (needs a hammer).'),
+      admin: boolean('Cheat: edit the wall directly.'),
+    },
+    command: 'wall',
+    timeout: 12000,
+    async run(args, exec) {
+      const x = mustInt(args.x, 'x')
+      const y = mustInt(args.y, 'y')
+      const remove = args.remove === true
+      const payload = {
+        x,
+        y,
+        ...(args.type === undefined ? {} : { type: mustInt(args.type, 'type', 1, 100000) }),
+        ...(remove ? { remove: true } : {}),
+        ...(args.admin === true ? { admin: true } : {}),
+      }
+      const started = await request('wall', payload, exec)
+      if (args.admin === true) return JSON.stringify({ ok: true, data: { ...started.data, mode: 'admin' } })
+      await sleep(560)
+      const after = await request('tile', { x, y }, exec)
+      const wanted = payload.type ?? 2
+      const applied = remove ? after.data?.wall === 0 : after.data?.wall === wanted
+      const data = { x, y, mode: 'player', item: started.data?.held, remove, wall: after.data?.wall, applied }
+      if (!applied) data.hint = remove ? '墙还在：需要锤子，并且要挥动够久' : '墙没放上：确认背包里有这种墙，且这格没有方块'
+      return JSON.stringify({ ok: true, data })
+    },
   })
 
   register({
@@ -425,7 +502,7 @@ export function apply(ctx, rawConfig = {}) {
 
   register({
     name: 'terraria_give_item',
-    description: 'Put an item stack into the inventory. Creative/admin action for testing; prefer terraria_mine / terraria_craft while playing.',
+    description: 'Put an item stack into the inventory (added = what fit; dropped = what fell on the floor because the inventory was full). Creative/admin action for testing; prefer terraria_mine / terraria_craft while playing.',
     parameters: {
       type: integer('Terraria item type id (required).', { required: true }),
       stack: integer('Stack size, 1..9999.'),

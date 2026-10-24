@@ -157,11 +157,14 @@ if (write) {
   if (!dirt) {
     console.log('  skip no dirt tile in reach')
   } else {
-    const mined = await call('mine', { x: dirt.x, y: dirt.y, noItem: true })
-    check('mine reports removedTile for dirt', mined.data?.removedTile === true, JSON.stringify(mined.data))
+    // Player mode: the bridge takes out a pickaxe and swings. Restoring uses admin mode so
+    // the test does not depend on the player happening to carry a dirt block.
+    const mined = await call('mine', { x: dirt.x, y: dirt.y })
+    check('mine picks a tool and aims', mined.data?.mode === 'player' && !!mined.data?.tool,
+      JSON.stringify(mined.data?.tool))
     const gone = await call('tile', { x: dirt.x, y: dirt.y })
-    check('dirt is really gone', gone.data?.hasTile === false)
-    await call('place', { x: dirt.x, y: dirt.y, type: 0 })
+    check('dirt is really gone after swinging', gone.data?.hasTile === false)
+    await call('place', { x: dirt.x, y: dirt.y, type: 0, admin: true })
     const back = await call('tile', { x: dirt.x, y: dirt.y })
     check('dirt restored', back.data?.hasTile === true && back.data?.type === 0)
   }
@@ -191,7 +194,7 @@ if (write) {
   /* ── 9. crafting with a recipe group ────────────────────────────── */
   console.log('\n[9] crafting')
   await call('give', { type: 9, stack: 200 })   // wood
-  await call('give', { type: 1, stack: 200 })   // stone
+  await call('give', { type: 3, stack: 200 })   // stone block (item 3, tile 1)
   let station = null
   for (let dy = -3; dy <= 4 && !station; dy++) {
     for (let dx = -3; dx <= 3 && !station; dx++) {
@@ -202,12 +205,12 @@ if (write) {
   if (!station) {
     console.log('  skip no free tile for a workbench')
   } else {
-    const wb = await call('place', { x: station.x, y: station.y, type: 18 })
+    const wb = await call('place', { x: station.x, y: station.y, type: 18, admin: true })
     check('workbench placed', wb.data?.placed === true, JSON.stringify(wb.data))
     const arrows = await call('craft', { item: 40, times: 1 })
     check('recipe group ("any wood") crafts wooden arrows', arrows.ok && arrows.data?.crafted > 0,
       arrows.ok ? JSON.stringify(arrows.data) : arrows.error)
-    await call('mine', { x: station.x, y: station.y, noItem: true })
+    await call('mine', { x: station.x, y: station.y, admin: true })
   }
 }
 

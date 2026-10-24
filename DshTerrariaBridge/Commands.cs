@@ -38,13 +38,14 @@ namespace DshTerrariaBridge
                 case "spawn_npc": return SpawnNpc(p);
                 case "stop": BridgeSystem.ClearControls(); return Json.Ok(new { stopped = true });
                 case "teleport": return Teleport(p);
+                case "wall": return Wall(p);
                 case "inventory": return Inventory();
                 case "craft": return Craft(p);
                 case "give": return Give(p);
                 case "npc": return Npcs(p);
                 case "chat": return Chat(p);
                 case "help": return Help();
-                default: return Json.Error($"unknown command: {cmd}（可用 ping/state/scan/tile/mine/place/move/jump/use/attack/spawn_npc/stop/teleport/inventory/craft/give/npc/chat）");
+                default: return Json.Error($"unknown command: {cmd}（可用 ping/state/scan/tile/mine/place/move/jump/use/attack/spawn_npc/stop/teleport/wall/inventory/craft/give/npc/chat）");
             }
         }
 
@@ -96,7 +97,7 @@ namespace DshTerrariaBridge
             return (int)t.Slope + 1;
         }
 
-        private static bool ValidTileType(int type) => type > 0 && type < TileID.Count;
+        private static bool ValidTileType(int type) => type >= TileID.Dirt && type < TileID.Count;
 
         private static bool ValidItemType(int type)
         {
@@ -358,12 +359,100 @@ namespace DshTerrariaBridge
             });
         }
 
+        /* ── 拟人操作：找工具/材料，掏出来，瞄准，挥动 ─────────────────── */
+
+        private static int FindPickaxe(Player pl)
+        {
+            for (int i = 0; i < pl.inventory.Length; i++)
+                if (pl.inventory[i] != null && pl.inventory[i].type > 0 && pl.inventory[i].pick > 0) return i;
+            return -1;
+        }
+
+        private static int FindAxe(Player pl)
+        {
+            for (int i = 0; i < pl.inventory.Length; i++)
+                if (pl.inventory[i] != null && pl.inventory[i].type > 0 && pl.inventory[i].axe > 0) return i;
+            return -1;
+        }
+
+        private static int FindItemForTile(Player pl, int tileType)
+        {
+            for (int i = 0; i < pl.inventory.Length; i++)
+            {
+                Item it = pl.inventory[i];
+                if (it != null && it.type > 0 && it.stack > 0 && it.createTile == tileType) return i;
+            }
+            return -1;
+        }
+
+        private static int FindItemForWall(Player pl, int wallType)
+        {
+            for (int i = 0; i < pl.inventory.Length; i++)
+            {
+                Item it = pl.inventory[i];
+                if (it != null && it.type > 0 && it.stack > 0 && it.createWall == wallType) return i;
+            }
+            return -1;
+        }
+
+        private static string StartSwing(int slot, int x, int y, int ms, bool right)
+        {
+            Player pl = P;
+            pl.selectedItem = slot;
+            BridgeSystem.SetAim(x, y);
+            bool onScreen = BridgeSystem.ApplyAim();
+            ulong until = BridgeSystem.Now + BridgeSystem.Ticks(ms);
+            if (right) BridgeSystem.UseTileUntil = until;
+            else BridgeSystem.UseUntil = until;
+            if (right) pl.controlUseTile = true; else pl.controlUseItem = true;
+            BridgeSystem.AimUntil = until + 20;
+            Item held = pl.inventory[slot];
+            return Json.Ok(new
+            {
+                mode = "player",
+                x,
+                y,
+                slot,
+                held = held == null ? null : new { type = held.type, name = held.Name, stack = held.stack },
+                right,
+                ms,
+                untilTick = until,
+                aimed = BridgeSystem.AimTileX == x && BridgeSystem.AimTileY == y,
+                onScreen,
+                hint = "已经掏出物品在挥动；等一下用 tile / inventory 确认结果。",
+            });
+        }
+
+        /// <summary>Arm a swing with whatever tool the tile needs. Returns null on success.</summary>
+        private static string BeginPlayerMine(int x, int y, int ms)
+        {
+            Player pl = P;
+            if (pl.dead) return "玩家已死亡，请先复活";
+            if (!BridgeSystem.InReach(pl, x, y)) return "够不到：离这一格超过 7 格，先走过去再挖";
+            Tile t = Main.tile[x, y];
+            bool needsAxe = t.TileType == TileID.Trees || t.TileType == TileID.PalmTree;
+            int slot = needsAxe ? FindAxe(pl) : FindPickaxe(pl);
+            if (slot < 0) return needsAxe ? "背包里没有斧头，砍树需要斧头" : "背包里没有镐子，挖方块需要镐子";
+            return StartSwing(slot, x, y, ms, false);
+        }
+
         private static string Mine(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
             int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
             if (x < 0 || y < 0) return Json.Error("mine 需要 x,y（方块坐标）");
             if (!InBounds(x, y)) return Json.Error($"out of world bounds: {x},{y}");
+            bool admin = Json.Bool(p, "admin", false);
+            if (!admin)
+            {
+                // Player mode: take out a pickaxe/axe, aim at the tile and swing. The game
+                // decides whether it breaks, drops items and consumes tool durability.
+                if (!HasPlayer(out string perr)) return Json.Error(perr);
+                string started = BeginPlayerMine(x, y, Math.Clamp(Json.Int(p, "ms", 900), 100, 4000));
+                if (started != null && started.StartsWith("{")) return started;
+                if (started != null) return Json.Error(started);
+                return Json.Error("empty player-mode response");
+            }
             bool noItem = Json.Bool(p, "noItem", false);
             // Walls are a separate decision: WorldGen.KillWall ignores noItem and walls drive
             // housing validity, so removing them must be opt-in.
@@ -406,16 +495,83 @@ namespace DshTerrariaBridge
             int type = Json.Int(p, "type", -1);
             int style = Json.Int(p, "style", 0);
             bool forced = Json.Bool(p, "forced", true);
+            bool admin = Json.Bool(p, "admin", false);
             if (x < 0 || y < 0) return Json.Error("place 需要 x,y");
             if (type < 0) return Json.Error("place 需要 type（方块类型 ID）");
-            if (!ValidTileType(type)) return Json.Error($"invalid tile type {type} (1..{TileID.Count - 1})");
+            if (!ValidTileType(type)) return Json.Error($"invalid tile type {type} (0..{TileID.Count - 1}; 0 is Dirt)");
             if (!InBounds(x, y)) return Json.Error($"out of world bounds: {x},{y}");
+            if (!admin)
+            {
+                // Player mode: the block has to exist in the inventory, we select it and aim.
+                if (!HasPlayer(out string perr)) return Json.Error(perr);
+                Player pl = P;
+                if (pl.dead) return Json.Error("玩家已死亡，请先复活");
+                if (!BridgeSystem.InReach(pl, x, y)) return Json.Error("够不到：离这一格超过 7 格，先走过去");
+                int slot = FindItemForTile(pl, type);
+                if (slot < 0) return Json.Error($"背包里没有能放置 {TileID.Search.GetName(type)} 的物品");
+                int ms = Math.Clamp(Json.Int(p, "ms", 260), 100, 2000);
+                string started = StartSwing(slot, x, y, ms, false);
+                return started;
+            }
             bool ok = WorldGen.PlaceTile(x, y, type, false, forced, -1, style);
             int after = TileCode(Main.tile[x, y]);
             // WorldGen.PlaceTile returns true in cases where nothing actually changed
             // (an existing tile it refused to replace). Report what is really there.
             bool placed = after == type;
             return Json.Ok(new { ok = placed, placed, worldGenOk = ok, x, y, requested = type, after });
+        }
+
+        /// <summary>
+        /// Background walls. Housing (and therefore every NPC) depends on walls, and no other
+        /// command can place them, so "build a house" was impossible before this.
+        /// </summary>
+        private static string Wall(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
+            if (x < 0 || y < 0) return Json.Error("wall 需要 x,y（方块坐标）");
+            if (!InBounds(x, y)) return Json.Error($"out of world bounds: {x},{y}");
+            int type = Json.Int(p, "type", WallID.Dirt);
+            bool remove = Json.Bool(p, "remove", false);
+            bool admin = Json.Bool(p, "admin", false);
+            if (!admin)
+            {
+                if (!HasPlayer(out string perr)) return Json.Error(perr);
+                Player pl = P;
+                if (pl.dead) return Json.Error("玩家已死亡，请先复活");
+                if (!BridgeSystem.InReach(pl, x, y)) return Json.Error("够不到：离这一格超过 7 格，先走过去");
+                int slot;
+                if (remove)
+                {
+                    // Removing a wall in vanilla needs a hammer.
+                    slot = -1;
+                    for (int i = 0; i < pl.inventory.Length; i++)
+                        if (pl.inventory[i] != null && pl.inventory[i].hammer > 0) { slot = i; break; }
+                    if (slot < 0) return Json.Error("背包里没有锤子，拆墙需要锤子");
+                }
+                else
+                {
+                    slot = FindItemForWall(pl, type);
+                    if (slot < 0) return Json.Error($"背包里没有能放置该墙的物品（wall id {type}）");
+                }
+                int ms = Math.Clamp(Json.Int(p, "ms", 260), 100, 2000);
+                return StartSwing(slot, x, y, ms, true);
+            }
+            Tile t = Main.tile[x, y];
+            int before = t.WallType;
+            if (remove)
+            {
+                if (before != 0) WorldGen.KillWall(x, y, false);
+            }
+            else
+            {
+                if (type <= 0 || type >= WallID.Count) return Json.Error($"invalid wall type {type} (1..{WallID.Count - 1})");
+                if (t.HasTile) return Json.Error("这一格有方块挡着，先 mine 掉再放墙");
+                WorldGen.PlaceWall(x, y, type, false);
+            }
+            int after = Main.tile[x, y].WallType;
+            bool ok = remove ? after == 0 : after == type;
+            return Json.Ok(new { ok, x, y, remove, requested = remove ? 0 : type, before, after });
         }
 
         private static string Teleport(JsonElement p)
@@ -506,6 +662,15 @@ namespace DshTerrariaBridge
             if (slot >= 0 && slot < pl.inventory.Length) pl.selectedItem = slot;
             bool right = Json.Bool(p, "right", false);
             int ms = Math.Clamp(Json.Int(p, "ms", 220), 1, 5000);
+            // Optional aim: point the in-game cursor at a tile first, so a swing/shoot has
+            // a direction instead of "wherever the mouse happened to be".
+            int aimX = Json.Int(p, "x", int.MinValue), aimY = Json.Int(p, "y", int.MinValue);
+            if (aimX != int.MinValue && aimY != int.MinValue)
+            {
+                BridgeSystem.SetAim(aimX, aimY);
+                BridgeSystem.AimUntil = BridgeSystem.Now + BridgeSystem.Ticks(ms) + 20;
+                BridgeSystem.ApplyAim();
+            }
             ulong until = BridgeSystem.Now + BridgeSystem.Ticks(ms);
             if (right)
             {
@@ -885,8 +1050,13 @@ namespace DshTerrariaBridge
             int type = Json.Int(p, "type", 0);
             int stack = Math.Clamp(Json.Int(p, "stack", 1), 1, 9999);
             if (!ValidItemType(type)) return Json.Error($"invalid item type {type}: 不是有效的物品 ID");
-            P.QuickSpawnItem(new EntitySource_Misc("dsh-bridge"), type, stack);
-            return Json.Ok(new { type, stack, name = Lang.GetItemNameValue(type) });
+            Player pl = P;
+            // Put it in the inventory. QuickSpawnItem drops it on the floor and relies on the
+            // pickup delay, so "give then craft" used to fail intermittently.
+            int added = AddToInventory(pl, type, stack);
+            int dropped = stack - added;
+            if (dropped > 0) pl.QuickSpawnItem(new EntitySource_Misc("dsh-bridge"), type, dropped);
+            return Json.Ok(new { type, stack, name = Lang.GetItemNameValue(type), added, dropped });
         }
 
         private static string Npcs(JsonElement p)

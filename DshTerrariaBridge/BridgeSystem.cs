@@ -277,6 +277,47 @@ namespace DshTerrariaBridge
             }
             if (UseUntil > now) p.controlUseItem = true;
             if (UseTileUntil > now) p.controlUseTile = true;
+            // Drop the aim once the action is over, so a stale target does not steer the
+            // next thing the player does.
+            if (AimUntil != 0 && now > AimUntil) { AimTileX = -1; AimTileY = -1; AimUntil = 0; }
+        }
+
+        /* ── 拟人瞄准：把游戏内光标指到某个方块 ───────────────────────────
+         * Terraria 每帧都会从物理鼠标重算 Main.mouseX/MouseWorld，所以瞄准必须
+         * 在 Player.Update 之前（ModPlayer.PreUpdate）持续写入，否则会被覆盖。
+         * 这样物品使用（挖掘/放置/攻击）走的就是原版逻辑：工具、动画、冷却、耗材。
+         */
+        internal static volatile int AimTileX = -1, AimTileY = -1;
+        internal static ulong AimUntil;
+
+        internal static void SetAim(int x, int y) { AimTileX = x; AimTileY = y; }
+        internal static void ClearAim() { AimTileX = -1; AimTileY = -1; }
+
+        /// <summary>Point the in-game cursor at a tile. Returns false if it is off-screen.</summary>
+        internal static bool ApplyAim()
+        {
+            int tx = AimTileX, ty = AimTileY;
+            if (tx < 0 || ty < 0) return false;
+            float worldX = tx * 16f + 8f;
+            float worldY = ty * 16f + 8f;
+            float screenX = worldX - Main.screenPosition.X;
+            float screenY = worldY - Main.screenPosition.Y;
+            // Main.MouseWorld is read-only in 1.4.4 (derived from the mouse position), so the
+            // cursor is driven through the raw coordinates; tile interactions read
+            // Player.tileTargetX/Y, which are static and are what placement/mine actually use.
+            Main.mouseX = (int)screenX;
+            Main.mouseY = (int)screenY;
+            Player.tileTargetX = tx;
+            Player.tileTargetY = ty;
+            return screenX >= 0 && screenY >= 0 && screenX < Main.screenWidth && screenY < Main.screenHeight;
+        }
+
+        /// <summary>Is that tile inside the player's reach (~7 tiles, like a human)?</summary>
+        internal static bool InReach(Player p, int tx, int ty, int tiles = 7)
+        {
+            if (p == null || !p.active) return false;
+            float cx = p.Center.X / 16f, cy = p.Center.Y / 16f;
+            return Math.Abs(cx - tx) <= tiles && Math.Abs(cy - ty) <= tiles;
         }
 
         /// <summary>Arm one jump for the given deadline (a single ground impulse).</summary>
@@ -522,7 +563,11 @@ namespace DshTerrariaBridge
 
     public class DshControlPlayer : ModPlayer
     {
-        public override void PreUpdate() => BridgeSystem.ApplyControls(Player);
+        public override void PreUpdate()
+        {
+            BridgeSystem.ApplyAim();
+            BridgeSystem.ApplyControls(Player);
+        }
 
         // 真正逐帧生效的地方：Player.Update 结束时再推一次速度/标志
         public override void PostUpdate()

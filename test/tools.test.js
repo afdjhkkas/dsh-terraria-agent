@@ -75,7 +75,7 @@ test('required coordinates are refused instead of defaulting to 0', async () => 
 test('ids are validated before they reach the game', async () => {
   await withBridge(async ({ exec, seen }) => {
     await assert.rejects(() => exec('terraria_give_item', { type: 0 }), /type must be between 1/)
-    await assert.rejects(() => exec('terraria_place', { x: 1, y: 2, type: -5 }), /type must be between 1/)
+    await assert.rejects(() => exec('terraria_place', { x: 1, y: 2, type: -5 }), /type must be between 0/)
     await assert.rejects(() => exec('terraria_craft', { item: 0 }), /item must be between 1/)
     await assert.rejects(() => exec('terraria_chat', { text: '   ' }), /must not be blank/)
     await assert.rejects(() => exec('terraria_move', { direction: 'sideways' }), /"direction" must be one of/)
@@ -146,4 +146,22 @@ test('a paused game gets an actionable hint', async () => {
     dispose()
     await new Promise(resolve => server.close(resolve))
   }
+})
+test('tile type 0 (Dirt) is a legal placement', async () => {
+  await withBridge(async ({ exec, seen }) => {
+    await exec('terraria_place', { x: 10, y: 20, type: 0 })
+    // Player mode places, then re-reads the tile to verify, so there is more than one call.
+    assert.equal(seen[0].cmd, 'place')
+    assert.equal(seen[0].params.type, 0, 'dirt must survive argument mapping')
+    assert.equal(seen[1].cmd, 'tile')
+  })
+})
+
+test('the wall command reaches the bridge with its wall id', async () => {
+  await withBridge(async ({ exec, seen }) => {
+    await exec('terraria_wall', { x: 3, y: 4, type: 2 })
+    assert.deepEqual(seen[0].cmd, 'wall')
+    assert.deepEqual(seen[0].params, { x: 3, y: 4, type: 2 })
+    await assert.rejects(() => exec('terraria_wall', { x: 3, y: 4, type: 0 }), /type must be between 1/)
+  })
 })

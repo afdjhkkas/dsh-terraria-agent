@@ -92,15 +92,29 @@ params: `x`,`y` (**required**; missing → error, never a default coordinate).
 `type` is `-1` when `hasTile` is false.
 
 ### `mine`
-params: `x`,`y` (required), `noItem?` (default false), `walls?` (default false)
+params: `x`,`y` (required), `ms?` (100..4000, default 900), `noItem?`, `walls?`, `admin?`
 
-Removes the tile; only removes the background wall when `walls:true`.
+**Player mode (default):** the bridge selects the pickaxe (axe for trees) the player owns,
+aims the in-game cursor at the tile and holds the swing for `ms`. The game decides whether
+the tile breaks, drops the item and wears the tool — a tile that is out of reach or needs a
+better pickaxe simply does not break, and the caller sees it. The command returns as soon as
+the swing starts (`{mode:"player",tool,aimed,untilTick}`); verify with `tile` afterwards.
+
+**Admin mode (`admin:true`):** edits the world directly with no tool and no reach limit.
+That is cheating; it exists for tests and screenshots, and it must not be used to claim the
+agent "played" something.
+
+Admin mode fields: removes the tile, and the background wall only when `walls:true`.
 `{ok,x,y,removedTile,removedWall,before,after,wallBefore,wall}`
 `before`/`after` use the `-1` empty convention. `noItem` suppresses item drops for the tile
 (and for the wall when `walls:true`).
 
 ### `place`
-params: `x`,`y`,`type` (required, `1..TileID.Count-1`), `style?`, `forced?`
+params: `x`,`y`,`type` (required, `0..TileID.Count-1` — **0 is Dirt**, not "empty"), `style?`, `forced?`, `admin?`
+
+**Player mode (default):** finds an item in the inventory whose `createTile` is `type`,
+selects it, aims and places — so the stack is consumed and the block must be in hand.
+**Admin mode (`admin:true`):** places without an item consumed (cheating).
 
 `{ok,placed,worldGenOk,x,y,requested,after}` — `after` is the type actually present afterwards
 (`-1` = empty) and `ok`/`placed` are true only when the requested type is really there now.
@@ -148,6 +162,13 @@ own use time. Returns immediately unless `wait:true`, in which case it holds for
 ### `stop`
 `{stopped:true}` — clears movement/jump/use/attack holds. Does not erase `attack.last`.
 
+### `wall`
+params: `x`,`y` (required), `type?` (default 2 = wood wall), `remove?` (default false)
+
+Places or removes a background wall. Housing — and therefore every NPC — depends on
+walls, and no other command can place them.
+`{ok,x,y,remove,requested,before,after}`; the cell must have no block in it first.
+
 ### `teleport`
 params: `x`,`y` (required, finite, inside the world)
 
@@ -171,6 +192,8 @@ landed in the inventory; anything dropped on the floor is reported separately as
 ### `give`
 params: `type` (required, must be a real item id), `stack?` (1..9999)
 
+Puts the stack straight into the inventory; anything that does not fit is dropped at the
+player's feet.
 `{type,stack,name,added,dropped}`
 
 ### `spawn_npc`
@@ -224,6 +247,11 @@ before retrying.
   invincibility frames, and keeps `attack.last` after the task ends (and after `stop`).
 - `jump` applies a single ground impulse; wings are left to vanilla.
 - `inventory` exposes equipment and `canFly`.
+- `give` inserts into the inventory instead of dropping on the floor (so "give then
+  craft" works without waiting for the pickup delay).
+- `place` accepts tile type 0 (Dirt); it used to reject the most common block.
+- `attack` also allows targets within ~2 tiles even when the line-of-sight check fails.
+- new `wall` command: place/remove background walls, which housing requires.
 - `ping`/`state` expose `paused` and `hasFocus`; tick-driven commands refuse while paused.
 - Requests may carry `req` and get it echoed.
 - The 1500 ms timeout error distinguishes "already started, it WILL happen" from

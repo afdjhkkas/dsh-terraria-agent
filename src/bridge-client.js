@@ -57,7 +57,9 @@ function classifyLine(line, req) {
     return { kind: 'invalid', reason: 'response must be a JSON object' }
   }
   if (typeof parsed.ok !== 'boolean') return { kind: 'skip' }
-  if (isReqToken(parsed.req) && parsed.req !== req) return { kind: 'skip' }
+  // Compare as text: the bridge may echo a numeric id as a string (or vice versa),
+  // and a strict !== would treat every answer as somebody else's and time out.
+  if (isReqToken(parsed.req) && String(parsed.req) !== String(req)) return { kind: 'skip' }
   if (parsed.ok !== true) {
     return { kind: 'failure', message: String(parsed.error ?? 'Terraria bridge rejected the command.') }
   }
