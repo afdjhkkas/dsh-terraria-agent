@@ -33,6 +33,7 @@ namespace DshTerrariaBridge
                 case "mine": return Mine(p);
                 case "mirror": return MirrorHome(p);
                 case "accessory": return Accessory(p);
+                case "walkto": return WalkTo(p);
                 case "housing": return Housing(p);
                 case "needs": return RoomDiagnostics(p);
                 case "items": return DroppedItems(p);
@@ -228,6 +229,13 @@ namespace DshTerrariaBridge
                     hpPercent = pl.statLifeMax2 > 0 ? (int)(100f * pl.statLife / pl.statLifeMax2) : 0,
                 };
                 data["attack"] = BridgeSystem.AttackStatus();
+                data["walk"] = new
+                {
+                    active = BridgeSystem.WalkActive,
+                    target = new { x = BridgeSystem.WalkX, y = BridgeSystem.WalkY },
+                    tol = BridgeSystem.WalkTol,
+                    stop = BridgeSystem.WalkStop,
+                };
                 // Diagnostics: when a player-mode action "swings but nothing happens",
                 // this says whether the synthetic input was actually active.
                 data["input"] = new
@@ -1085,6 +1093,22 @@ namespace DshTerrariaBridge
         /// Take an accessory off (or put it back). Needed to measure base movement: wings change
         /// jump height and flight entirely, so any jump measurement has to happen without them.
         /// </summary>
+        /// <summary>
+        /// 朝一个方块坐标走过去：逐帧驱动（遇墙挖、遇坑跳、泡水上浮、见岩浆/死亡停）。
+        /// 非阻塞：命令立刻返回，用 state.walk 看进度和停止原因。
+        /// </summary>
+        private static string WalkTo(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
+            if (x < 0 || y < 0) return Json.Error("walkto 需要 x,y");
+            int tol = Json.Int(p, "tol", 1);
+            int ms = Json.Int(p, "ms", 15000);
+            BridgeSystem.BeginWalk(x, y, tol, BridgeSystem.Now + BridgeSystem.Ticks(ms));
+            return Json.Ok(new { target = new { x, y }, tol, ms });
+        }
+
         private static string Accessory(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);

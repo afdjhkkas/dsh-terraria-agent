@@ -269,6 +269,140 @@ namespace DshTerrariaBridge
             DrainPending();
         }
 
+        /* ── walkto：朝目标坐标自己走 ─────────────────────────────────────
+         * 之前只有 move(方向,时长)，代理只能一味朝一个方向推，掉洞、卡墙、淹死全靠运气。
+         * 这里做成逐帧的闭环：算方向、遇墙挖、遇坑跳、泡水就上浮、碰到岩浆或死亡就停。
+         */
+        internal static bool WalkActive;
+        internal static int WalkX, WalkY, WalkTol = 1;
+        internal static string WalkStop = "";
+        internal static ulong WalkDeadline;
+        private static ulong WalkNextJump, WalkNextMine;
+        private static int WalkLastPx, WalkStuck;
+
+        internal static void BeginWalk(int x, int y, int tol, ulong until)
+        {
+            WalkActive = true; WalkX = x; WalkY = y;
+            WalkTol = Math.Max(0, tol); WalkDeadline = until;
+            WalkStop = ""; WalkNextJump = 0; WalkNextMine = 0; WalkStuck = 0; WalkLastPx = -99999;
+        }
+
+        internal static void StopWalk(string reason)
+        {
+            if (!WalkActive) return;
+            WalkActive = false; WalkStop = reason;
+            Player p = Main.LocalPlayer;
+            if (p != null) { p.controlLeft = false; p.controlRight = false; p.controlJump = false; }
+        }
+
+        private static bool TileSolid(int x, int y)
+        {
+            if (x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY) return true;
+            Tile t = Main.tile[x, y];
+            return t.HasTile && Main.tileSolid[t.TileType];
+        }
+
+        private static void WalkJump(float tiles = 2.4f)
+        {
+            if (Now < WalkNextJump) return;
+            Player p = Main.LocalPlayer;
+            if (p == null) return;
+            if (!(p.velocity.Y == 0f && p.oldVelocity.Y == 0f)) return;
+            float g = p.gravity > 0.05f ? p.gravity : 0.4f;
+            p.velocity.Y = -(float)Math.Sqrt(2.0 * g * tiles * 16.0);
+            p.controlJump = true;
+            WalkNextJump = Now + 6;
+        }
+
+        private static void WalkMine(int x, int y)
+        {
+            if (Now < WalkNextMine) return;
+            Player p = Main.LocalPlayer;
+            if (p == null) return;
+            int slot = -1;
+            for (int i = 0; i < p.inventory.Length; i++)
+            {
+                Item it = p.inventory[i];
+                if (it != null && it.type > 0 && it.pick > 0) { slot = i; break; }
+            }
+            if (slot < 0) return;
+            Tile t = Main.tile[x, y];
+            if (!t.HasTile) return;
+            p.selectedItem = slot;
+            if (Main.tileAxe[t.TileType]) WorldGen.KillTile(x, y, false, false, false);
+            else p.PickTile(x, y, p.inventory[slot].pick);
+            p.SetItemAnimation(Math.Max(1, p.inventory[slot].useAnimation));
+            p.SetItemTime(Math.Max(1, p.inventory[slot].useTime));
+            p.direction = x * 16f >= p.Center.X ? 1 : -1;
+            WalkNextMine = Now + 7;
+        }
+
+        private static void TickWalk()
+        {
+            if (!WalkActive) return;
+            Player p = Main.LocalPlayer;
+            if (p == null || !p.active || p.dead) { StopWalk("dead"); return; }
+            if (Now > WalkDeadline) { StopWalk("timeout"); return; }
+            if (p.lavaWet) { StopWalk("lava"); return; }
+            if (p.wet) { p.velocity.Y = Math.Min(p.velocity.Y, -3.0f); return; }
+
+            int px = (int)(p.Center.X / 16f), py = (int)(p.Center.Y / 16f);
+            int dx = WalkX - px, dy = WalkY - py;
+            if (Math.Abs(dx) <= WalkTol && Math.Abs(dy) <= WalkTol) { StopWalk("arrived"); return; }
+
+            int sign = Math.Sign(dx);
+            if (sign == 0) return;
+
+            // 卡住自救：位置连续多帧几乎不动，就把前方 3 行挖开再跳
+            if (Math.Abs(px - WalkLastPx) <= 0) WalkStuck++;
+            else { WalkStuck = 0; WalkLastPx = px; }
+            if (WalkStuck > 10)
+            {
+                for (int dy2 = -1; dy2 <= 1; dy2++)
+                    if (TileSolid(px + sign, py + dy2)) WalkMine(px + sign, py + dy2);
+                WalkJump(3.2f);
+                WalkStuck = 0;
+            }
+
+            // 悬崖保护：前方 4 格内没有地面就不要往前冲（以前会直接掉几十格）
+            int floorDepth = 0;
+            bool floorFound = false;
+            for (int k = 1; k <= 4; k++)
+            {
+                if (TileSolid(px + sign, py + k)) { floorFound = true; floorDepth = k; break; }
+            }
+            if (!floorFound)
+            {
+                // 前方是深坑：停在原地，把决定权交回调用方（不要盲跳）
+                StopWalk("cliff");
+                return;
+            }
+            bool gapAhead = floorDepth >= 2;
+
+            bool bodyBlocked = TileSolid(px + sign, py);
+            bool headBlocked = TileSolid(px + sign, py - 1);
+            bool stepBlocked = TileSolid(px + sign, py + 1);
+
+            if (headBlocked) WalkMine(px + sign, py - 1);
+            else if (bodyBlocked)
+            {
+                if (stepBlocked) WalkMine(px + sign, py);       // 一堵墙，挖
+                else WalkJump(2.6f);                            // 只有台阶，跳
+            }
+            if (gapAhead) WalkJump(2.6f);                        // 1-3 格的小缺口，跳
+
+            p.controlLeft |= sign < 0;
+            p.controlRight |= sign > 0;
+            p.velocity.X = sign * 2.9f;
+            p.direction = sign;
+            if (dy < -1) { p.controlUp = true; WalkJump(2.8f); }
+            else if (dy > 2)
+            {
+                // 目标在下面：挖脚下的方块往下走
+                if (TileSolid(px, py + 2)) WalkMine(px, py + 2);
+            }
+        }
+
         /// <summary>
         /// 移动兜底：control 标志在 Player.Update 里会被真实按键状态覆盖，
         /// 所以除设置标志外，每帧直接把速度推向目标方向（碰撞/重力仍由游戏解算）。
@@ -278,6 +412,8 @@ namespace DshTerrariaBridge
             Player p = Main.LocalPlayer;
             if (p == null || !p.active || p.dead) return;
             ulong now = Main.GameUpdateCount;
+
+            if (WalkActive) { TickWalk(); return; }
 
             float dir = 0f;
             if (LeftUntil > now) dir -= 1f;
