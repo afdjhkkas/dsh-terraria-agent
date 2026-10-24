@@ -207,6 +207,13 @@ namespace DshTerrariaBridge
                     selected = pl.selectedItem,
                     held = new { type = pl.HeldItem.type, name = pl.HeldItem.Name, stack = pl.HeldItem.stack },
                     buffs = Buffs(pl),
+                    // Survival readings. Digging without watching these is how the agent drowned
+                    // and kept swinging: breath runs out under water and lava kills in seconds.
+                    breath = pl.breath,
+                    breathMax = pl.breathMax,
+                    lavaWet = pl.lavaWet,
+                    honeyWet = pl.honeyWet,
+                    hpPercent = pl.statLifeMax2 > 0 ? (int)(100f * pl.statLife / pl.statLifeMax2) : 0,
                 };
                 data["attack"] = BridgeSystem.AttackStatus();
                 // Diagnostics: when a player-mode action "swings but nothing happens",

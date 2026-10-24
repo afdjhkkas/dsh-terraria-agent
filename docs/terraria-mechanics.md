@@ -131,6 +131,28 @@ exist when judging whether an action was legitimately earned.
   top-down, then walks. A move that produces no displacement is almost always a
   solid tile in one of those rows, not a broken game.
 
+## Underground: light first, then dig `[measured]`
+
+Digging without light is not just unpleasant, it removes the agent's only way to notice danger:
+the screen is black and a screenshot shows nothing. A player carries torches and puts one down
+every few tiles; the agent must do the same, or it cannot see water, lava, or a cave with
+monsters in it.
+
+Survival readings that must be watched while working, not after:
+
+- `breath` (drowning under water) - `state` now exposes `breath/breathMax`,
+- `lavaWet`, `wet`,
+- `hpPercent` and `dead`.
+
+Reactive-only watching (waiting for hp to drop) is too late for lava and for drowning; check the
+readings *and* look at the screen between steps.
+
+## Dig away from the base `[measured]`
+
+Digging straight down from inside a house punches through its floor and voids the room's housing
+check. Any mining shaft starts at least ~15 tiles from the nearest player-built wall; repair
+immediately (place the missing floor tiles back, then confirm `housing` reports true again).
+
 ## Never add an API that can create items `[measured]`
 
 A `WorldGen.PlaceObject` shortcut was added to place furniture reliably. It worked - and it also
