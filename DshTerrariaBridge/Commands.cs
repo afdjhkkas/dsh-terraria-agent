@@ -479,7 +479,10 @@ namespace DshTerrariaBridge
             if (pl.dead) return "玩家已死亡，请先复活";
             if (!BridgeSystem.InReach(pl, x, y)) return "够不到：离这一格超过 7 格，先走过去再挖";
             Tile t = Main.tile[x, y];
-            bool needsAxe = t.TileType == TileID.Trees || t.TileType == TileID.PalmTree;
+            // Which tool a tile needs is a game fact, not a guess: Main.tileAxe marks every
+            // tree-like tile (palm, vanity trees, cactus...). Checking only TileID.Trees made the
+            // agent swing a pickaxe at a vanity tree and conclude the tile was unbreakable.
+            bool needsAxe = t.HasTile && Main.tileAxe[t.TileType];
             int slot = needsAxe ? FindAxe(pl) : FindPickaxe(pl);
             if (slot < 0) return needsAxe ? "背包里没有斧头，砍树需要斧头" : "背包里没有镐子，挖方块需要镐子";
 

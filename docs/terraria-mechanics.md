@@ -131,6 +131,17 @@ exist when judging whether an action was legitimately earned.
   top-down, then walks. A move that produces no displacement is almost always a
   solid tile in one of those rows, not a broken game.
 
+## Which tool a tile needs is a game fact: `Main.tileAxe` `[measured]`
+
+Chopping trees with the pickaxe does nothing, and the agent concluded "this tile cannot be
+broken". The real cause: tool selection only treated `TileID.Trees`/`PalmTree` as axe work, so
+vanity trees and other tree-like tiles were hit with a pickaxe forever. The game already exposes
+the answer - `Main.tileAxe[tileType]` - and using it makes every tree choppable.
+
+When a tile will not break, check in this order: is the right tool in hand (log the held item the
+swing actually used), is the cell within reach, is the aim actually on that cell (`state.input.aim`
+vs `target`), and only then suspect the tile itself.
+
 ## Underground: light first, then dig `[measured]`
 
 Digging without light is not just unpleasant, it removes the agent's only way to notice danger:
