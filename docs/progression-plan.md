@@ -54,7 +54,8 @@
 | 装备武器/工具 | `use slot` | 半 | 快捷栏切换可用 |
 | 穿戴护甲/饰品 | `accessory` | 半 | 饰品已实现；护甲槽未做 |
 | 打开/取放箱子 | `chest` | **缺** | 早期装备、钱、材料都在箱子里 |
-| 商店：查看/购买/出售 | `talk` + `shop` / `buy` | 半 | 真实对话能开（talKNPC/npcShop 都有值），但读不到已打开的商店容器；商店定义本身存在（id=1 里有铁砧 50 银、矿工头盔 400 银） |
+| 商店：查看/购买 | `talk` + `shop {shopId}` + `buy` | **有** | 走到 NPC 旁 `talk` 真实对话；`shop {shopId:1}` 列出商人 14 件商品；`buy` 走 `Player.BuyItem` 真扣钱（实测火把 50 铜，1138→1088） |
+| 商店：自动识别商店 id | —— | **缺** | `NPCShopDatabase.GetShopName` 给出 `Terraria/Merchant/商人Wilbur`，但 `TryGetNPCShop` 与 `GetShopNameFromVanillaIndex` 都取不到，目前靠实测映射（**商人 = 1**） |
 | 丢弃物品（腾格子） | `drop` | **缺** | 背包满会卡住合成/拾取 |
 | 血量/魔力恢复 | `heal`（喝药水） | **缺** | 战斗与挖掘的安全网 |
 | Boss 状态（是否在场/血量） | `boss` | **缺** | 决定召唤/撤离/继续输出 |
@@ -101,3 +102,18 @@
 4. **水先上浮**：`wet` 时直接给向上速度，避免继续下沉；`lava` 立刻停。
 5. **非阻塞**：命令立刻返回，靠 `state.walk`（active/target/stop）观察进度。
 6. 坑不是跳就是填：桥只负责"停"，脚本层 `goto` 用**真实放置流程**补砖，再继续走。
+
+## 七、商店链路（第 36 轮，已验证）
+
+实测出来的事实：
+
+- `Main.instance.shop` 只有 **2 个容器**；`Main.SetNPCShopIndex(...)` **不会**往容器里填东西。
+- `Main.instance.shop[0].SetupShop(shopId)` **会**填，且 `shopId` 不是 NPC 类型：
+  - **shopId = 1 → 商人**（挖矿头盔 400 银 / 存钱罐 100 / **铁砧 50** / 虫网 25 / 铜镐 5 / 铜斧 4 / 火把 0.5 …共 14 件）
+  - shopId = 17 → 海盗（大炮/炮弹/海盗装）
+- `Player.BuyItem(price)` 真扣钱：买火把后 1138 → 1088 铜，物品进背包。
+- 交互必须真实：先 `talk`（`Player.SetTalkNPC`）再 `shop`/`buy`，否则直接报"还没有和 NPC 对话"。
+
+**已知缺口**：NPC → shopId 的自动映射还没解决（`GetShopName` 返回的组合键在 `NPCShopDatabase` 里查不到）。
+临时办法：按实测表传 `shopId`（商人 = 1）。要买铁砧（50 银）还差约 39 银，下一步是修 `sell`
+（现在卖东西是把硬币掉在地上，应该直接进背包）。

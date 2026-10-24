@@ -43,6 +43,7 @@ namespace DshTerrariaBridge
                 case "api": return ApiLookup(p);
                 case "talk": return TalkTo(p);
                 case "shop": return ShopList(p);
+                case "shopdebug": return ShopDebug(p);
                 case "shops": return ShopFind(p);
                 case "buy": return ShopBuy(p);
                 case "sell": return ShopSell(p);
@@ -828,27 +829,103 @@ namespace DshTerrariaBridge
             return Json.Ok(new { want, scanned = max, hits });
         }
 
+        /// <summary>
+        /// 诊断：把几种"打开商店"的方式都试一次，报告每种方式下每个商店容器里有几件商品。
+        /// 目标是找出与 UI 等价的那条路径，而不是继续猜。
+        /// </summary>
+        private static string ShopDebug(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            NPC npc = NearbyTownNPC(pl, Json.Int(p, "npc", -1), out float d);
+            if (npc == null) return Json.Error("附近没有城市 NPC");
+            int hands = Main.instance.shop.Length;
+            var report = new List<object>();
+            int Count(Chest c)
+            {
+                int n = 0;
+                if (c?.item == null) return 0;
+                foreach (Item it in c.item) if (it != null && it.type > 0) n++;
+                return n;
+            }
+            void Snap(string how)
+            {
+                var counts = new List<int>();
+                for (int i = 0; i < hands; i++) counts.Add(Count(Main.instance.shop[i]));
+                report.Add(new { how, npcShop = Main.npcShop, counts });
+            }
+
+            Snap("初始");
+            Main.SetNPCShopIndex(npc.type); Snap("SetNPCShopIndex(npc.type)");
+            Main.SetNPCShopIndex(1); Snap("SetNPCShopIndex(1)");
+            for (int i = 0; i < hands; i++)
+            {
+                Main.instance.shop[i].SetupShop(1);
+                Snap("shop[" + i + "].SetupShop(1)");
+            }
+            Main.instance.shop[0].SetupShop(npc.type); Snap("shop[0].SetupShop(npc.type)");
+            return Json.Ok(new { npc = npc.FullName, npcType = npc.type, hands, report });
+        }
+
+        /// <summary>商店名在不同版本里可能是 "Terraria/Merchant" 或带 NPC 名的长键，逐个候选试。</summary>
+        private static Terraria.ModLoader.AbstractNPCShop ResolveShop(string fullName)
+        {
+            if (string.IsNullOrEmpty(fullName)) return null;
+            var cands = new List<string> { fullName };
+            string[] parts = fullName.Split('/');
+            if (parts.Length > 2) cands.Add(string.Join("/", parts, 0, 2));
+            if (parts.Length > 1) cands.Add(parts[parts.Length - 1]);
+            foreach (string cand in cands)
+            {
+                try
+                {
+                    if (NPCShopDatabase.TryGetNPCShop(cand, out Terraria.ModLoader.AbstractNPCShop shop) && shop != null)
+                        return shop;
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 找出某个 NPC 对应的「vanilla 商店 id」：用 NPCShopDatabase.GetShopNameFromVanillaIndex(id)
+        /// 反查名字，和 GetShopName(npc) 前缀匹配。拿到 id 后用 Chest.SetupShop(id) 填容器
+        /// （实测商人=1，能填出 13 件商品）。
+        /// </summary>
+        private static int ResolveVanillaShopIndex(NPC npc, out string npcShopName)
+        {
+            npcShopName = null;
+            try { npcShopName = NPCShopDatabase.GetShopName(npc.type, npc.FullName); } catch { }
+            if (string.IsNullOrEmpty(npcShopName)) return -1;
+            for (int id = 0; id < 400; id++)
+            {
+                string name = null;
+                try { name = NPCShopDatabase.GetShopNameFromVanillaIndex(id); } catch { }
+                if (string.IsNullOrEmpty(name)) continue;
+                if (npcShopName.StartsWith(name, StringComparison.OrdinalIgnoreCase)) return id;
+                if (npcShopName.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0) return id;
+            }
+            return -1;
+        }
+
         private static string ShopList(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             Player pl = P;
-            int shopId = Json.Int(p, "shopId", -1);
+            int forcedId = Json.Int(p, "shopId", -1);
             NPC npc = NearbyTownNPC(pl, Json.Int(p, "npc", -1), out float d);
-            if (npc == null && shopId < 0) return Json.Error("附近没有开店的城市 NPC，也没给 shopId");
-            if (Main.npcShop <= 0 || pl.talkNPC < 0)
-                return Json.Error("商店没有打开：先用 talk 和商人真实对话");
-            // Main.npcShop 是商店 id，不是 Chest[] 下标；把每个容器都读一遍，取非空的那个
-            Chest shop = null;
-            for (int i = 0; i < Main.instance.shop.Length; i++)
-            {
-                Chest cand = Main.instance.shop[i];
-                if (cand == null) continue;
-                foreach (Item probeItem in cand.item)
-                    if (probeItem != null && probeItem.type > 0) { shop = cand; break; }
-                if (shop != null) break;
-            }
-            if (shop == null) return Json.Error("商店容器里没有商品（对话没打开商店？）");
+            if (npc == null && forcedId < 0) return Json.Error("附近没有开店的城市 NPC，也没给 shopId");
+            if (pl.talkNPC < 0) return Json.Error("还没有和 NPC 对话：先用 talk");
+
+            int shopId = forcedId;
+            string shopName = null;
+            if (shopId < 0) shopId = ResolveVanillaShopIndex(npc, out shopName);
+            if (shopId < 0) return Json.Error($"找不到 {npc?.FullName} 对应的商店 id（name={shopName}）");
+
+            Main.instance.shop[0].SetupShop(shopId);
+            Chest shop = Main.instance.shop[0];
             var items = new List<object>();
             for (int i = 0; i < shop.item.Length; i++)
             {
@@ -856,7 +933,15 @@ namespace DshTerrariaBridge
                 if (it == null || it.type <= 0) continue;
                 items.Add(new { slot = i, id = it.type, name = it.Name, priceCopper = ShopPrice(it), stack = it.stack });
             }
-            return Json.Ok(new { npc = npc?.FullName ?? "(shopId)", npcType = npc?.type ?? -1, distance = (int)(d / 16f), items });
+            return Json.Ok(new
+            {
+                npc = npc?.FullName ?? "(shopId)",
+                shop = shopName,
+                shopId,
+                npcType = npc?.type ?? -1,
+                distance = (int)(d / 16f),
+                items,
+            });
         }
 
         private static string ShopBuy(JsonElement p)
@@ -865,23 +950,21 @@ namespace DshTerrariaBridge
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             Player pl = P;
             int slot = Json.Int(p, "slot", -1);
-            if (Main.npcShop <= 0 || pl.talkNPC < 0)
-                return Json.Error("商店没有打开：先用 talk 和商人真实对话");
-            Chest shop = null;
-            for (int i = 0; i < Main.instance.shop.Length; i++)
-            {
-                Chest cand = Main.instance.shop[i];
-                if (cand == null) continue;
-                foreach (Item probeItem in cand.item)
-                    if (probeItem != null && probeItem.type > 0) { shop = cand; break; }
-                if (shop != null) break;
-            }
-            if (shop == null) return Json.Error("商店容器里没有商品（对话没打开商店？）");
+            if (pl.talkNPC < 0) return Json.Error("还没有和 NPC 对话：先走到 NPC 旁边用 talk");
+
+            NPC npc = Main.npc[pl.talkNPC];
+            int shopId = Json.Int(p, "shopId", -1);
+            string shopName = null;
+            if (shopId < 0) shopId = ResolveVanillaShopIndex(npc, out shopName);
+            if (shopId < 0) return Json.Error($"找不到 {npc.FullName} 对应的商店 id");
+
+            Main.instance.shop[0].SetupShop(shopId);
+            Chest shop = Main.instance.shop[0];
             if (slot < 0 || slot >= shop.item.Length) return Json.Error("slot 越界");
             Item stock = shop.item[slot];
             if (stock == null || stock.type <= 0) return Json.Error("商店这个格子是空的");
-            int n = Math.Clamp(Json.Int(p, "count", 1), 1, Math.Max(1, stock.stack));
-            long price = ShopPrice(stock) * n;
+
+            long price = ShopPrice(stock);
             int freeSlot = -1;
             for (int i = 0; i < pl.inventory.Length; i++)
                 if (pl.inventory[i] != null && pl.inventory[i].type == 0) { freeSlot = i; break; }
@@ -889,9 +972,9 @@ namespace DshTerrariaBridge
             if (!pl.BuyItem(price))
                 return Json.Error($"钱不够：需要 {price} 铜币（{price / 100} 银币）");
             Item got = stock.Clone();
-            got.stack = n;
+            got.stack = 1;
             pl.inventory[freeSlot] = got;
-            return Json.Ok(new { bought = got.Name, count = n, priceCopper = price, slot = freeSlot });
+            return Json.Ok(new { bought = got.Name, priceCopper = price, slot = freeSlot, shopId });
         }
 
         private static string ShopSell(JsonElement p)
