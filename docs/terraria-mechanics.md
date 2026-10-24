@@ -163,6 +163,29 @@ by blocks with a door or platform entrance, and it contains a light source
 (torch), a comfort item (chair/bed/bench) and a flat surface item
 (table/dresser/work bench).
 
+## Doors `[measured]`
+
+A door needs, at its column:
+
+- a **solid block directly below** the bottom door tile (the floor),
+- **three free tiles** for the door itself (bottom, middle, top),
+- a **solid block directly above** the top door tile.
+
+Miss the block above and placement fails **silently**: the swing plays, nothing is consumed,
+nothing appears. This cost an hour of blind retries before it was pointed out; it is the
+single most useful "common sense" rule for housing.
+
+## Reach is smaller than it looks `[measured]`
+
+Tile interaction is refused beyond roughly five tiles from the player centre. The bridge may
+accept a request up to seven; the game then silently does nothing (no swing result, no item
+consumed). Build and dig within **four** tiles and walk between phases.
+
+## NPCs move in during the day `[wiki]`
+
+A valid room is not enough at night: town NPCs arrive while `dayTime` is true. So "the room
+is valid but nobody came" is usually just the clock.
+
 ## Progression route to the end `[wiki]`
 
 Wood and workbench -> wooden/iron gear -> valid house -> NPCs -> life crystals ->
