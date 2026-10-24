@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Terraria;
 using Terraria.ID;
@@ -289,11 +290,18 @@ namespace DshTerrariaBridge
          */
         internal static volatile int AimTileX = -1, AimTileY = -1;
         internal static ulong AimUntil;
+        internal static volatile bool UseJustStarted, UseTileJustStarted;
 
         internal static void SetAim(int x, int y) { AimTileX = x; AimTileY = y; }
         internal static void ClearAim() { AimTileX = -1; AimTileY = -1; }
 
-        /// <summary>Point the in-game cursor at a tile. Returns false if it is off-screen.</summary>
+        /// <summary>
+        /// Point the in-game cursor at a tile AND synthesize the mouse button state.
+        /// Setting controlUseItem alone is not enough: Terraria rebuilds the player's control
+        /// flags from the physical mouse every frame, so an armed action needs Main.mouseLeft /
+        /// Main.mouseRight to look pressed for that frame as well.
+        /// Returns false when the tile is off-screen.
+        /// </summary>
         internal static bool ApplyAim()
         {
             int tx = AimTileX, ty = AimTileY;
@@ -309,6 +317,18 @@ namespace DshTerrariaBridge
             Main.mouseY = (int)screenY;
             Player.tileTargetX = tx;
             Player.tileTargetY = ty;
+
+            ulong now = Main.GameUpdateCount;
+            if (UseUntil > now)
+            {
+                Main.mouseLeft = true;
+                if (UseJustStarted) { Main.mouseLeftRelease = true; UseJustStarted = false; }
+            }
+            if (UseTileUntil > now)
+            {
+                Main.mouseRight = true;
+                if (UseTileJustStarted) { Main.mouseRightRelease = true; UseTileJustStarted = false; }
+            }
             return screenX >= 0 && screenY >= 0 && screenX < Main.screenWidth && screenY < Main.screenHeight;
         }
 
@@ -319,6 +339,175 @@ namespace DshTerrariaBridge
             float cx = p.Center.X / 16f, cy = p.Center.Y / 16f;
             return Math.Abs(cx - tx) <= tiles && Math.Abs(cy - ty) <= tiles;
         }
+
+        /* ── 真实输入注入 ────────────────────────────────────────────────
+         * Terraria 每帧用物理鼠标状态覆盖玩家的控制标记，所以在 ModPlayer 钩子里写
+         * controlUseItem / Main.mouseLeft 会被冲掉（实测 itemAnimation 恒为 0）。
+         * 唯一可靠的办法就是走操作系统那条路：把光标移到目标格，按下、等、松开。
+         * 这也正是"像玩家一样操作"：游戏自己的挖掘/放置/消耗/掉落逻辑全部生效。
+         * 注入必须在后台线程做——命令本身跑在主线程，睡在那里会卡住整个游戏。
+         */
+        [StructLayout(LayoutKind.Sequential)] private struct MOUSEPOS { public int X, Y; }
+
+        [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+        [DllImport("user32.dll")] private static extern bool GetCursorPos(out MOUSEPOS p);
+        [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, IntPtr extra);
+        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hWnd, ref MOUSEPOS p);
+        [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int cmd);
+        [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern void keybd_event(byte vk, byte scan, uint flags, IntPtr extra);
+        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr pid);
+        [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
+        [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
+        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassNameW(IntPtr hWnd, StringBuilder text, int count);
+        [DllImport("user32.dll")] private static extern int GetWindowThreadProcessId(IntPtr hWnd, out int pid);
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        /// <summary>
+        /// The visible FNA window of THIS process. Main.instance.Window.Handle is not the
+        /// window Windows reports as foreground, so comparing against it always failed.
+        /// </summary>
+        private static IntPtr FindOwnWindow()
+        {
+            int myPid = System.Diagnostics.Process.GetCurrentProcess().Id;
+            IntPtr found = IntPtr.Zero;
+            EnumWindows((IntPtr h, IntPtr l) =>
+            {
+                if (!IsWindowVisible(h)) return true;
+                var name = new StringBuilder(256);
+                GetClassNameW(h, name, 256);
+                if (name.ToString() != "SDL_app") return true;
+                GetWindowThreadProcessId(h, out int pid);
+                if (pid != myPid) return true;
+                found = h;
+                return false;
+            }, IntPtr.Zero);
+            return found;
+        }
+
+        /// <summary>Is the foreground window ours? Compare process ids, not handles.</summary>
+        private static bool OwnProcessIsForeground()
+        {
+            IntPtr foreground = GetForegroundWindow();
+            if (foreground == IntPtr.Zero) return false;
+            GetWindowThreadProcessId(foreground, out int pid);
+            return pid == System.Diagnostics.Process.GetCurrentProcess().Id;
+        }
+
+        private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+        private const uint MOUSEEVENTF_LEFTUP = 0x0004;
+        private const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+        private const uint MOUSEEVENTF_RIGHTUP = 0x0010;
+
+
+        /// <summary>
+        /// Windows only lets the foreground process take focus, so a background thread's
+        /// SetForegroundWindow is refused. Two documented ways round it: send an input event
+        /// first (that grants the sender foreground rights), and AttachThreadInput to the
+        /// current foreground thread. Try both, then verify - we never click without focus.
+        /// </summary>
+        private static bool WaitForForeground(IntPtr hwnd, int timeoutMs)
+        {
+            int start = Environment.TickCount;
+            while (Environment.TickCount - start < timeoutMs)
+            {
+                if (OwnProcessIsForeground()) return true;
+                Thread.Sleep(20);
+            }
+            return OwnProcessIsForeground();
+        }
+
+        private static bool TryFocusGame(IntPtr hwnd)
+        {
+            if (OwnProcessIsForeground()) return true;
+
+            ShowWindow(hwnd, 9);                       // un-minimise
+            Thread.Sleep(40);
+
+            // 1) tap Alt so this process owns the last input event, then ask for the window
+            keybd_event(0x12, 0, 0, IntPtr.Zero);
+            Thread.Sleep(15);
+            keybd_event(0x12, 0, 2, IntPtr.Zero);
+            Thread.Sleep(40);
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd);
+            if (WaitForForeground(hwnd, 300)) return true;
+
+            // 2) attach to the current foreground thread and try again
+            IntPtr foreground = GetForegroundWindow();
+            uint foregroundThread = GetWindowThreadProcessId(foreground, IntPtr.Zero);
+            uint myThread = GetCurrentThreadId();
+            bool attached = foregroundThread != 0 && AttachThreadInput(myThread, foregroundThread, true);
+            try
+            {
+                BringWindowToTop(hwnd);
+                SetForegroundWindow(hwnd);
+            }
+            finally
+            {
+                if (attached) AttachThreadInput(myThread, foregroundThread, false);
+            }
+            return WaitForForeground(hwnd, 400);
+        }
+
+        /// <summary>OS-level click on a tile, mirroring what a human does with the mouse.</summary>
+        internal static void InjectClick(int tileX, int tileY, bool right, int ms)
+        {
+            try
+            {
+                IntPtr hwnd = FindOwnWindow();
+                if (hwnd == IntPtr.Zero) hwnd = Main.instance.Window.Handle;
+                TryFocusGame(hwnd);
+                // Safety: if the game still is not the foreground window, do NOT click.
+                // The cursor would land on whatever window is actually there (the user's
+                // editor, the chat...) and we would be clicking their work.
+                if (!OwnProcessIsForeground())
+                {
+                    LastClickError = "游戏没有拿到前台，为避免误点你正在用的窗口，这次操作已取消";
+                    modRef?.Logger.Warn("[dsh] injection skipped: game is not the foreground window");
+                    return;
+                }
+
+                MOUSEPOS target = new()
+                {
+                    X = (int)(tileX * 16f + 8f - Main.screenPosition.X),
+                    Y = (int)(tileY * 16f + 8f - Main.screenPosition.Y),
+                };
+                ClientToScreen(hwnd, ref target);
+                GetCursorPos(out MOUSEPOS previous);
+                SetCursorPos(target.X, target.Y);
+                Thread.Sleep(70);                    // let the game see the cursor on the tile
+                mouse_event(right ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_LEFTDOWN, 0, 0, 0, IntPtr.Zero);
+                Thread.Sleep(Math.Max(30, ms));
+                mouse_event(right ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_LEFTUP, 0, 0, 0, IntPtr.Zero);
+                Thread.Sleep(40);
+                SetCursorPos(previous.X, previous.Y); // put the user's cursor back
+                LastClickTick = Main.GameUpdateCount;
+                LastClickOk = true;
+            }
+            catch (Exception e)
+            {
+                LastClickError = e.Message;
+                modRef?.Logger.Warn($"[dsh] input injection failed: {e.Message}");
+            }
+        }
+
+        /// <summary>Fire the injection on a background thread so the game thread never blocks.</summary>
+        internal static void InjectClickAsync(int tileX, int tileY, bool right, int ms)
+        {
+            LastClickOk = false;
+            LastClickError = null;
+            var t = new Thread(() => InjectClick(tileX, tileY, right, ms)) { IsBackground = true };
+            t.Start();
+        }
+
+        internal static volatile bool LastClickOk;
+        internal static volatile string LastClickError;
+        internal static ulong LastClickTick;
 
         /// <summary>Arm one jump for the given deadline (a single ground impulse).</summary>
         internal static void BeginJump(ulong until)

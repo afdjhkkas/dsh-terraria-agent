@@ -155,7 +155,7 @@ namespace DshTerrariaBridge
                 ["version"] = DshTerrariaBridge.BridgeVersion,
                 ["paused"] = Main.gamePaused,
                 ["hasFocus"] = Main.hasFocus,
-                ["screen"] = new { w = Main.screenWidth, h = Main.screenHeight },
+                ["screen"] = new { w = Main.screenWidth, h = Main.screenHeight, x = (int)Main.screenPosition.X, y = (int)Main.screenPosition.Y },
                 ["mouseWorld"] = inWorld ? new[] { MathF.Round(Main.MouseWorld.X / 16f, 1), MathF.Round(Main.MouseWorld.Y / 16f, 1) } : null,
                 ["mouseTile"] = inWorld ? new[] { (int)(Main.MouseWorld.X / 16f), (int)(Main.MouseWorld.Y / 16f) } : null,
             };
@@ -200,6 +200,17 @@ namespace DshTerrariaBridge
                     buffs = Buffs(pl),
                 };
                 data["attack"] = BridgeSystem.AttackStatus();
+                // Diagnostics: when a player-mode action "swings but nothing happens",
+                // this says whether the synthetic input was actually active.
+                data["input"] = new
+                {
+                    hasFocus = Main.hasFocus,
+                    lastClickOk = BridgeSystem.LastClickOk,
+                    lastClickError = BridgeSystem.LastClickError,
+                    lastClickTick = BridgeSystem.LastClickTick,
+                    aim = BridgeSystem.AimTileX >= 0 ? new[] { BridgeSystem.AimTileX, BridgeSystem.AimTileY } : null,
+                    target = new[] { Player.tileTargetX, Player.tileTargetY },
+                };
             }
             else
             {
@@ -354,6 +365,10 @@ namespace DshTerrariaBridge
                 slope = (int)t.Slope,
                 halfBlock = t.IsHalfBlock,
                 actuator = t.HasActuator,
+                // The game's own answer to "can I stand on / build against this?", instead of
+                // guessing from type ids (plants and tombstones are tiles but not support).
+                solid = t.HasTile && Main.tileSolid[t.TileType],
+                solidTop = t.HasTile && Main.tileSolidTop[t.TileType],
                 frameX = t.TileFrameX,
                 frameY = t.TileFrameY,
             });
@@ -399,13 +414,14 @@ namespace DshTerrariaBridge
         {
             Player pl = P;
             pl.selectedItem = slot;
+            // Keep the aim state purely for diagnostics; the actual input goes through the OS.
             BridgeSystem.SetAim(x, y);
             bool onScreen = BridgeSystem.ApplyAim();
             ulong until = BridgeSystem.Now + BridgeSystem.Ticks(ms);
-            if (right) BridgeSystem.UseTileUntil = until;
-            else BridgeSystem.UseUntil = until;
-            if (right) pl.controlUseTile = true; else pl.controlUseItem = true;
-            BridgeSystem.AimUntil = until + 20;
+            BridgeSystem.AimUntil = until + 40;
+            // A real mouse press on the tile: the game's own use pipeline runs (tool, swing,
+            // hardness, item consumption, drops). Never sleep here - this is the main thread.
+            BridgeSystem.InjectClickAsync(x, y, right, ms);
             Item held = pl.inventory[slot];
             return Json.Ok(new
             {
@@ -417,9 +433,9 @@ namespace DshTerrariaBridge
                 right,
                 ms,
                 untilTick = until,
-                aimed = BridgeSystem.AimTileX == x && BridgeSystem.AimTileY == y,
                 onScreen,
-                hint = "已经掏出物品在挥动；等一下用 tile / inventory 确认结果。",
+                injected = true,
+                hint = "已经把光标移上去并按住鼠标了；等一下用 tile / inventory 确认结果。",
             });
         }
 
@@ -509,9 +525,57 @@ namespace DshTerrariaBridge
                 if (!BridgeSystem.InReach(pl, x, y)) return Json.Error("够不到：离这一格超过 7 格，先走过去");
                 int slot = FindItemForTile(pl, type);
                 if (slot < 0) return Json.Error($"背包里没有能放置 {TileID.Search.GetName(type)} 的物品");
-                int ms = Math.Clamp(Json.Int(p, "ms", 260), 100, 2000);
-                string started = StartSwing(slot, x, y, ms, false);
-                return started;
+                // Placing through a real mouse click is refused by the game's placement rules
+                // in this setup (the swing runs, the block never lands), so the block is
+                // consumed from the inventory and placed with the game's own placement call.
+                // The economics are the player's: the item is really spent, and it must be
+                // in the inventory and in hand first.
+                Item item = pl.inventory[slot];
+                int playerBefore = TileCode(Main.tile[x, y]);
+                int stackBefore = item.stack;
+                item.stack -= 1;
+                bool placeTileOk = WorldGen.PlaceTile(x, y, type, false, forced, -1, style);
+                bool placeObjectOk = false;
+                // Multi-tile furniture (workbench, chair, door...) is not handled by
+                // PlaceTile: those need PlaceObject, which picks the object's origin.
+                if (Main.tile[x, y].TileType != type)
+                    placeObjectOk = WorldGen.PlaceObject(x, y, type, false, style);
+                int playerAfter = TileCode(Main.tile[x, y]);
+                bool didPlace = playerAfter == type;
+                if (!didPlace)
+                {
+                    item.stack = stackBefore;   // nothing happened: do not charge the player
+                }
+                else
+                {
+                    if (item.stack <= 0) item.SetDefaults(0);
+                    pl.selectedItem = slot;
+                    Item held = pl.inventory[slot];
+                    pl.direction = x * 16f >= pl.Center.X ? 1 : -1;
+                    if (held != null && held.useAnimation > 0)
+                    {
+                        pl.SetItemAnimation(Math.Max(1, held.useAnimation));
+                        pl.SetItemTime(Math.Max(1, held.useTime));
+                    }
+                }
+                return Json.Ok(new
+                {
+                    mode = "player",
+                    emulated = true,
+                    x,
+                    y,
+                    placed = didPlace,
+                    requested = type,
+                    before = playerBefore,
+                    after = playerAfter,
+                    slot,
+                    consumed = didPlace ? 1 : 0,
+                    remaining = item.stack,
+                    held = new { type = item.type, name = item.Name, stack = item.stack },
+                    placeTileOk,
+                    placeObjectOk,
+                    hint = "方块已从背包消耗并放置；挖掘才是真实鼠标点击。",
+                });
             }
             bool ok = WorldGen.PlaceTile(x, y, type, false, forced, -1, style);
             int after = TileCode(Main.tile[x, y]);
@@ -554,8 +618,39 @@ namespace DshTerrariaBridge
                     slot = FindItemForWall(pl, type);
                     if (slot < 0) return Json.Error($"背包里没有能放置该墙的物品（wall id {type}）");
                 }
-                int ms = Math.Clamp(Json.Int(p, "ms", 260), 100, 2000);
-                return StartSwing(slot, x, y, ms, true);
+                Item witem = pl.inventory[slot];
+                int wbefore = Main.tile[x, y].WallType;
+                int wstack = witem.stack;
+                if (!remove) witem.stack -= 1;
+                if (remove) WorldGen.KillWall(x, y, false);
+                else WorldGen.PlaceWall(x, y, type, false);
+                int wafter = Main.tile[x, y].WallType;
+                bool wok = remove ? wafter == 0 : wafter == type;
+                if (!wok) { if (!remove) witem.stack = wstack; }
+                else
+                {
+                    if (!remove && witem.stack <= 0) witem.SetDefaults(0);
+                    pl.selectedItem = slot;
+                    if (witem.useAnimation > 0)
+                    {
+                        pl.SetItemAnimation(Math.Max(1, witem.useAnimation));
+                        pl.SetItemTime(Math.Max(1, witem.useTime));
+                    }
+                }
+                return Json.Ok(new
+                {
+                    mode = "player",
+                    emulated = true,
+                    ok = wok,
+                    x,
+                    y,
+                    remove,
+                    requested = remove ? 0 : type,
+                    before = wbefore,
+                    after = wafter,
+                    consumed = (!remove && wok) ? 1 : 0,
+                    remaining = witem.stack,
+                });
             }
             Tile t = Main.tile[x, y];
             int before = t.WallType;
