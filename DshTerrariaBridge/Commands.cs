@@ -30,6 +30,9 @@ namespace DshTerrariaBridge
                 case "scan": return Scan(p);
                 case "tile": return TileAt(p);
                 case "mine": return Mine(p);
+                case "mirror": return MirrorHome(p);
+                case "housing": return Housing(p);
+                case "items": return DroppedItems(p);
                 case "place": return Place(p);
                 case "move": return Move(p);
                 case "jump": return Jump(p);
@@ -457,7 +460,7 @@ namespace DshTerrariaBridge
         }
 
         /// <summary>Arm a swing with whatever tool the tile needs.</summary>
-        private static string BeginPlayerMine(int x, int y, int ms, bool os)
+        private static string BeginPlayerMine(int x, int y, int ms, bool os, bool useInput)
         {
             Player pl = P;
             if (pl.dead) return "玩家已死亡，请先复活";
@@ -467,7 +470,11 @@ namespace DshTerrariaBridge
             int slot = needsAxe ? FindAxe(pl) : FindPickaxe(pl);
             if (slot < 0) return needsAxe ? "背包里没有斧头，砍树需要斧头" : "背包里没有镐子，挖方块需要镐子";
 
-            if (os) return StartSwing(slot, x, y, ms, false, os);
+            // Default: synthetic control flags injected from PreItemCheck, so the game's own
+            // ItemCheck runs - real swing animation and real drops, with no focus stealing.
+            //  - os:true   real mouse (visible cursor, needs the game in the foreground)
+            //  - job:true  the Player.PickTile job (works even when ItemCheck cannot run)
+            if (os || useInput) return StartSwing(slot, x, y, ms, false, os);
 
             // Focus-free mining: the job calls Player.PickTile (what a swing calls internally)
             // on the main thread each swing interval, with the tool selected and swinging.
@@ -486,6 +493,118 @@ namespace DshTerrariaBridge
             });
         }
 
+        /// <summary>
+        /// Use the Magic Mirror like a player: it must be in the inventory, it is selected and
+        /// animated, and the teleport is the same call the item ends with (player.Spawn()).
+        /// </summary>
+        /// <summary>
+        /// Ask the game itself whether a cell belongs to a valid house, instead of guessing from
+        /// geometry: WorldGen.StartRoomCheck is the same call the housing menu uses. Also reports
+        /// which town NPCs are homeless and where the others live, so "no NPC moved in" becomes
+        /// diagnosable (room invalid vs room taken).
+        /// </summary>
+        /// <summary>
+        /// List items lying on the ground near the player. Without this the agent cannot tell
+        /// "the drop never spawned" from "I walked past it", which is a real distinction.
+        /// </summary>
+        private static string DroppedItems(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            int radius = Math.Clamp(Json.Int(p, "r", 40), 1, 200);
+            Player pl = P;
+            var list = new List<object>();
+            for (int i = 0; i < Main.maxItems; i++)
+            {
+                Item it = Main.item[i];
+                if (it == null || !it.active || it.stack <= 0) continue;
+                float dist = Vector2.Distance(it.Center, pl.Center) / 16f;
+                if (dist > radius) continue;
+                list.Add(new
+                {
+                    who = i,
+                    name = it.Name,
+                    type = it.type,
+                    stack = it.stack,
+                    tile = new { x = it.Center.X / 16f, y = it.Center.Y / 16f },
+                    dist,
+                });
+            }
+            return Json.Ok(new { count = list.Count, items = list });
+        }
+
+        private static string Housing(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
+            if (x < 0 || y < 0) return Json.Error("housing 需要 x,y（房间内任意一格）");
+
+            bool roomFound = WorldGen.StartRoomCheck(x, y);
+            int homeless = 0;
+            var homes = new List<object>();
+            for (int i = 0; i < Main.maxNPCs; i++)
+            {
+                NPC n = Main.npc[i];
+                if (n == null || !n.active || !n.townNPC) continue;
+                if (n.homeless) homeless++;
+                homes.Add(new
+                {
+                    who = i,
+                    name = n.FullName,
+                    homeless = n.homeless,
+                    home = new { x = n.homeTileX, y = n.homeTileY },
+                });
+            }
+            return Json.Ok(new
+            {
+                x,
+                y,
+                roomFound,
+                homeless,
+                townNPCs = homes.Count,
+                homes,
+            });
+        }
+
+        private static string MirrorHome(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            if (pl.dead) return Json.Error("玩家已死亡，请先复活");
+
+            int slot = -1;
+            for (int i = 0; i < pl.inventory.Length; i++)
+            {
+                Item it = pl.inventory[i];
+                if (it == null || it.type <= 0) continue;
+                if (it.type == ItemID.MagicMirror || it.type == ItemID.IceMirror
+                    || it.type == ItemID.CellPhone || it.type == ItemID.Shellphone
+                    || it.type == ItemID.ShellphoneDummy || it.type == ItemID.ShellphoneSpawn)
+                { slot = i; break; }
+            }
+            if (slot < 0) return Json.Error("背包里没有魔镜（Magic Mirror / Ice Mirror / Cell Phone）");
+
+            float fromX = pl.Center.X / 16f, fromY = pl.Center.Y / 16f;
+            pl.selectedItem = slot;
+            Item held = pl.inventory[slot];
+            if (held != null && held.useAnimation > 0)
+            {
+                pl.SetItemAnimation(Math.Max(1, held.useAnimation));
+                pl.SetItemTime(Math.Max(1, held.useTime));
+            }
+            pl.Spawn(PlayerSpawnContext.RecallFromItem);
+            return Json.Ok(new
+            {
+                mode = "player",
+                slot,
+                item = held?.Name,
+                from = new { x = fromX, y = fromY },
+                to = new { x = pl.Center.X / 16f, y = pl.Center.Y / 16f },
+                spawn = new { tileX = Main.spawnTileX, tileY = Main.spawnTileY },
+            });
+        }
+
         private static string Mine(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
@@ -498,7 +617,7 @@ namespace DshTerrariaBridge
                 // Player mode: take out a pickaxe/axe, aim at the tile and swing. The game
                 // decides whether it breaks, drops items and consumes tool durability.
                 if (!HasPlayer(out string perr)) return Json.Error(perr);
-                string started = BeginPlayerMine(x, y, Math.Clamp(Json.Int(p, "ms", 900), 100, 4000), Json.Bool(p, "os", false));
+                string started = BeginPlayerMine(x, y, Math.Clamp(Json.Int(p, "ms", 900), 100, 4000), Json.Bool(p, "os", false), !Json.Bool(p, "job", false));
                 if (started != null && started.StartsWith("{")) return started;
                 if (started != null) return Json.Error(started);
                 return Json.Error("empty player-mode response");

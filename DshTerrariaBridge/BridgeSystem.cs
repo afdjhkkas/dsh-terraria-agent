@@ -899,7 +899,9 @@ namespace DshTerrariaBridge
                 BridgeSystem.PreItemCalls++;
                 BridgeSystem.ApplySyntheticInput();
             }
-            return false;   // false = let the vanilla item check run
+            // TRUE = let the vanilla item check run. Returning false CANCELS ItemCheck_Inner,
+            // which silently disabled every item use in the game (no swings, no wood drops).
+            return true;
         }
 
         /// <summary>
