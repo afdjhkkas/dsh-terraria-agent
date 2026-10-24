@@ -34,6 +34,7 @@ namespace DshTerrariaBridge
                 case "mirror": return MirrorHome(p);
                 case "accessory": return Accessory(p);
                 case "walkto": return WalkTo(p);
+                case "path": return PathTo(p);
                 case "housing": return Housing(p);
                 case "needs": return RoomDiagnostics(p);
                 case "items": return DroppedItems(p);
@@ -230,6 +231,13 @@ namespace DshTerrariaBridge
                     hpPercent = pl.statLifeMax2 > 0 ? (int)(100f * pl.statLife / pl.statLifeMax2) : 0,
                 };
                 data["attack"] = BridgeSystem.AttackStatus();
+                data["path"] = new
+                {
+                    active = BridgeSystem.PathActive,
+                    index = BridgeSystem.PathIndex,
+                    total = BridgeSystem.PathCells?.Count ?? 0,
+                    stop = BridgeSystem.PathStop,
+                };
                 data["walk"] = new
                 {
                     active = BridgeSystem.WalkActive,
@@ -1192,6 +1200,26 @@ namespace DshTerrariaBridge
         /// 朝一个方块坐标走过去：逐帧驱动（遇墙挖、遇坑跳、泡水上浮、见岩浆/死亡停）。
         /// 非阻塞：命令立刻返回，用 state.walk 看进度和停止原因。
         /// </summary>
+        /// <summary>
+        /// 用 A* 算一条到目标的路并逐格执行（实心就挖、悬空就垫、上下自动）。非阻塞。
+        /// </summary>
+        private static string PathTo(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
+            if (x < 0 || y < 0) return Json.Error("path 需要 x,y");
+            int ms = Json.Int(p, "ms", 45000);
+            int px = (int)(pl.Center.X / 16f), py = (int)(pl.Center.Y / 16f);
+            var path = BridgeSystem.ComputePath(px, py, x, y, out string why);
+            if (path == null) return Json.Error(why);
+            BridgeSystem.BeginPath(path, BridgeSystem.Now + BridgeSystem.Ticks(ms));
+            var head = new List<object>();
+            for (int i = 0; i < Math.Min(6, path.Count); i++) head.Add(new { x = path[i].x, y = path[i].y });
+            return Json.Ok(new { from = new { x = px, y = py }, to = new { x, y }, length = path.Count, head });
+        }
+
         private static string WalkTo(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);

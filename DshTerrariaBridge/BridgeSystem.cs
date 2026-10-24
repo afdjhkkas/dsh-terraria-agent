@@ -269,6 +269,189 @@ namespace DshTerrariaBridge
             DrainPending();
         }
 
+        /* ── 寻路（A*）＋ 逐格执行 ────────────────────────────────────────
+         * 前面所有"朝目标推"的走法都会掉坑或卡死，因为从不看全局。
+         * 这里做真正的寻路：在包围盒里用 A* 算一条代价最小的路，再一格一格执行
+         * （实心就挖、悬空就搭、往下就挖穿、往上就跳）。
+         * 代价模型：空气+脚下有地=1；空气但悬空=3；实心=8（要挖）；水/岩浆=不可通行。
+         */
+        internal static bool PathActive;
+        internal static List<(int x, int y)> PathCells = new();
+        internal static int PathIndex;
+        internal static string PathStop = "";
+        internal static ulong PathDeadline;
+        private static ulong PathNextAct;
+
+        private static bool TileAir(int x, int y)
+        {
+            if (x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY) return false;
+            Tile t = Main.tile[x, y];
+            return !t.HasTile || !Main.tileSolid[t.TileType];
+        }
+
+        private static bool TileLiquid(int x, int y)
+        {
+            if (x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY) return false;
+            Tile t = Main.tile[x, y];
+            return t.LiquidAmount > 40;
+        }
+
+        private static bool FloorWithin(int x, int y, int depth)
+        {
+            for (int k = 1; k <= depth; k++)
+                if (!TileAir(x, y + k)) return true;
+            return false;
+        }
+
+        internal static List<(int x, int y)> ComputePath(int sx, int sy, int tx, int ty, out string why)
+        {
+            why = "";
+            int x0 = Math.Max(1, Math.Min(sx, tx) - 10), x1 = Math.Min(Main.maxTilesX - 2, Math.Max(sx, tx) + 10);
+            int y0 = Math.Max(1, Math.Min(sy, ty) - 14), y1 = Math.Min(Main.maxTilesY - 2, Math.Max(sy, ty) + 18);
+            int w = x1 - x0 + 1, h = y1 - y0 + 1;
+            if (w <= 0 || h <= 0) { why = "包围盒无效"; return null; }
+
+            var cost = new float[w, h];
+            var prev = new (int, int)[w, h];
+            var done = new bool[w, h];
+            for (int i = 0; i < w; i++) for (int j = 0; j < h; j++) { cost[i, j] = float.MaxValue; prev[i, j] = (-1, -1); }
+
+            float StepCost(int x, int y)
+            {
+                if (TileLiquid(x, y)) return float.MaxValue;
+                if (!TileAir(x, y)) return 8f;                 // 要挖
+                return FloorWithin(x, y, 2) ? 1f : 20f;        // 有地=1；悬空=20（代价高到会主动绕开，只有别无选择才用）
+            }
+
+            int si = sx - x0, sj = sy - y0, ti = tx - x0, tj = ty - y0;
+            if (si < 0 || sj < 0 || si >= w || sj >= h || ti < 0 || tj < 0 || ti >= w || tj >= h) { why = "起点/终点在包围盒外"; return null; }
+
+            var open = new List<(int i, int j)>();
+            cost[si, sj] = 0;
+            open.Add((si, sj));
+            int guard = 0;
+            while (open.Count > 0 && guard++ < 200000)
+            {
+                int bi = 0; float best = float.MaxValue;
+                for (int k = 0; k < open.Count; k++)
+                {
+                    float f = cost[open[k].i, open[k].j] + Math.Abs(open[k].i - ti) + Math.Abs(open[k].j - tj);
+                    if (f < best) { best = f; bi = k; }
+                }
+                var (ci, cj) = open[bi];
+                open.RemoveAt(bi);
+                if (ci == ti && cj == tj) break;
+                if (done[ci, cj]) continue;
+                done[ci, cj] = true;
+
+                foreach (var (di, dj) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+                {
+                    int ni = ci + di, nj = cj + dj;
+                    if (ni < 0 || nj < 0 || ni >= w || nj >= h) continue;
+                    float sc = StepCost(x0 + ni, y0 + nj);
+                    if (sc >= float.MaxValue) continue;
+                    float nc = cost[ci, cj] + sc;
+                    if (nc < cost[ni, nj]) { cost[ni, nj] = nc; prev[ni, nj] = (ci, cj); open.Add((ni, nj)); }
+                }
+            }
+            if (cost[ti, tj] >= float.MaxValue) { why = "没有可行路径"; return null; }
+
+            var path = new List<(int x, int y)>();
+            var cur = (i: ti, j: tj);
+            int safety = 0;
+            while (!(cur.i == si && cur.j == sj) && safety++ < 5000)
+            {
+                path.Add((x0 + cur.i, y0 + cur.j));
+                cur = prev[cur.i, cur.j];
+                if (cur.i < 0) break;
+            }
+            path.Reverse();
+            return path;
+        }
+
+        internal static void BeginPath(List<(int x, int y)> cells, ulong until)
+        {
+            PathCells = cells ?? new List<(int x, int y)>();
+            PathIndex = 0; PathActive = PathCells.Count > 0;
+            PathStop = PathActive ? "" : "空路径";
+            PathDeadline = until; PathNextAct = 0;
+        }
+
+        internal static void StopPath(string reason)
+        {
+            if (!PathActive) return;
+            PathActive = false; PathStop = reason;
+        }
+
+        private static void TickPath()
+        {
+            if (!PathActive) return;
+            Player p = Main.LocalPlayer;
+            if (p == null || !p.active || p.dead) { StopPath("dead"); return; }
+            if (Now > PathDeadline) { StopPath("timeout"); return; }
+            if (p.lavaWet) { StopPath("lava"); return; }
+            if (p.wet) { p.velocity.Y = Math.Min(p.velocity.Y, -3.0f); return; }
+            if (Now < PathNextAct) return;
+
+            int px = (int)(p.Center.X / 16f), py = (int)(p.Center.Y / 16f);
+            while (PathIndex < PathCells.Count)
+            {
+                var c = PathCells[PathIndex];
+                if (Math.Abs(c.x - px) <= 0 && Math.Abs(c.y - py) <= 1) { PathIndex++; continue; }
+                break;
+            }
+            if (PathIndex >= PathCells.Count) { StopPath("arrived"); return; }
+
+            var next = PathCells[PathIndex];
+            int dx = next.x - px, dy = next.y - py;
+
+            // 优先水平推进：路径格常常只比人低一格（站在地板上），那不是"要往下挖"
+            if (dx != 0)
+            {
+                int sign = Math.Sign(dx);
+                for (int k = -2; k <= 1; k++) if (!TileAir(px + sign, py + k)) WalkMine(px + sign, py + k);
+                if (TileAir(px + sign, py + 2) && TileAir(px + sign, py + 3)) PlaceWalkBlock(px + sign, py + 2);
+                if (TileAir(px + sign, py + 2)) WalkJump(2.4f);      // 台阶就跳
+                p.controlLeft |= sign < 0;
+                p.controlRight |= sign > 0;
+                p.velocity.X = sign * 2.9f;
+                p.direction = sign;
+            }
+            else if (dy <= -1)
+            {
+                if (!TileAir(px, py - 2)) WalkMine(px, py - 2);
+                else if (!TileAir(px, py - 3)) WalkMine(px, py - 3);
+                else WalkJump(2.8f);
+            }
+            else if (dy >= 1)
+            {
+                if (!TileAir(px, py + 2)) WalkMine(px, py + 2);
+            }
+            PathNextAct = Now + 3;
+        }
+
+        /// <summary>走路垫砖：用背包里的方块。找不到方块就不放（返回 false）。</summary>
+        private static bool PlaceWalkBlock(int x, int y)
+        {
+            Player p = Main.LocalPlayer;
+            if (p == null) return false;
+            int slot = -1;
+            for (int i = 0; i < p.inventory.Length; i++)
+            {
+                Item it = p.inventory[i];
+                if (it != null && it.type > 0 && it.stack > 0 && it.createTile > 0 && it.placeStyle >= 0) { slot = i; break; }
+            }
+            if (slot < 0) return false;
+            p.selectedItem = slot;
+            if (WorldGen.PlaceTile(x, y, p.inventory[slot].createTile, false, false, -1, p.whoAmI))
+            {
+                p.inventory[slot].stack--;
+                if (p.inventory[slot].stack <= 0) p.inventory[slot].SetDefaults(0);
+                return true;
+            }
+            return false;
+        }
+
         /* ── walkto：朝目标坐标自己走 ─────────────────────────────────────
          * 之前只有 move(方向,时长)，代理只能一味朝一个方向推，掉洞、卡墙、淹死全靠运气。
          * 这里做成逐帧的闭环：算方向、遇墙挖、遇坑跳、泡水就上浮、碰到岩浆或死亡就停。
@@ -415,6 +598,7 @@ namespace DshTerrariaBridge
             if (p == null || !p.active || p.dead) return;
             ulong now = Main.GameUpdateCount;
 
+            if (PathActive) { TickPath(); return; }
             if (WalkActive) { TickWalk(); return; }
 
             float dir = 0f;
