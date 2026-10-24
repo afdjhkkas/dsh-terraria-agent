@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using Microsoft.Xna.Framework;
+using Terraria.GameContent.Creative;
 using Terraria;
 using Terraria.DataStructures;
 using Terraria.ID;
@@ -35,6 +36,8 @@ namespace DshTerrariaBridge
                 case "accessory": return Accessory(p);
                 case "walkto": return WalkTo(p);
                 case "path": return PathTo(p);
+                case "research": return Research(p);
+                case "duplicate": return Duplicate(p);
                 case "fill": return FillArea(p);
                 case "housing": return Housing(p);
                 case "needs": return RoomDiagnostics(p);
@@ -1261,6 +1264,74 @@ namespace DshTerrariaBridge
                 }
             }
             return Json.Ok(new { placed, skipped, outOfRange, left = pl.inventory[slot]?.stack ?? 0 });
+        }
+
+        /// <summary>
+        /// 旅行模式的"研究"：把背包里的物品献祭给创造模式追踪器（这是模式自带机制）。
+        /// 只献祭真实存在的物品，达到需求数就解锁无限复制。
+        /// </summary>
+        private static string Research(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int slot = Json.Int(p, "slot", -1);
+            if (slot < 0 || slot >= pl.inventory.Length) return Json.Error("slot 越界");
+            Item it = pl.inventory[slot];
+            if (it == null || it.type <= 0) return Json.Error("这个格子是空的");
+
+            var tracker = pl.creativeTracker.ItemSacrifices;
+            if (!CreativeItemSacrificesCatalog.Instance.TryGetSacrificeCountCapToUnlockInfiniteItems(it.type, out int needed))
+                return Json.Error($"{it.Name} 不能研究");
+            int have = tracker.GetSacrificeCount(it.type);
+            int give = Math.Min(it.stack, Math.Max(0, needed - have));
+            if (give <= 0) return Json.Ok(new { item = it.Name, alreadyFull = true, have, needed });
+
+            tracker.RegisterItemSacrifice(it.type, give);
+            it.stack -= give;
+            if (it.stack <= 0) { pl.inventory[slot] = new Item(); pl.inventory[slot].SetDefaults(0); }
+            int now = tracker.GetSacrificeCount(it.type);
+            return Json.Ok(new { item = it.type, researched = give, have = now, needed, unlocked = now >= needed });
+        }
+
+        /// <summary>
+        /// 旅行模式的"复制"：只有**已研究满**的物品才能无限取用（游戏自身的门槛）。
+        /// </summary>
+        private static string Duplicate(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int type = Json.Int(p, "item", -1);
+            int count = Json.Int(p, "count", 1);
+            if (type <= 0) return Json.Error("duplicate 需要 item");
+            var tracker = pl.creativeTracker.ItemSacrifices;
+            if (!CreativeItemSacrificesCatalog.Instance.TryGetSacrificeCountCapToUnlockInfiniteItems(type, out int needed))
+                return Json.Error("这个物品不能研究，也就不能复制");
+            int have = tracker.GetSacrificeCount(type);
+            if (have < needed) return Json.Error($"还没研究满：{have}/{needed}");
+
+            var proto = new Item();
+            proto.SetDefaults(type);
+            int added = 0, remaining = Math.Min(count, 9999);
+            while (remaining > 0)
+            {
+                int chunk = Math.Min(remaining, proto.maxStack);
+                int slot = -1;
+                for (int i = 0; i < pl.inventory.Length; i++)
+                {
+                    Item inv = pl.inventory[i];
+                    if (inv != null && inv.type == type && inv.stack + chunk <= inv.maxStack) { slot = i; break; }
+                }
+                if (slot < 0)
+                    for (int i = 0; i < pl.inventory.Length; i++)
+                        if (pl.inventory[i] != null && pl.inventory[i].type == 0) { slot = i; break; }
+                if (slot < 0) break;
+                if (pl.inventory[slot].type == type) pl.inventory[slot].stack += chunk;
+                else { var ni = new Item(); ni.SetDefaults(type); ni.stack = chunk; pl.inventory[slot] = ni; }
+                added += chunk; remaining -= chunk;
+            }
+            return Json.Ok(new { item = type, added, unlockedCount = have });
         }
 
         private static string PathTo(JsonElement p)
