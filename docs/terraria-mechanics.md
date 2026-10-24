@@ -188,6 +188,20 @@ wall: the player gets trapped in the doorway, and any hole punched to escape **m
 rooms into one space**, which costs a house slot. Leave about three tiles of walkway between
 buildings and put each door on the walkway side.
 
+## Jumping beats tunnelling - check the head clearance first `[measured]`
+
+A normal jump clears about five tiles. If a jump seems to fail, the usual cause is a low
+ceiling (often blocks the agent itself placed): measure the tile rows above the player before
+concluding "cannot jump". Digging a tunnel to get around a two-tile step is not what a player
+does and wastes a lot of time.
+
+## Solid blocks block, platforms pass `[wiki]`
+
+Wood/stone blocks are collision-solid: the player cannot walk or jump *through* them, so a
+staircase made of blocks in a three-tile-wide walkway wedges the player in place. Platforms
+(`tile 19`) are passable from below and standable on top, which is why they are the right
+material for ladders, roof entrances and anything the player must pass.
+
 ## Clear the plot before building `[measured]`
 
 Trees and plants inside or in front of a plot are not decoration: a tree trunk is solid, it
