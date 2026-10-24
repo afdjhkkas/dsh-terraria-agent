@@ -280,6 +280,7 @@ namespace DshTerrariaBridge
         internal static int PathIndex;
         internal static string PathStop = "";
         internal static ulong PathDeadline;
+        internal static bool PathAllowDig = true;
         private static ulong PathNextAct;
 
         private static bool TileAir(int x, int y)
@@ -319,7 +320,7 @@ namespace DshTerrariaBridge
             float StepCost(int x, int y)
             {
                 if (TileLiquid(x, y)) return float.MaxValue;
-                if (!TileAir(x, y)) return 8f;                 // 要挖
+                if (!TileAir(x, y)) return PathAllowDig ? 8f : float.MaxValue;   // 要挖（禁挖时不可通行）
                 return FloorWithin(x, y, 2) ? 1f : 20f;        // 有地=1；悬空=20（代价高到会主动绕开，只有别无选择才用）
             }
 
@@ -369,8 +370,9 @@ namespace DshTerrariaBridge
             return path;
         }
 
-        internal static void BeginPath(List<(int x, int y)> cells, ulong until)
+        internal static void BeginPath(List<(int x, int y)> cells, ulong until, bool allowDig = true)
         {
+            PathAllowDig = allowDig;
             PathCells = cells ?? new List<(int x, int y)>();
             PathIndex = 0; PathActive = PathCells.Count > 0;
             PathStop = PathActive ? "" : "空路径";
@@ -409,7 +411,7 @@ namespace DshTerrariaBridge
             if (dx != 0)
             {
                 int sign = Math.Sign(dx);
-                for (int k = -2; k <= 1; k++) if (!TileAir(px + sign, py + k)) WalkMine(px + sign, py + k);
+                if (PathAllowDig) for (int k = -2; k <= 1; k++) if (!TileAir(px + sign, py + k)) WalkMine(px + sign, py + k);
                 if (TileAir(px + sign, py + 2) && TileAir(px + sign, py + 3)) PlaceWalkBlock(px + sign, py + 2);
                 if (TileAir(px + sign, py + 2)) WalkJump(2.4f);      // 台阶就跳
                 p.controlLeft |= sign < 0;
@@ -419,13 +421,13 @@ namespace DshTerrariaBridge
             }
             else if (dy <= -1)
             {
-                if (!TileAir(px, py - 2)) WalkMine(px, py - 2);
-                else if (!TileAir(px, py - 3)) WalkMine(px, py - 3);
+                if (PathAllowDig && !TileAir(px, py - 2)) WalkMine(px, py - 2);
+                else if (PathAllowDig && !TileAir(px, py - 3)) WalkMine(px, py - 3);
                 else WalkJump(2.8f);
             }
             else if (dy >= 1)
             {
-                if (!TileAir(px, py + 2)) WalkMine(px, py + 2);
+                if (PathAllowDig && !TileAir(px, py + 2)) WalkMine(px, py + 2);
             }
             PathNextAct = Now + 3;
         }

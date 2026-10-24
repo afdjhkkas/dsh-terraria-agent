@@ -1212,9 +1212,12 @@ namespace DshTerrariaBridge
             if (x < 0 || y < 0) return Json.Error("path 需要 x,y");
             int ms = Json.Int(p, "ms", 45000);
             int px = (int)(pl.Center.X / 16f), py = (int)(pl.Center.Y / 16f);
+            bool allowDig = !Json.Bool(p, "dig", true).Equals(false);
+            if (!allowDig) BridgeSystem.PathAllowDig = false;
             var path = BridgeSystem.ComputePath(px, py, x, y, out string why);
+            BridgeSystem.PathAllowDig = true;
             if (path == null) return Json.Error(why);
-            BridgeSystem.BeginPath(path, BridgeSystem.Now + BridgeSystem.Ticks(ms));
+            BridgeSystem.BeginPath(path, BridgeSystem.Now + BridgeSystem.Ticks(ms), allowDig);
             var head = new List<object>();
             for (int i = 0; i < Math.Min(6, path.Count); i++) head.Add(new { x = path[i].x, y = path[i].y });
             return Json.Ok(new { from = new { x = px, y = py }, to = new { x, y }, length = path.Count, head });
