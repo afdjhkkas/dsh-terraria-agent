@@ -1,5 +1,5 @@
 displayName = DSH Terraria Bridge
 author = DSH
-version = 0.1.0
-side = Both
+version = 0.2.0
+side = Client
 description = 给 dsh-terraria-agent 用的本地读写桥：127.0.0.1:7777，JSON 行协议。

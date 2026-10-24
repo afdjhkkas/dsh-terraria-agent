@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -12,11 +13,28 @@ namespace DshTerrariaBridge
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
 
+        /// <summary>
+        /// Correlation id of the request currently being served on this thread.
+        /// The client sends an optional "req" and gets it echoed back, so it can
+        /// ignore any unrelated line instead of mistaking it for its own reply.
+        /// </summary>
+        [System.ThreadStatic] internal static string CurrentReq;
+
         public static string Ser(object value) => JsonSerializer.Serialize(value, Options);
 
-        public static string Ok(object data) => Ser(new Dictionary<string, object> { ["ok"] = true, ["data"] = data });
+        public static string Ok(object data) => Envelope(true, data, null);
 
-        public static string Error(string message) => Ser(new Dictionary<string, object> { ["ok"] = false, ["error"] = message });
+        public static string Error(string message) => Envelope(false, null, message);
+
+        private static string Envelope(bool ok, object data, string error)
+        {
+            var obj = new Dictionary<string, object>();
+            if (CurrentReq != null) obj["req"] = CurrentReq;
+            obj["ok"] = ok;
+            if (ok) obj["data"] = data;
+            else obj["error"] = error;
+            return Ser(obj);
+        }
 
         public static bool Has(JsonElement p, string name) =>
             p.ValueKind == JsonValueKind.Object && p.TryGetProperty(name, out _);
@@ -25,7 +43,7 @@ namespace DshTerrariaBridge
         {
             if (p.ValueKind != JsonValueKind.Object || !p.TryGetProperty(name, out var e)) return fallback;
             if (e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var v)) return v;
-            if (e.ValueKind == JsonValueKind.String && int.TryParse(e.GetString(), out var s)) return s;
+            if (e.ValueKind == JsonValueKind.String && int.TryParse(e.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var s)) return s;
             return fallback;
         }
 
@@ -33,7 +51,7 @@ namespace DshTerrariaBridge
         {
             if (p.ValueKind != JsonValueKind.Object || !p.TryGetProperty(name, out var e)) return fallback;
             if (e.ValueKind == JsonValueKind.Number && e.TryGetSingle(out var v)) return v;
-            if (e.ValueKind == JsonValueKind.String && float.TryParse(e.GetString(), out var s)) return s;
+            if (e.ValueKind == JsonValueKind.String && float.TryParse(e.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var s)) return s;
             return fallback;
         }
 

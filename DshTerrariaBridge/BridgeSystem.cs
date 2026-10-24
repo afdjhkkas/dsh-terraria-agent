@@ -34,9 +34,28 @@ namespace DshTerrariaBridge
         private sealed class Pending
         {
             public string Json;
+            public string Req;
             public string Response;
             public int Cancelled;
+            public int Started;
             public readonly ManualResetEventSlim Done = new(false);
+        }
+
+        /// <summary>Pull the caller's optional correlation id out of a request line.</summary>
+        private static string ReadReq(string json)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("req", out var e)) return null;
+                return e.ValueKind switch
+                {
+                    JsonValueKind.Number => e.GetRawText(),
+                    JsonValueKind.String => e.GetString(),
+                    _ => null,
+                };
+            }
+            catch { return null; }
         }
 
         private static readonly Queue<Pending> pending = new();
@@ -104,7 +123,9 @@ namespace DshTerrariaBridge
                     string response;
                     try
                     {
-                        response = ExecuteOnMainThread(line);
+                        // Echo the caller's correlation id (if any) so it can discard
+                        // lines that are not the answer to its own request.
+                        response = ExecuteOnMainThread(line, ReadReq(line));
                     }
                     catch (Exception e)
                     {
@@ -121,18 +142,48 @@ namespace DshTerrariaBridge
         }
 
         /// <summary>
-    /// 把命令丢到主线程执行。请求只通过 tick 队列排空；如果主线程长期不排空，
-    /// 请求会过期并被跳过，避免超时后重复执行有副作用的命令。
+        /// 把命令丢到主线程执行。
+        /// 世界内：走 tick 队列（PostUpdateEverything/UpdateUI 排空），主线程被占住时请求会过期并被跳过，
+        /// 避免超时后重复执行有副作用的命令。
+        /// 主菜单：tModLoader 不跑世界钩子，队列永远不会被排空（连 ping 都会超时），
+        /// 此时没有第二个排空者，直接在主线程上执行即可。
         /// </summary>
-        internal static string ExecuteOnMainThread(string json)
+        internal static string ExecuteOnMainThread(string json, string req)
         {
-            var item = new Pending { Json = json };
+            if (Main.gameMenu)
+            {
+                // Still must run ON the main thread (game state is single-threaded); the menu
+                // just has no tick-driven drainer, so hand the work to the game's own queue.
+                Json.CurrentReq = req;
+                try
+                {
+                    return Main.RunOnMainThread(() => Commands.Handle(json)).Result;
+                }
+                catch (Exception e)
+                {
+                    return Json.Error(e.InnerException?.Message ?? e.Message);
+                }
+                finally
+                {
+                    Json.CurrentReq = null;
+                }
+            }
+
+            var item = new Pending { Json = json, Req = req };
             lock (pending) pending.Enqueue(item);
-            if (item.Done.Wait(1500)) return item.Response;   // 菜单阶段 tick 钩子可能不跑，1.5s 后走兜底
-            // 不在超时后重复执行同一个命令：如果它尚未出队，DrainPending 会跳过；
-            // 如果已经开始执行，则它只会完成这一次，调用方收到超时错误。
+            if (item.Done.Wait(1500)) return item.Response;
+
+            // The request is still queued or is running right now. Say which, because
+            // "did not process" is not the same thing as "did not happen": a command that
+            // already started WILL take effect, and retrying it would apply it twice.
             Interlocked.Exchange(ref item.Cancelled, 1);
-            return Json.Error("main thread did not process the request within 1500 ms");
+            bool started = Volatile.Read(ref item.Started) != 0;
+            // This error is produced on the socket thread, so set the id here too.
+            Json.CurrentReq = req;
+            return started
+                ? Json.Error("命令已在游戏主线程开始执行，但 1500 ms 内没有结束。它【会】生效，不要直接重试；"
+                    + "先用 state/inventory/tile 查一下当前状态再决定。")
+                : Json.Error("命令在 1500 ms 内没有轮到主线程执行，已被丢弃，不会产生任何效果；可以安全重试。");
         }
 
         private static void DrainPending()
@@ -151,8 +202,12 @@ namespace DshTerrariaBridge
                     item.Done.Set();
                     continue;
                 }
+                Interlocked.Exchange(ref item.Started, 1);
+                // Handlers build their envelope on this (main) thread; give it the id.
+                Json.CurrentReq = item.Req;
                 try { item.Response = Commands.Handle(item.Json); }
                 catch (Exception e) { item.Response = Json.Error(e.Message); }
+                finally { Json.CurrentReq = null; }
                 item.Done.Set();
             }
         }
@@ -187,10 +242,24 @@ namespace DshTerrariaBridge
             if (JumpUntil > now)
             {
                 p.controlJump = true;
-                if (p.velocity.Y >= -0.1f && p.velocity.Y <= 0.1f) p.velocity.Y = -5.6f;
+                // One impulse per command, and only from the ground. The old code
+                // re-impulsed at every apex, which turned a 2 s jump into an
+                // unpowered climb; wings and auto-jump are left to vanilla.
+                if (!JumpIssued && p.velocity.Y == 0f && p.oldVelocity.Y == 0f)
+                {
+                    p.velocity.Y = -5.6f;
+                    JumpIssued = true;
+                }
             }
             if (UseUntil > now) p.controlUseItem = true;
             if (UseTileUntil > now) p.controlUseTile = true;
+        }
+
+        /// <summary>Arm one jump for the given deadline (a single ground impulse).</summary>
+        internal static void BeginJump(ulong until)
+        {
+            JumpUntil = until;
+            JumpIssued = false;
         }
 
         /// <summary>
@@ -205,11 +274,15 @@ namespace DshTerrariaBridge
             Player p = Main.LocalPlayer;
             if (p == null || !p.active || p.dead)
             {
-                ClearAttack();
+                FinishAttack(false);
                 return;
             }
-            if (AttackUntil <= Main.GameUpdateCount) return;
             ulong now = Main.GameUpdateCount;
+            if (AttackUntil <= now)
+            {
+                FinishAttack(false);
+                return;
+            }
             if (now < AttackNextTick) return;
 
             NPC target = null;
@@ -232,7 +305,8 @@ namespace DshTerrariaBridge
 
             if (target == null)
             {
-                if (!AttackAutoTarget) ClearAttack();
+                // Nothing left to hit: keep the summary, then stop.
+                FinishAttack(true);
                 return;
             }
 
@@ -248,7 +322,7 @@ namespace DshTerrariaBridge
                 }
                 else
                 {
-                    ClearAttack();
+                    FinishAttack(true);
                     return;
                 }
             }
@@ -256,23 +330,60 @@ namespace DshTerrariaBridge
             Item weapon = p.HeldItem;
             if (weapon == null || weapon.damage <= 0)
             {
-                ClearAttack();
+                FinishAttack(true);
                 return;
             }
 
             int direction = target.Center.X >= p.Center.X ? 1 : -1;
             p.direction = direction;
+
+            // A real swing cannot reach through a wall: without this the bridge is a
+            // damage beam that ignores terrain and hitboxes.
+            if (!Collision.CanHitLine(p.position, p.width, p.height, target.position, target.width, target.height))
+            {
+                AttackNextTick = now + (ulong)Math.Max(1, AttackIntervalTicks);
+                AttackBlockedByTerrain = true;
+                return;
+            }
+
             // Keep the held weapon's swing state visible while the direct hit
             // below applies real player-owned damage.  SetDummyItemTime also
             // updates itemTimeMax, which the vanilla animation code expects.
             p.SetDummyItemTime(Math.Max(1, weapon.useAnimation));
-            p.ApplyDamageToNPC(target, weapon.damage, weapon.knockBack, direction, false, weapon.DamageType, true);
-            AttackHits++;
+
+            // Use the player's real damage pipeline (armor, accessories, buffs, prefixes)
+            // instead of the bare item damage, and roll a real crit.
+            int damage = (int)p.GetTotalDamage(weapon.DamageType).ApplyTo(weapon.damage);
+            bool crit = Main.rand.NextFloat() < p.GetTotalCritChance(weapon.DamageType) / 100f;
+            LastHitDamage = damage;
+
+            int lifeBefore = target.life;
+            p.ApplyDamageToNPC(target, damage, weapon.knockBack, direction, crit, weapon.DamageType, true);
+            // Global invincibility frames mean a hit inside the i-frame window does no
+            // damage; counting it would overstate the attack.
+            if (target.life < lifeBefore) AttackHits++;
             AttackLastTarget = target.whoAmI;
             AttackLastLife = target.active ? target.life : 0;
+            AttackName = target.FullName;
+            AttackKilled = !target.active || target.life <= 0;
+            AttackBlockedByTerrain = false;
 
-            int interval = AttackIntervalTicks > 0 ? AttackIntervalTicks : 10;
-            AttackNextTick = now + (ulong)interval;
+            AttackNextTick = now + (ulong)Math.Max(1, AttackIntervalTicks);
+        }
+
+        /// <summary>Freeze the last attempt's result so it survives the end of the task.</summary>
+        internal static void FinishAttack(bool hadTarget)
+        {
+            if (!AttackFinished && (AttackHits > 0 || AttackLastTarget >= 0))
+            {
+                AttackFinished = true;
+                AttackFinishedTick = Main.GameUpdateCount;
+                AttackFinishedCleanly = hadTarget;
+            }
+            AttackUntil = 0;
+            AttackTarget = -1;
+            AttackAutoTarget = false;
+            AttackNextTick = 0;
         }
 
         internal static int FindNearestHostile(Player p, int radiusTiles)
@@ -306,6 +417,14 @@ namespace DshTerrariaBridge
             AttackHits = 0;
             AttackLastTarget = -1;
             AttackLastLife = 0;
+            AttackKilled = false;
+            AttackBlockedByTerrain = false;
+            AttackFinished = false;
+            AttackFinishedTick = 0;
+            AttackFinishedCleanly = false;
+            LastHitDamage = 0;
+            AttackName = target >= 0 && target < Main.npc.Length && Main.npc[target] != null ? Main.npc[target].FullName : "";
+            AttackLifeBefore = target >= 0 && target < Main.npc.Length && Main.npc[target] != null ? Main.npc[target].life : 0;
         }
 
         internal static void ClearAttack()
@@ -314,9 +433,6 @@ namespace DshTerrariaBridge
             AttackTarget = -1;
             AttackAutoTarget = false;
             AttackNextTick = 0;
-            AttackHits = 0;
-            AttackLastTarget = -1;
-            AttackLastLife = 0;
         }
 
         internal static object AttackStatus() => new
@@ -328,17 +444,35 @@ namespace DshTerrariaBridge
             lastTarget = AttackLastTarget,
             lastLife = AttackLastLife,
             untilTick = AttackUntil,
+            blockedByTerrain = AttackBlockedByTerrain,
+            // Survives stop() and the end of the task, so an attack can be verified
+            // after the fact instead of showing zeros.
+            last = AttackFinished ? new
+            {
+                target = AttackLastTarget,
+                name = AttackName,
+                hits = AttackHits,
+                lifeBefore = AttackLifeBefore,
+                lifeAfter = AttackLastLife,
+                killed = AttackKilled,
+                endedTick = AttackFinishedTick,
+                endedByTargetGone = AttackFinishedCleanly,
+            } : null,
         };
 
         public override void UpdateUI(Microsoft.Xna.Framework.GameTime gameTime) => DrainPending();
 
         /* ── 控制状态：给"按住走 N 毫秒"用，按 tick 存截止时间 ───────────── */
 
+        // Written from the bridge thread, read from the main thread: keep the
+        // published values volatile instead of relying on x64 store atomicity.
         internal static ulong LeftUntil, RightUntil, UpUntil, DownUntil, JumpUntil, UseUntil, UseTileUntil;
         internal static ulong AttackUntil, AttackNextTick;
-        internal static int AttackTarget = -1, AttackRadius = 40, AttackIntervalTicks = 10;
-        internal static bool AttackAutoTarget;
-        internal static int AttackHits, AttackLastTarget = -1, AttackLastLife;
+        internal static volatile int AttackTarget = -1, AttackRadius = 40, AttackIntervalTicks = 10;
+        internal static volatile bool AttackAutoTarget, AttackFinished, AttackFinishedCleanly, AttackKilled, AttackBlockedByTerrain, JumpIssued;
+        internal static volatile int AttackHits, AttackLastTarget = -1, AttackLastLife, AttackLifeBefore, LastHitDamage;
+        internal static ulong AttackFinishedTick;
+        internal static volatile string AttackName = "";
 
         public static void ApplyControls(Player player)
         {
@@ -369,6 +503,9 @@ namespace DshTerrariaBridge
         // 真正逐帧生效的地方：Player.Update 结束时再推一次速度/标志
         public override void PostUpdate()
         {
+            // ModPlayer hooks run for every player; without this guard the local player
+            // would be advanced once per player slot in multiplayer.
+            if (Player.whoAmI != Main.myPlayer) return;
             BridgeSystem.ApplyMovement();
             BridgeSystem.ApplyAttack();
         }

@@ -79,12 +79,58 @@ namespace DshTerrariaBridge
         private static bool InBounds(int x, int y) =>
             x >= 0 && y >= 0 && x < Main.maxTilesX && y < Main.maxTilesY;
 
+        /// <summary>
+        /// Empty cells are reported as -1, never as 0.
+        /// Terraria's TileID.Dirt is 0, so "0 means empty" made dirt indistinguishable
+        /// from air in every scan and made mine refuse to dig the most common block.
+        /// </summary>
+        private const int EmptyTile = -1;
+
+        private static int TileCode(Tile t) => t.HasTile ? t.TileType : EmptyTile;
+
+        /// <summary>shape: 0 solid, 1 half brick, 2..5 the four slopes.</summary>
+        private static int ShapeCode(Tile t)
+        {
+            if (t.IsHalfBlock) return 1;
+            if (t.Slope == SlopeType.Solid) return 0;
+            return (int)t.Slope + 1;
+        }
+
+        private static bool ValidTileType(int type) => type > 0 && type < TileID.Count;
+
+        private static bool ValidItemType(int type)
+        {
+            if (type <= 0) return false;
+            try { return ContentSamples.ItemsByType.ContainsKey(type); } catch { return false; }
+        }
+
+        private static bool ValidNpcType(int type) => type > 0 && type < NPCID.Count;
+
+        /// <summary>Commands that advance only when the world ticks must refuse to run
+        /// while the simulation is paused, otherwise they report success and do nothing.</summary>
+        private static bool CanTick(out string error)
+        {
+            if (Main.gamePaused)
+            {
+                error = "游戏已暂停（Main.gamePaused）：世界不会推进，移动/跳跃/使用/攻击都不会生效。"
+                    + "先让游戏恢复运行（返回游戏窗口、关闭暂停菜单）再重试。";
+                return false;
+            }
+            error = null;
+            return true;
+        }
+
         private static string Ping() => Json.Ok(new
         {
             pong = true,
             version = DshTerrariaBridge.BridgeVersion,
             inWorld = !Main.gameMenu,
             tick = Main.GameUpdateCount,
+            // Terraria's "pause when unfocused" / "auto pause" settings stop the world from
+            // ticking while the bridge keeps answering. Tell the caller, so it does not
+            // mistake a frozen world for a broken tool.
+            paused = Main.gamePaused,
+            hasFocus = Main.hasFocus,
         });
 
         private static string Help() => Json.Ok(new
@@ -106,6 +152,8 @@ namespace DshTerrariaBridge
             {
                 ["inWorld"] = inWorld,
                 ["version"] = DshTerrariaBridge.BridgeVersion,
+                ["paused"] = Main.gamePaused,
+                ["hasFocus"] = Main.hasFocus,
                 ["screen"] = new { w = Main.screenWidth, h = Main.screenHeight },
                 ["mouseWorld"] = inWorld ? new[] { MathF.Round(Main.MouseWorld.X / 16f, 1), MathF.Round(Main.MouseWorld.Y / 16f, 1) } : null,
                 ["mouseTile"] = inWorld ? new[] { (int)(Main.MouseWorld.X / 16f), (int)(Main.MouseWorld.Y / 16f) } : null,
@@ -141,7 +189,11 @@ namespace DshTerrariaBridge
                     manaMax = pl.statManaMax2,
                     dead = pl.dead,
                     direction = pl.direction,
-                    grounded = pl.velocity.Y == 0f,
+                    // A player on a slope / conveyor / platform can be standing still with a
+                    // non-zero velocity: require both this and the previous tick to be at rest.
+                    grounded = pl.velocity.Y == 0f && pl.oldVelocity.Y == 0f,
+                    flying = pl.wingTime > 0f && !pl.dead,
+                    wet = pl.wet,
                     selected = pl.selectedItem,
                     held = new { type = pl.HeldItem.type, name = pl.HeldItem.Name, stack = pl.HeldItem.stack },
                     buffs = Buffs(pl),
@@ -179,52 +231,114 @@ namespace DshTerrariaBridge
             int cy = Json.Int(p, "y", defY);
             int r = Math.Clamp(Json.Int(p, "r", 12), 1, 48);
             bool withWalls = Json.Bool(p, "walls", true);
+            string format = (Json.Str(p, "format", "rows") ?? "rows").Trim().ToLowerInvariant();
+            if (format != "rows" && format != "ascii" && format != "rle") format = "rows";
 
             int x0 = cx - r, y0 = cy - r, w = r * 2 + 1, h = r * 2 + 1;
-            var rows = new List<int[]>(h);
+            var tiles = new Tile[h, w];
             for (int j = 0; j < h; j++)
             {
-                var row = new int[w * (withWalls ? 4 : 2)];
                 for (int i = 0; i < w; i++)
                 {
                     int x = x0 + i, y = y0 + j;
                     if (!InBounds(x, y)) continue;
-                    Tile t = Main.tile[x, y];
-                    int k = i * (withWalls ? 4 : 2);
-                    row[k] = t.HasTile ? t.TileType : 0;
-                    if (withWalls)
-                    {
-                        row[k + 1] = t.WallType;
-                        row[k + 2] = t.LiquidAmount;
-                        row[k + 3] = (t.Slope == SlopeType.Solid ? (t.IsHalfBlock ? 5 : 0) : (int)t.Slope + 1);
-                    }
-                    else
-                    {
-                        row[k + 1] = t.LiquidAmount;
-                    }
+                    tiles[j, i] = Main.tile[x, y];
                 }
-                rows.Add(row);
             }
 
-            return Json.Ok(new
+            var data = new Dictionary<string, object>
             {
-                x0,
-                y0,
-                w,
-                h,
-                stride = withWalls ? 4 : 2,
-                fields = withWalls ? new[] { "type", "wall", "liquid", "shape" } : new[] { "type", "liquid" },
-                center = new[] { cx, cy },
-                playerTile = pl != null && pl.active ? new[] { (int)(pl.Center.X / 16f), (int)(pl.Center.Y / 16f) } : null,
-                tiles = rows,
-                legend = "type=0 空；shape 0=实心/1=半砖/2..5=斜坡；liquid 0-255",
-            });
+                ["x0"] = x0,
+                ["y0"] = y0,
+                ["w"] = w,
+                ["h"] = h,
+                ["format"] = format,
+                ["center"] = new[] { cx, cy },
+                ["playerTile"] = pl != null && pl.active ? new[] { (int)(pl.Center.X / 16f), (int)(pl.Center.Y / 16f) } : null,
+            };
+
+            if (format == "rows")
+            {
+                int stride = withWalls ? 4 : 2;
+                var rows = new List<int[]>(h);
+                for (int j = 0; j < h; j++)
+                {
+                    var row = new int[w * stride];
+                    for (int i = 0; i < w; i++)
+                    {
+                        Tile t = tiles[j, i];
+                        int k = i * stride;
+                        row[k] = InBounds(x0 + i, y0 + j) ? TileCode(t) : EmptyTile;
+                        if (withWalls)
+                        {
+                            row[k + 1] = t.WallType;
+                            row[k + 2] = t.LiquidAmount;
+                            row[k + 3] = ShapeCode(t);
+                        }
+                        else
+                        {
+                            row[k + 1] = t.LiquidAmount;
+                        }
+                    }
+                    rows.Add(row);
+                }
+                data["stride"] = stride;
+                data["fields"] = withWalls ? new[] { "type", "wall", "liquid", "shape" } : new[] { "type", "liquid" };
+                data["tiles"] = rows;
+                data["legend"] = "type=-1 空，其余是 Terraria 方块 ID（0=土块）；"
+                    + "tiles[j] 是 y=y0+j 这一行，第 i 格在 tiles[j][i*stride .. i*stride+stride-1]；"
+                    + "shape 0=实心 1=半砖 2..5=斜坡；liquid 0-255";
+            }
+            else if (format == "ascii")
+            {
+                var lines = new string[h];
+                for (int j = 0; j < h; j++)
+                {
+                    var sb = new System.Text.StringBuilder(w);
+                    for (int i = 0; i < w; i++)
+                    {
+                        if (!InBounds(x0 + i, y0 + j)) { sb.Append(' '); continue; }
+                        Tile t = tiles[j, i];
+                        if (t.LiquidAmount > 0) sb.Append(t.LiquidType == LiquidID.Lava ? 'L' : '~');
+                        else if (t.HasTile) sb.Append(t.IsHalfBlock || t.Slope != SlopeType.Solid ? '^' : '#');
+                        else sb.Append('.');
+                    }
+                    lines[j] = sb.ToString();
+                }
+                data["map"] = string.Join("\n", lines);
+                data["legend"] = ". 空 · # 实心 · ^ 半砖/斜坡 · ~ 水/其他液体 · L 岩浆（方块类型请用 terraria_tile）";
+            }
+            else
+            {
+                var lines = new string[h];
+                for (int j = 0; j < h; j++)
+                {
+                    var sb = new System.Text.StringBuilder();
+                    int runType = 0, runLen = 0;
+                    for (int i = 0; i < w; i++)
+                    {
+                        int code = InBounds(x0 + i, y0 + j) ? TileCode(tiles[j, i]) : EmptyTile;
+                        if (runLen > 0 && code == runType) { runLen++; continue; }
+                        if (runLen > 0) sb.Append(runLen).Append('x').Append(runType).Append(',');
+                        runType = code; runLen = 1;
+                    }
+                    if (runLen > 0) sb.Append(runLen).Append('x').Append(runType);
+                    lines[j] = sb.ToString();
+                }
+                data["map"] = lines;
+                data["legend"] = "每行从 x0 往右读：\"<数量>x<type>\"，type=-1 为空；map[j] 对应 y=y0+j";
+            }
+
+            return Json.Ok(data);
         }
 
         private static string TileAt(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
-            int x = Json.Int(p, "x", 0), y = Json.Int(p, "y", 0);
+            // Never default a coordinate: (0,0) is a real tile at the world's top-left corner,
+            // so a malformed call would answer confidently about the wrong place.
+            int x = Json.Int(p, "x", int.MinValue), y = Json.Int(p, "y", int.MinValue);
+            if (x == int.MinValue || y == int.MinValue) return Json.Error("tile 需要 x,y（方块坐标）");
             if (!InBounds(x, y)) return Json.Error($"out of world bounds: {x},{y}");
             Tile t = Main.tile[x, y];
             return Json.Ok(new
@@ -232,7 +346,7 @@ namespace DshTerrariaBridge
                 x,
                 y,
                 hasTile = t.HasTile,
-                type = t.HasTile ? t.TileType : 0,
+                type = TileCode(t),
                 name = t.HasTile ? TileID.Search.GetName(t.TileType) : "",
                 wall = t.WallType,
                 liquid = t.LiquidAmount,
@@ -251,33 +365,57 @@ namespace DshTerrariaBridge
             if (x < 0 || y < 0) return Json.Error("mine 需要 x,y（方块坐标）");
             if (!InBounds(x, y)) return Json.Error($"out of world bounds: {x},{y}");
             bool noItem = Json.Bool(p, "noItem", false);
+            // Walls are a separate decision: WorldGen.KillWall ignores noItem and walls drive
+            // housing validity, so removing them must be opt-in.
+            bool walls = Json.Bool(p, "walls", false);
             Tile tile = Main.tile[x, y];
-            int before = tile.HasTile ? tile.TileType : 0;
+            bool hadTile = tile.HasTile;
+            int before = TileCode(tile);
             int wallBefore = tile.WallType;
-            if (before == 0 && wallBefore == 0)
-                return Json.Ok(new { ok = false, x, y, before, after = 0, removed = false, note = "这一格本来就是空的" });
+            if (!hadTile && wallBefore == 0)
+                return Json.Ok(new { ok = false, x, y, before, after = EmptyTile, removedTile = false, removedWall = false, note = "这一格本来就是空的" });
             // 1.4.4 的 WorldGen.KillTile 返回 void：成败靠前后回读判断
-            if (before != 0) WorldGen.KillTile(x, y, false, false, noItem);
-            if (wallBefore != 0 && Main.tile[x, y].WallType != 0) WorldGen.KillWall(x, y, false);
+            if (hadTile) WorldGen.KillTile(x, y, false, false, noItem);
             Tile tileAfter = Main.tile[x, y];
-            int after = tileAfter.HasTile ? tileAfter.TileType : 0;
-            bool removedTile = before != 0 && after == 0;
-            bool removedWall = wallBefore != 0 && tileAfter.WallType == 0;
-            return Json.Ok(new { ok = removedTile || removedWall, x, y, before, after, wallBefore, wall = tileAfter.WallType, removed = removedTile || removedWall });
+            bool removedTile = hadTile && !tileAfter.HasTile;
+            bool removedWall = false;
+            if (walls && wallBefore != 0 && tileAfter.WallType != 0)
+            {
+                WorldGen.KillWall(x, y, false);
+                tileAfter = Main.tile[x, y];
+                removedWall = wallBefore != 0 && tileAfter.WallType == 0;
+            }
+            return Json.Ok(new
+            {
+                ok = removedTile || removedWall,
+                x,
+                y,
+                removedTile,
+                removedWall,
+                before,
+                after = TileCode(tileAfter),
+                wallBefore,
+                wall = tileAfter.WallType,
+            });
         }
 
         private static string Place(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
             int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
-            int type = Json.Int(p, "type", TileID.Dirt);
+            int type = Json.Int(p, "type", -1);
             int style = Json.Int(p, "style", 0);
             bool forced = Json.Bool(p, "forced", true);
             if (x < 0 || y < 0) return Json.Error("place 需要 x,y");
+            if (type < 0) return Json.Error("place 需要 type（方块类型 ID）");
+            if (!ValidTileType(type)) return Json.Error($"invalid tile type {type} (1..{TileID.Count - 1})");
             if (!InBounds(x, y)) return Json.Error($"out of world bounds: {x},{y}");
             bool ok = WorldGen.PlaceTile(x, y, type, false, forced, -1, style);
-            int after = Main.tile[x, y].HasTile ? Main.tile[x, y].TileType : 0;
-            return Json.Ok(new { ok, x, y, requested = type, after });
+            int after = TileCode(Main.tile[x, y]);
+            // WorldGen.PlaceTile returns true in cases where nothing actually changed
+            // (an existing tile it refused to replace). Report what is really there.
+            bool placed = after == type;
+            return Json.Ok(new { ok = placed, placed, worldGenOk = ok, x, y, requested = type, after });
         }
 
         private static string Teleport(JsonElement p)
@@ -286,11 +424,30 @@ namespace DshTerrariaBridge
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             float x = Json.Float(p, "x", float.NaN), y = Json.Float(p, "y", float.NaN);
             if (float.IsNaN(x) || float.IsNaN(y)) return Json.Error("teleport 需要 x,y（方块坐标）");
+            if (!float.IsFinite(x) || !float.IsFinite(y)) return Json.Error("x,y must be finite");
+            if (x < 1 || y < 1 || x > Main.maxTilesX - 2 || y > Main.maxTilesY - 2)
+                return Json.Error($"out of world bounds: {x},{y}（世界是 {Main.maxTilesX}x{Main.maxTilesY}）");
             Player pl = P;
+            var from = new[] { MathF.Round(pl.Center.X / 16f, 1), MathF.Round(pl.Center.Y / 16f, 1) };
             pl.position = new Vector2(x * 16f, y * 16f - pl.height);
             pl.velocity = Vector2.Zero;
-            pl.fallStart = (int)(pl.position.Y / 16f);
-            return Json.Ok(new { x, y, tile = new[] { MathF.Round(pl.Center.X / 16f, 1), MathF.Round(pl.Center.Y / 16f, 1) } });
+            pl.fallStart = pl.fallStart2 = (int)(pl.position.Y / 16f);
+            // Landing inside solid rock would leave the player stuck; lift until free.
+            int adjusted = 0;
+            while (adjusted < 40 && Collision.SolidTiles(pl.position, pl.width, pl.height, false))
+            {
+                pl.position.Y -= 16f;
+                adjusted++;
+            }
+            pl.fallStart = pl.fallStart2 = (int)(pl.position.Y / 16f);
+            return Json.Ok(new
+            {
+                x,
+                y,
+                from,
+                adjusted,
+                tile = new[] { MathF.Round(pl.Center.X / 16f, 1), MathF.Round(pl.Center.Y / 16f, 1) },
+            });
         }
 
         /* ── 动作 ─────────────────────────────────────────────────────── */
@@ -299,9 +456,11 @@ namespace DshTerrariaBridge
         {
             if (!InWorld(out string err)) return Json.Error(err);
             if (!HasPlayer(out string perr)) return Json.Error(perr);
+            if (!CanTick(out string perr2)) return Json.Error(perr2);
             string dir = (Json.Str(p, "dir", "right") ?? "right").ToLowerInvariant();
-            int ms = Math.Clamp(Json.Int(p, "ms", 500), 1, 15000);
+            int ms = Math.Clamp(Json.Int(p, "ms", 500), 1, 5000);
             ulong until = BridgeSystem.Now + BridgeSystem.Ticks(ms);
+            var from = new[] { MathF.Round(P.Center.X / 16f, 1), MathF.Round(P.Center.Y / 16f, 1) };
             switch (dir)
             {
                 // A new direction replaces its opposite. Without this,
@@ -315,22 +474,32 @@ namespace DshTerrariaBridge
             // Apply once immediately so a short command is not lost between
             // the request tick and the next Player update.
             BridgeSystem.ApplyMovement();
-            return Json.Ok(new { dir, ms, untilTick = until, tick = BridgeSystem.Now });
+            return Json.Ok(new { dir, ms, from, untilTick = until, tick = BridgeSystem.Now });
         }
 
         private static string Jump(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
             if (!HasPlayer(out string perr)) return Json.Error(perr);
-            int ms = Math.Clamp(Json.Int(p, "ms", 150), 1, 5000);
-            BridgeSystem.JumpUntil = BridgeSystem.Now + BridgeSystem.Ticks(ms);
-            return Json.Ok(new { jumpMs = ms, untilTick = BridgeSystem.JumpUntil });
+            if (!CanTick(out string perr2)) return Json.Error(perr2);
+            Player pl = P;
+            int ms = Math.Clamp(Json.Int(p, "ms", 150), 1, 2000);
+            BridgeSystem.BeginJump(BridgeSystem.Now + BridgeSystem.Ticks(ms));
+            return Json.Ok(new
+            {
+                ms,
+                from = new[] { MathF.Round(pl.Center.X / 16f, 1), MathF.Round(pl.Center.Y / 16f, 1) },
+                grounded = pl.velocity.Y == 0f && pl.oldVelocity.Y == 0f,
+                untilTick = BridgeSystem.JumpUntil,
+                tick = BridgeSystem.Now,
+            });
         }
 
         private static string Use(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
             if (!HasPlayer(out string perr)) return Json.Error(perr);
+            if (!CanTick(out string perr2)) return Json.Error(perr2);
             Player pl = P;
             if (pl.dead) return Json.Error("玩家已死亡，请先复活");
             int slot = Json.Int(p, "slot", -1);
@@ -358,13 +527,22 @@ namespace DshTerrariaBridge
                     pl.SetItemTime(Math.Max(1, held.useTime));
                 }
             }
-            return Json.Ok(new { slot = pl.selectedItem, right, ms, held = new { type = pl.HeldItem.type, name = pl.HeldItem.Name } });
+            return Json.Ok(new
+            {
+                slot = pl.selectedItem,
+                right,
+                ms,
+                held = new { type = pl.HeldItem.type, name = pl.HeldItem.Name },
+                // Evidence that something actually started, instead of just "ok".
+                anim = pl.itemAnimation,
+            });
         }
 
         private static string Attack(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
             if (!HasPlayer(out string perr)) return Json.Error(perr);
+            if (!CanTick(out string perr2)) return Json.Error(perr2);
             Player pl = P;
             if (pl.dead) return Json.Error("玩家已死亡，请先复活");
             int requestedWho = Json.Int(p, "who", -1);
@@ -408,7 +586,10 @@ namespace DshTerrariaBridge
                 interval,
                 slot = pl.selectedItem,
                 weapon = new { type = weapon.type, name = weapon.Name, damage = weapon.damage },
+                // The real damage this hit used, after armor/buff/accessory bonuses.
+                effectiveDamage = BridgeSystem.LastHitDamage,
                 npc = target == null ? null : new { name = target.FullName, life = target.active ? target.life : 0, lifeMax = target.lifeMax },
+                hint = "攻击在后台继续。任务结束后 state.attack.last 仍保留命中数和目标剩余血量，可用来验收。",
             });
         }
 
@@ -417,6 +598,7 @@ namespace DshTerrariaBridge
             if (!InWorld(out string err)) return Json.Error(err);
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             int type = Json.Int(p, "type", NPCID.BlueSlime);
+            if (!ValidNpcType(type)) return Json.Error($"invalid NPC type {type} (1..{NPCID.Count - 1})");
             Player pl = P;
             float x = Json.Float(p, "x", float.NaN);
             float y = Json.Float(p, "y", float.NaN);
@@ -451,7 +633,33 @@ namespace DshTerrariaBridge
                     rare = it.rare,
                 });
             }
-            return Json.Ok(new { selected = pl.selectedItem, count = slots.Count, items = slots.ToArray() });
+            // Armor and accessories live in a separate array: without this the caller cannot
+            // tell whether it is armoured, or whether it can fly (wings are an accessory).
+            var equip = new List<object>();
+            for (int i = 0; i < pl.armor.Length; i++)
+            {
+                Item it = pl.armor[i];
+                if (it == null || it.type <= 0) continue;
+                equip.Add(new
+                {
+                    slot = i,
+                    kind = i < 3 ? "armor" : "accessory",
+                    type = it.type,
+                    name = it.Name,
+                    defense = it.defense,
+                    wingSlot = it.wingSlot > 0,
+                });
+            }
+            return Json.Ok(new
+            {
+                selected = pl.selectedItem,
+                count = slots.Count,
+                items = slots.ToArray(),
+                equipment = equip.ToArray(),
+                canFly = pl.wingTimeMax > 0 || pl.velocity.Y != 0f && pl.wingsLogic > 0,
+                // statDefense is a struct (Positive/Negative); callers want one number.
+                defense = pl.statDefense.Positive - pl.statDefense.Negative,
+            });
         }
 
         private static int CountItem(Player pl, int type)
@@ -460,6 +668,67 @@ namespace DshTerrariaBridge
             foreach (Item it in pl.inventory)
                 if (it != null && it.type == type) n += it.stack;
             return n;
+        }
+
+        /// <summary>Accepted-member sets for the recipe's groups ("any wood", "any iron bar"…).</summary>
+        private static List<HashSet<int>> RecipeGroupSets(Recipe recipe)
+        {
+            var sets = new List<HashSet<int>>();
+            if (recipe?.acceptedGroups == null) return sets;
+            foreach (int gid in recipe.acceptedGroups)
+            {
+                try
+                {
+                    if (RecipeGroup.recipeGroups != null && RecipeGroup.recipeGroups.TryGetValue(gid, out RecipeGroup group) && group?.ValidItems != null)
+                        sets.Add(new HashSet<int>(group.ValidItems));
+                }
+                catch { }
+            }
+            return sets;
+        }
+
+        /// <summary>
+        /// How many items of a requirement slot the player holds, counting group members
+        /// when the requirement is a group ("any wood").
+        /// </summary>
+        private static int CountRequirement(Player pl, int type, List<HashSet<int>> groups)
+        {
+            int n = CountItem(pl, type);
+            foreach (var set in groups)
+            {
+                if (!set.Contains(type)) continue;
+                foreach (int member in set)
+                {
+                    if (member == type) continue;
+                    n += CountItem(pl, member);
+                }
+            }
+            return n;
+        }
+
+        /// <summary>Consume one requirement slot, taking exact items first, then group members.</summary>
+        private static int ConsumeRequirement(Player pl, int type, int count, List<HashSet<int>> groups)
+        {
+            int left = count;
+            var order = new List<int> { type };
+            foreach (var set in groups)
+            {
+                if (!set.Contains(type)) continue;
+                foreach (int member in set) if (member != type) order.Add(member);
+            }
+            foreach (int want in order)
+            {
+                for (int i = 0; i < pl.inventory.Length && left > 0; i++)
+                {
+                    Item it = pl.inventory[i];
+                    if (it.type != want) continue;
+                    int take = Math.Min(it.stack, left);
+                    it.stack -= take; left -= take;
+                    if (it.stack <= 0) it.SetDefaults(0);
+                }
+                if (left <= 0) break;
+            }
+            return count - left;
         }
 
         /// <summary>把物品直接塞进背包（先叠加再空格），返回实际放入数量。</summary>
@@ -520,6 +789,7 @@ namespace DshTerrariaBridge
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             int itemType = Json.Int(p, "item", 0);
             if (itemType <= 0) return Json.Error("craft 需要 item（物品类型 id）");
+            if (!ValidItemType(itemType)) return Json.Error($"invalid item type {itemType}: 不是有效的物品 ID");
             int times = Math.Clamp(Json.Int(p, "times", 1), 1, 20);
 
             Player pl = P;
@@ -531,11 +801,28 @@ namespace DshTerrariaBridge
             }
             if (recipe == null) return Json.Error($"没有找到产物为 {itemType} 的配方");
 
-            // 配方组（任意木板/任意铁锭之类）暂不支持：宁可明确拒绝，也不猜错材料
-            if (recipe.acceptedGroups != null && recipe.acceptedGroups.Count > 0)
-                return Json.Error("这个配方含'配方组'（任意木材/任意矿石之类），暂不支持自动合成，请用游戏内界面合成");
+            // Conditions such as "near water", "hardmode", "night" are part of the recipe:
+            // crafting without them would let the caller make items the game never allows.
+            try
+            {
+                if (recipe.Conditions != null)
+                {
+                    foreach (var condition in recipe.Conditions)
+                    {
+                        if (condition == null || condition.Predicate == null) continue;
+                        if (!condition.Predicate())
+                        {
+                            string desc = condition.Description?.Value ?? "配方条件";
+                            return Json.Error($"配方条件不满足：{desc}");
+                        }
+                    }
+                }
+            }
+            catch { /* older/other tModLoader builds may not expose Conditions; stations still checked below */ }
 
-            // 统计需求（同一物品可能出现在多个槽位）
+            var groups = RecipeGroupSets(recipe);
+
+            // Statistics: the same item can occupy several slots.
             var need = new Dictionary<int, int>();
             if (recipe.requiredItem != null)
             {
@@ -548,37 +835,34 @@ namespace DshTerrariaBridge
             }
 
             int crafted = 0;
+            int dropped = 0;
             for (int round = 0; round < times; round++)
             {
                 foreach (var kv in need)
                 {
-                    if (CountItem(pl, kv.Key) < kv.Value)
+                    if (CountRequirement(pl, kv.Key, groups) < kv.Value)
                         return crafted > 0
-                            ? Json.Ok(new { item = itemType, name = Lang.GetItemNameValue(itemType), crafted, reason = "材料用完了" })
-                            : Json.Error($"材料不足：需要 {Lang.GetItemNameValue(kv.Key)} x{kv.Value}，背包里有 {CountItem(pl, kv.Key)}");
+                            ? Json.Ok(new { item = itemType, name = Lang.GetItemNameValue(itemType), crafted, dropped, times, reason = "材料用完了" })
+                            : Json.Error($"材料不足：需要 {Lang.GetItemNameValue(kv.Key)} x{kv.Value}，背包里有 {CountRequirement(pl, kv.Key, groups)}");
                 }
                 if (!HasStation(pl, recipe))
                     return crafted > 0
-                        ? Json.Ok(new { item = itemType, name = Lang.GetItemNameValue(itemType), crafted, reason = "附近没有工作站" })
+                        ? Json.Ok(new { item = itemType, name = Lang.GetItemNameValue(itemType), crafted, dropped, times, reason = "附近没有工作站" })
                         : Json.Error("附近没有这个配方需要的工作站（工作台/熔炉/铁砧…）");
 
-                // 扣材料
-                foreach (var kv in need)
-                {
-                    int left = kv.Value;
-                    for (int i = 0; i < pl.inventory.Length && left > 0; i++)
-                    {
-                        Item it = pl.inventory[i];
-                        if (it.type != kv.Key) continue;
-                        int take = Math.Min(it.stack, left);
-                        it.stack -= take; left -= take;
-                        if (it.stack <= 0) it.SetDefaults(0);
-                    }
-                }
+                // 扣材料（配方组按"任意成员"结算）
+                foreach (var kv in need) ConsumeRequirement(pl, kv.Key, kv.Value, groups);
 
                 int per = Math.Max(1, recipe.createItem.stack);
                 int added = AddToInventory(pl, itemType, per);
-                if (added <= 0) { pl.QuickSpawnItem(new EntitySource_Misc("dsh-bridge"), itemType, per); added = per; }
+                // Do not claim the inventory received what actually fell on the floor.
+                if (added < per)
+                {
+                    int spill = per - Math.Max(0, added);
+                    pl.QuickSpawnItem(new EntitySource_Misc("dsh-bridge"), itemType, spill);
+                    dropped += spill;
+                    added = Math.Max(0, added);
+                }
                 crafted += added;
             }
 
@@ -587,8 +871,10 @@ namespace DshTerrariaBridge
                 item = itemType,
                 name = Lang.GetItemNameValue(itemType),
                 crafted,
+                dropped,
                 times,
                 perCraft = Math.Max(1, recipe.createItem.stack),
+                groupsUsed = groups.Count,
             });
         }
 
@@ -598,7 +884,7 @@ namespace DshTerrariaBridge
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             int type = Json.Int(p, "type", 0);
             int stack = Math.Clamp(Json.Int(p, "stack", 1), 1, 9999);
-            if (type <= 0) return Json.Error("give 需要 type");
+            if (!ValidItemType(type)) return Json.Error($"invalid item type {type}: 不是有效的物品 ID");
             P.QuickSpawnItem(new EntitySource_Misc("dsh-bridge"), type, stack);
             return Json.Ok(new { type, stack, name = Lang.GetItemNameValue(type) });
         }

@@ -8,7 +8,7 @@ namespace DshTerrariaBridge
     /// </summary>
     public class DshTerrariaBridge : Mod
     {
-        public const string BridgeVersion = "0.1.0";
+        public const string BridgeVersion = "0.2.0";
 
         public override void Load()
         {
