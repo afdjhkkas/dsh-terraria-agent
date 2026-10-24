@@ -39,6 +39,12 @@ namespace DshTerrariaBridge
                 case "save": return SaveWorld(p);
                 case "removeblock": return RemoveBlock(p);
                 case "recipes": return Recipes(p);
+                case "chest": return ChestCmd(p);
+                case "drop": return DropItem(p);
+                case "heal": return HealSelf(p);
+                case "boss": return BossStatus(p);
+                case "event": return EventStatus(p);
+                case "equip": return EquipArmor(p);
                 case "place": return Place(p);
                 case "move": return Move(p);
                 case "jump": return Jump(p);
@@ -559,6 +565,174 @@ namespace DshTerrariaBridge
         /// item path calls under the hood but without the item-use timing/aim conditions. Returns
         /// the game's own verdict, so a failure is visible instead of silent.
         /// </summary>
+        /* ── 箱子 ────────────────────────────────────────────────────────
+         * 早期装备、硬币、材料大多在箱子里；没有这个命令就只能挖矿攒，效率极低。
+         * 只操作玩家够得着的真实箱子（Main.chest），搬运走物品的真实克隆，不凭空生成。
+         */
+        private static Chest NearChest(Player pl, out int index)
+        {
+            index = -1;
+            float best = 6f * 16f;
+            for (int i = 0; i < Main.maxChests; i++)
+            {
+                Chest c = Main.chest[i];
+                if (c == null) continue;
+                float d = Vector2.Distance(pl.Center, new Vector2(c.x * 16f + 16f, c.y * 16f + 16f));
+                if (d < best) { best = d; index = i; }
+            }
+            return index >= 0 ? Main.chest[index] : null;
+        }
+
+        private static string ChestCmd(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            Chest c = NearChest(pl, out int ci);
+            if (c == null) return Json.Error("附近 6 格内没有箱子");
+            string action = Json.Str(p, "action", "list");
+
+            if (action == "list")
+            {
+                var items = new List<object>();
+                for (int i = 0; i < c.item.Length; i++)
+                {
+                    Item it = c.item[i];
+                    if (it == null || it.type <= 0) continue;
+                    items.Add(new { slot = i, id = it.type, name = it.Name, stack = it.stack });
+                }
+                return Json.Ok(new { chest = new { x = c.x, y = c.y }, index = ci, items });
+            }
+
+            if (action == "take")
+            {
+                int slot = Json.Int(p, "slot", -1);
+                int count = Json.Int(p, "count", -1);
+                if (slot < 0 || slot >= c.item.Length) return Json.Error("slot 越界");
+                Item src = c.item[slot];
+                if (src == null || src.type <= 0) return Json.Error("这个箱子格子是空的");
+                int n = count > 0 ? Math.Min(count, src.stack) : src.stack;
+                Item taken = src.Clone();
+                taken.stack = n;
+                // 手工放进背包：同类型可叠加的优先，其次空格
+                int target = -1;
+                for (int i = 0; i < pl.inventory.Length; i++)
+                {
+                    Item inv = pl.inventory[i];
+                    if (inv == null) continue;
+                    if (inv.type == taken.type && inv.stack + n <= inv.maxStack) { target = i; break; }
+                }
+                if (target < 0)
+                    for (int i = 0; i < pl.inventory.Length; i++)
+                        if (pl.inventory[i] != null && pl.inventory[i].type == 0) { target = i; break; }
+                if (target < 0) return Json.Error("背包放不下");
+                if (pl.inventory[target].type == taken.type) pl.inventory[target].stack += n;
+                else { pl.inventory[target] = taken; }
+                src.stack -= n;
+                if (src.stack <= 0) { c.item[slot] = new Item(); c.item[slot].SetDefaults(0); }
+                return Json.Ok(new { took = taken.Name, count = n, slot });
+            }
+
+            if (action == "put")
+            {
+                int inv = Json.Int(p, "invSlot", -1);
+                if (inv < 0 || inv >= pl.inventory.Length) return Json.Error("invSlot 越界");
+                Item src = pl.inventory[inv];
+                if (src == null || src.type <= 0) return Json.Error("背包这个格子是空的");
+                for (int i = 0; i < c.item.Length; i++)
+                {
+                    if (c.item[i] != null && c.item[i].type > 0) continue;
+                    c.item[i] = src.Clone();
+                    pl.inventory[inv] = new Item();
+                    pl.inventory[inv].SetDefaults(0);
+                    return Json.Ok(new { put = src.Name, chestSlot = i });
+                }
+                return Json.Error("箱子满了");
+            }
+            return Json.Error("action 只能是 list / take / put");
+        }
+
+        /* ── 丢东西 / 喝药 / Boss 与事件状态 / 穿护甲 ────────────────── */
+
+        private static string DropItem(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int slot = Json.Int(p, "slot", -1);
+            if (slot < 0 || slot >= pl.inventory.Length) return Json.Error("slot 越界");
+            Item it = pl.inventory[slot];
+            if (it == null || it.type <= 0) return Json.Error("这个格子是空的");
+            int n = Math.Clamp(Json.Int(p, "count", it.stack), 1, it.stack);
+            Item dropped = it.Clone();
+            dropped.stack = n;
+            Item.NewItem(new EntitySource_DropAsItem(pl), pl.Center, Vector2.Zero, dropped.type, n);
+            it.stack -= n;
+            if (it.stack <= 0) { pl.inventory[slot] = new Item(); pl.inventory[slot].SetDefaults(0); }
+            return Json.Ok(new { dropped = dropped.Name, count = n });
+        }
+
+        private static string HealSelf(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int before = pl.statLife;
+            pl.QuickHeal();
+            int after = pl.statLife;
+            return Json.Ok(new { before, after, healed = after - before, hasPotion = after > before });
+        }
+
+        private static string BossStatus(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            var list = new List<object>();
+            for (int i = 0; i < Main.maxNPCs; i++)
+            {
+                NPC n = Main.npc[i];
+                if (n == null || !n.active || !n.boss) continue;
+                list.Add(new { name = n.FullName, life = n.life, lifeMax = n.lifeMax, head = n.boss });
+            }
+            return Json.Ok(new { active = list.Count, bosses = list });
+        }
+
+        private static string EventStatus(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            return Json.Ok(new
+            {
+                dayTime = Main.dayTime, time = Main.time, day = Main.dayRate,
+                bloodMoon = Main.bloodMoon, eclipse = Main.eclipse,
+                invasionType = Main.invasionType, invasionSize = Main.invasionSize,
+                pumpkinMoon = Main.pumpkinMoon, snowMoon = Main.snowMoon,
+                raining = Main.raining,
+                hardMode = Main.hardMode,
+                downedEye = NPC.downedBoss1, downedEater = NPC.downedBoss2,
+                downedSkeletron = NPC.downedBoss3, downedWall = Main.hardMode,
+                downedPlantera = NPC.downedPlantBoss, downedGolem = NPC.downedGolemBoss,
+            });
+        }
+
+        private static string EquipArmor(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int invSlot = Json.Int(p, "slot", -1);
+            if (invSlot < 0 || invSlot >= pl.inventory.Length) return Json.Error("slot 越界");
+            Item it = pl.inventory[invSlot];
+            if (it == null || it.type <= 0) return Json.Error("背包这个格子是空的");
+            int armorSlot = -1;
+            if (it.headSlot >= 0) armorSlot = 0;
+            else if (it.bodySlot >= 0) armorSlot = 1;
+            else if (it.legSlot >= 0) armorSlot = 2;
+            else return Json.Error($"{it.Name} 不是护甲");
+            Item old = pl.armor[armorSlot];
+            pl.armor[armorSlot] = it.Clone();
+            pl.inventory[invSlot] = old;
+            return Json.Ok(new { equipped = it.Name, armorSlot, replaced = old != null && old.type > 0 ? old.Name : null });
+        }
+
         /// <summary>
         /// Read-only recipe lookup: product id, product name and required ingredients. Exists so
         /// item ids never have to be guessed again (a wrong id wasted a lot of time: 22 is an iron
