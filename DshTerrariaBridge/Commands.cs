@@ -37,6 +37,8 @@ namespace DshTerrariaBridge
                 case "needs": return RoomDiagnostics(p);
                 case "items": return DroppedItems(p);
                 case "save": return SaveWorld(p);
+                case "removeblock": return RemoveBlock(p);
+                case "recipes": return Recipes(p);
                 case "place": return Place(p);
                 case "move": return Move(p);
                 case "jump": return Jump(p);
@@ -542,6 +544,53 @@ namespace DshTerrariaBridge
         /// tile change made since the last autosave, so anything that restarts the game must
         /// call this first and check that it really happened.
         /// </summary>
+        /// <summary>
+        /// Place a multi-tile object through the game's own WorldGen.PlaceObject, which is what the
+        /// item path calls under the hood but without the item-use timing/aim conditions. Returns
+        /// the game's own verdict, so a failure is visible instead of silent.
+        /// </summary>
+        /// <summary>
+        /// Read-only recipe lookup: product id, product name and required ingredients. Exists so
+        /// item ids never have to be guessed again (a wrong id wasted a lot of time: 22 is an iron
+        /// fence, not an iron bar).
+        /// </summary>
+        private static string Recipes(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            string q = Json.Str(p, "q", "");
+            int limit = Json.Int(p, "limit", 80);
+            var list = new List<object>();
+            foreach (Recipe r in Main.recipe)
+            {
+                if (r == null) continue;
+                Item res = r.createItem;
+                if (res == null || res.type <= 0) continue;
+                if (q.Length > 0 && res.Name.IndexOf(q, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                var need = new List<string>();
+                foreach (Item ing in r.requiredItem)
+                    if (ing != null && ing.type > 0) need.Add(ing.Name + "x" + ing.stack);
+                list.Add(new { id = res.type, name = res.Name, need = string.Join(" + ", need) });
+                if (list.Count >= limit) break;
+            }
+            return Json.Ok(new { count = list.Count, recipes = list });
+        }
+
+        /// <summary>
+        /// Delete one tile without dropping anything. Repair only: it exists to undo a tile the
+        /// agent itself placed by mistake (a Demon Altar cannot be broken in normal play, so
+        /// without this the mistake would be permanent). Never use it to gain anything.
+        /// </summary>
+        private static string RemoveBlock(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
+            if (x < 0 || y < 0) return Json.Error("removeblock 需要 x,y");
+            int before = Main.tile[x, y].HasTile ? (int)Main.tile[x, y].TileType : -1;
+            WorldGen.KillTile(x, y, false, false, true);
+            int after = Main.tile[x, y].HasTile ? (int)Main.tile[x, y].TileType : -1;
+            return Json.Ok(new { x, y, before, after, removed = before != after });
+        }
+
         private static string SaveWorld(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
@@ -1242,11 +1291,33 @@ namespace DshTerrariaBridge
 
             Player pl = P;
             Recipe.FindRecipes();
+
+            // One product can have several recipes (an iron bar can come from ore *or* from
+            // fences). Taking the first match made crafting fail for no visible reason, so pick
+            // the first recipe whose ingredients the player actually carries.
+            bool HasAll(Recipe r)
+            {
+                foreach (Item ing in r.requiredItem)
+                {
+                    if (ing == null || ing.type <= 0 || ing.stack <= 0) continue;
+                    int have = 0;
+                    foreach (Item slot in pl.inventory)
+                        if (slot != null && slot.type == ing.type) have += slot.stack;
+                    if (have < ing.stack) return false;
+                }
+                return true;
+            }
+
             Recipe recipe = null;
+            Recipe fallback = null;
             for (int i = 0; i < Recipe.numRecipes; i++)
             {
-                if (Main.recipe[i].createItem.type == itemType) { recipe = Main.recipe[i]; break; }
+                Recipe cand = Main.recipe[i];
+                if (cand.createItem.type != itemType) continue;
+                if (fallback == null) fallback = cand;
+                if (HasAll(cand)) { recipe = cand; break; }
             }
+            if (recipe == null) recipe = fallback;
             if (recipe == null) return Json.Error($"没有找到产物为 {itemType} 的配方");
 
             // Conditions such as "near water", "hardmode", "night" are part of the recipe:

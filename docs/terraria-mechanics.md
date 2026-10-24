@@ -131,6 +131,30 @@ exist when judging whether an action was legitimately earned.
   top-down, then walks. A move that produces no displacement is almost always a
   solid tile in one of those rows, not a broken game.
 
+## Never add an API that can create items `[measured]`
+
+A `WorldGen.PlaceObject` shortcut was added to place furniture reliably. It worked - and it also
+placed a **Demon Altar**, an object no player can obtain, because it never checks the inventory.
+That is cheating with extra steps and it destroys trust in every result afterwards. It was
+removed; the rule that replaced it:
+
+- **placing** must go through the player's own item use (item in inventory, consumed, reach,
+  support), and
+- **crafting** may use the recipe API, but only when the player really carries the ingredients.
+
+Multi-tile furniture anchors, measured: a 3x2 object (furnace, altar) is placed with the
+**bottom-centre** tile as the cursor target, a 2x1 object (workbench, anvil) with the
+**bottom-left**.
+
+## One product, several recipes `[measured]`
+
+An iron bar has three recipes (from ore, from iron fence, from wrought iron fence). Crafting code
+that takes the *first* recipe for a product reports "missing 铁栅栏 x4" while nine iron ore sit in
+the bag. Always pick the first recipe whose ingredients are actually present.
+
+Item ids that were wrong by guesswork and are now looked up: 铁锭 22 (铁矿 x3), 铁砧 35
+(铁锭 x5), 熔炉 item 33 / tile 17, 木桌 32, 工作台 36 / tile 18, 木椅 34 / tile 15.
+
 ## Persistence: only the game's own path survives `[measured]`
 
 Two independent things silently destroyed work in this project, both worth checking first
