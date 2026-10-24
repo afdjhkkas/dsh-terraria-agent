@@ -978,16 +978,22 @@ namespace DshTerrariaBridge
             if (stock == null || stock.type <= 0) return Json.Error("商店这个格子是空的");
 
             long price = ShopPrice(stock);
-            int freeSlot = -1;
+            // 先找同类可叠加的堆（否则每次买都塞新槽，容易互相覆盖/丢东西）
+            int slotInBag = -1;
             for (int i = 0; i < pl.inventory.Length; i++)
-                if (pl.inventory[i] != null && pl.inventory[i].type == 0) { freeSlot = i; break; }
-            if (freeSlot < 0) return Json.Error("背包没有空位");
+            {
+                Item it = pl.inventory[i];
+                if (it != null && it.type == stock.type && it.stack < it.maxStack) { slotInBag = i; break; }
+            }
+            if (slotInBag < 0)
+                for (int i = 0; i < pl.inventory.Length; i++)
+                    if (pl.inventory[i] != null && pl.inventory[i].type == 0) { slotInBag = i; break; }
+            if (slotInBag < 0) return Json.Error("背包没有空位");
             if (!pl.BuyItem(price))
                 return Json.Error($"钱不够：需要 {price} 铜币（{price / 100} 银币）");
-            Item got = stock.Clone();
-            got.stack = 1;
-            pl.inventory[freeSlot] = got;
-            return Json.Ok(new { bought = got.Name, priceCopper = price, slot = freeSlot, shopId });
+            if (pl.inventory[slotInBag].type == stock.type) pl.inventory[slotInBag].stack += 1;
+            else { Item got = stock.Clone(); got.stack = 1; pl.inventory[slotInBag] = got; }
+            return Json.Ok(new { bought = stock.Name, priceCopper = price, slot = slotInBag, stack = pl.inventory[slotInBag].stack, shopId });
         }
 
         private static string ShopSell(JsonElement p)
