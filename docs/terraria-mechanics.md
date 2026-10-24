@@ -181,6 +181,19 @@ Tile interaction is refused beyond roughly five tiles from the player centre. Th
 accept a request up to seven; the game then silently does nothing (no swing result, no item
 consumed). Build and dig within **four** tiles and walk between phases.
 
+## Building layout: leave a walkway `[measured]`
+
+Rooms placed back-to-back share a wall, and a door in that wall opens into the neighbour's
+wall: the player gets trapped in the doorway, and any hole punched to escape **merges the two
+rooms into one space**, which costs a house slot. Leave about three tiles of walkway between
+buildings and put each door on the walkway side.
+
+## You cannot place a block where you are standing `[measured]`
+
+A placement whose target cell overlaps the player's own hitbox is refused silently. Step one or
+two tiles aside first; this looks identical to a support failure until you notice the player is
+standing in the cell.
+
 ## "I cannot move" is almost always un-dug terrain `[measured]`
 
 A player is 20x42 px, i.e. four tile rows (two above the centre, one below). When a move
