@@ -60,7 +60,12 @@ namespace DshTerrariaBridge
                 case "use": return Use(p);
                 case "attack": return Attack(p);
                 case "spawn_npc": return SpawnNpc(p);
-                case "stop": BridgeSystem.ClearControls(); return Json.Ok(new { stopped = true });
+                case "stop":
+                    BridgeSystem.StopPath("cancelled");
+                    BridgeSystem.StopWalk("cancelled");
+                    BridgeSystem.StopMining();
+                    BridgeSystem.ClearControls();
+                    return Json.Ok(new { stopped = true });
                 case "teleport": return Teleport(p);
                 case "wall": return Wall(p);
                 case "inventory": return Inventory();
