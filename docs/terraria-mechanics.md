@@ -67,6 +67,20 @@ always confirm with `tile` rather than trusting a table from memory.
 - `useTime` gates how often an item can be used; ignoring it turns any weapon into a
   no-cooldown auto-attack.
 
+### tModLoader hook pitfall `[measured]`
+
+`ModPlayer.PreItemCheck()` returns a bool and **false cancels `ItemCheck_Inner`**. Returning
+false "to be safe" silently disables every item use in the game: no swings, no animations,
+no axe chopping, and no drops (mining still appeared to work only if it bypassed ItemCheck
+through `Player.PickTile`). Return **true** to let the item check run.
+
+Ordering worth knowing when driving a player from a mod: `Player.Update` calls
+`PreUpdate`, `ResetControls`, then (only when `Main.hasFocus`) `TriggersSet.CopyInto` and
+`ModPlayer.SetControls`, then `ItemCheckWrapped -> ItemCheck -> PreItemCheck ->
+ItemCheck_Inner`. So `PreItemCheck` is the last hook that can still influence the vanilla
+item use, and in single player the whole frame is skipped with `gamePaused = true` when the
+window loses focus.
+
 ## Recipes `[measured]`
 
 - Lookup by output type works: `Main.recipe[i].createItem.type == itemType`.
