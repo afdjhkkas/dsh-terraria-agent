@@ -188,6 +188,20 @@ wall: the player gets trapped in the doorway, and any hole punched to escape **m
 rooms into one space**, which costs a house slot. Leave about three tiles of walkway between
 buildings and put each door on the walkway side.
 
+## Clear the plot before building `[measured]`
+
+Trees and plants inside or in front of a plot are not decoration: a tree trunk is solid, it
+blocks walking (so distant cells fall out of reach and every placement fails "for no reason"),
+and it occupies interior tiles. Chop every tree in and around the plot first, then clear
+plants, then build.
+
+## A platform in the roof is a cheap entrance `[measured]`
+
+Platforms (`tile 19`) count as a room entrance for housing and can be jumped through from
+below, so a couple of platform tiles in the ceiling give the agent a way in and out without
+touching the door. That is much more reliable than navigating doorways, especially when
+buildings are close together.
+
 ## You cannot place a block where you are standing `[measured]`
 
 A placement whose target cell overlaps the player's own hitbox is refused silently. Step one or
