@@ -10,7 +10,8 @@ Keep this file next to the code: every future test session needs these numbers.
 
 - 1 tile = 16 px. `x` grows right, `y` grows **down**. Player centre = `Player.Center`.
 - World sizes `[wiki]`: small 4200×1200, medium 6400×1800, large 8400×2400.
-  The test world `DshTest` is 4200×1200 (small, Journey mode).
+  A small world is 4200×1200 tiles (measured in this repo's test run); the values
+  are a property of the world, not of the project.
 - `Main.maxTilesX/maxTilesY` are the authoritative bounds; `Main.tile[x, y]` is
   invalid outside them.
 
