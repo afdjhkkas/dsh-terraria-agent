@@ -52,7 +52,7 @@
 | 装备武器/工具 | `use slot` | 半 | 快捷栏切换可用 |
 | 穿戴护甲/饰品 | `accessory` | 半 | 饰品已实现；护甲槽未做 |
 | 打开/取放箱子 | `chest` | **缺** | 早期装备、钱、材料都在箱子里 |
-| 商店：查看/购买/出售 | `shop` / `buy` / `sell` | **缺** | 铁砧 50 银、矿工头盔、药水材料 |
+| 商店：查看/购买/出售 | `talk` + `shop` / `buy` | 半 | 真实对话能开（talKNPC/npcShop 都有值），但读不到已打开的商店容器；商店定义本身存在（id=1 里有铁砧 50 银、矿工头盔 400 银） |
 | 丢弃物品（腾格子） | `drop` | **缺** | 背包满会卡住合成/拾取 |
 | 血量/魔力恢复 | `heal`（喝药水） | **缺** | 战斗与挖掘的安全网 |
 | Boss 状态（是否在场/血量） | `boss` | **缺** | 决定召唤/撤离/继续输出 |
@@ -71,3 +71,17 @@
 7. **`use` 的分支细化**：对自身（药水）、对地形（放置类）、对怪物（武器）三种瞄准
 
 补完这批后，主线从阶段 0 到阶段 11 的所有动作都有对应能力，之后只在实战中修 bug，而不是继续加功能。
+## 五、这一轮的 API 事实（用 `api` 命令查出来的真实签名）
+
+- `Player.SetTalkNPC(int, bool)` —— 真实和 NPC 对话
+- `Main.SetNPCShopIndex(int)` —— 游戏自己的开店入口；调用后 `Main.npcShop` 会被设为**商店 id**
+  （商人 = 17），但这个 id **不是** `Main.instance.shop[]` 的下标
+- `Chest.SetupShop(int)` / `Chest.SetupShop(string, NPC)` / `Chest.VanillaSetupShop(int)`
+  （最后一个在 mod 里访问不到）
+- `Player.BuyItem(long, int)` —— 购买入口
+- `Main.shop` 是实例字段 `Chest[]`，要用 `Main.instance.shop` 访问
+- 商店 id 扫描的结果：**id=1 是商人**（挖矿头盔 400 银 / 存钱罐 100 银 / 铁砧 50 银 / 虫网 25 银……），
+  id=17 是海盗（大炮/炮弹/海盗装）
+
+**未解决**：`SetNPCShopIndex` 之后 `Main.instance.shop[]` 里的容器仍是空的，所以"读当前商店 + 购买"
+这条路还没通。下一步应该去看 `ShopHelper` / `NPCLoader.FillShop` 的填充路径，而不是继续猜下标。

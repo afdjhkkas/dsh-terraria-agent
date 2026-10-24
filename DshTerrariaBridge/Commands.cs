@@ -39,6 +39,12 @@ namespace DshTerrariaBridge
                 case "save": return SaveWorld(p);
                 case "removeblock": return RemoveBlock(p);
                 case "recipes": return Recipes(p);
+                case "api": return ApiLookup(p);
+                case "talk": return TalkTo(p);
+                case "shop": return ShopList(p);
+                case "shops": return ShopFind(p);
+                case "buy": return ShopBuy(p);
+                case "sell": return ShopSell(p);
                 case "chest": return ChestCmd(p);
                 case "drop": return DropItem(p);
                 case "heal": return HealSelf(p);
@@ -731,6 +737,223 @@ namespace DshTerrariaBridge
             pl.armor[armorSlot] = it.Clone();
             pl.inventory[invSlot] = old;
             return Json.Ok(new { equipped = it.Name, armorSlot, replaced = old != null && old.type > 0 ? old.Name : null });
+        }
+
+        /* ── 商店 ────────────────────────────────────────────────────────
+         * 真实签名（用 api 命令查出来的）：Chest.SetupShop(int) 是实例方法，
+         * 商店容器是 Main.shop[]。买用 Player.BuyItem 扣真钱，卖按原版 value/5 折价。
+         */
+        private static NPC NearbyTownNPC(Player pl, int wantType, out float dist)
+        {
+            NPC best = null; dist = float.MaxValue;
+            for (int i = 0; i < Main.maxNPCs; i++)
+            {
+                NPC n = Main.npc[i];
+                if (n == null || !n.active || !n.townNPC) continue;
+                if (wantType >= 0 && n.type != wantType) continue;
+                float d = Vector2.Distance(pl.Center, n.Center);
+                if (d < dist) { dist = d; best = n; }
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// 两个真实重载：SetupShop(int) 收的是商店 id（17 会开出海盗商店），SetupShop(string, NPC)
+        /// 收名字。所以这里允许调用方给 name，默认用 int 版本。
+        /// </summary>
+        private static void SetupShopFor(Chest shop, NPC npc, int shopId, string name)
+        {
+            if (shopId >= 0) { shop.SetupShop(shopId); return; }
+            if (!string.IsNullOrEmpty(name)) shop.SetupShop(name, npc);
+            else if (npc != null) shop.SetupShop(npc.type);
+        }
+
+        /// <summary>
+        /// 走到 NPC 旁边并真实对话（Player.SetTalkNPC），商店界面由游戏自己打开。
+        /// 之后 shop / buy 只读已经打开的商店，不再自己 SetupShop——那样等于凭空开店。
+        /// </summary>
+        private static string TalkTo(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            NPC npc = NearbyTownNPC(pl, Json.Int(p, "npc", -1), out float d);
+            if (npc == null) return Json.Error("附近没有可以对话的城市 NPC");
+            if (d > 12 * 16f) return Json.Error($"离 {npc.FullName} 太远（{d / 16f:F0} 格），先走过去");
+            int idx = npc.whoAmI;
+            pl.SetTalkNPC(idx, true);
+            // 游戏自己打开商店的入口：SetNPCShopIndex 会填好 Main.instance.shop 并设 Main.npcShop
+            try { Main.SetNPCShopIndex(npc.type); } catch { }
+            return Json.Ok(new
+            {
+                npc = npc.FullName, type = npc.type, distance = (int)(d / 16f),
+                talkNPC = pl.talkNPC, npcShop = Main.npcShop,
+                hasShop = Main.npcShop > 0,
+            });
+        }
+
+        private static int ShopPrice(Item it) => it.shopCustomPrice.HasValue ? it.shopCustomPrice.Value : it.value;
+
+        /// <summary>
+        /// 遍历所有商店 id，找出包含指定物品名字的商店（例如"铁砧"），把 id、价格、库存一起报出来。
+        /// 商店 id 与 NPC 类型的对应关系不直观（17 开出来是海盗商店），所以直接问游戏。
+        /// </summary>
+        private static string ShopFind(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            string want = Json.Str(p, "want", "");
+            if (want.Length == 0) return Json.Error("shops 需要 want（物品名片段）");
+            var hits = new List<object>();
+            Chest shop = Main.instance.shop[0];
+            int max = Math.Max(Main.MaxShopIDs, 300);
+            for (int id = 0; id < max; id++)
+            {
+                try { shop.SetupShop(id); } catch { continue; }
+                for (int i = 0; i < shop.item.Length; i++)
+                {
+                    Item it = shop.item[i];
+                    if (it == null || it.type <= 0) continue;
+                    if (it.Name.IndexOf(want, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    hits.Add(new { shopId = id, slot = i, name = it.Name, priceCopper = ShopPrice(it) });
+                }
+            }
+            return Json.Ok(new { want, scanned = max, hits });
+        }
+
+        private static string ShopList(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int shopId = Json.Int(p, "shopId", -1);
+            NPC npc = NearbyTownNPC(pl, Json.Int(p, "npc", -1), out float d);
+            if (npc == null && shopId < 0) return Json.Error("附近没有开店的城市 NPC，也没给 shopId");
+            if (Main.npcShop <= 0 || pl.talkNPC < 0)
+                return Json.Error("商店没有打开：先用 talk 和商人真实对话");
+            // Main.npcShop 是商店 id，不是 Chest[] 下标；把每个容器都读一遍，取非空的那个
+            Chest shop = null;
+            for (int i = 0; i < Main.instance.shop.Length; i++)
+            {
+                Chest cand = Main.instance.shop[i];
+                if (cand == null) continue;
+                foreach (Item probeItem in cand.item)
+                    if (probeItem != null && probeItem.type > 0) { shop = cand; break; }
+                if (shop != null) break;
+            }
+            if (shop == null) return Json.Error("商店容器里没有商品（对话没打开商店？）");
+            var items = new List<object>();
+            for (int i = 0; i < shop.item.Length; i++)
+            {
+                Item it = shop.item[i];
+                if (it == null || it.type <= 0) continue;
+                items.Add(new { slot = i, id = it.type, name = it.Name, priceCopper = ShopPrice(it), stack = it.stack });
+            }
+            return Json.Ok(new { npc = npc?.FullName ?? "(shopId)", npcType = npc?.type ?? -1, distance = (int)(d / 16f), items });
+        }
+
+        private static string ShopBuy(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int slot = Json.Int(p, "slot", -1);
+            if (Main.npcShop <= 0 || pl.talkNPC < 0)
+                return Json.Error("商店没有打开：先用 talk 和商人真实对话");
+            Chest shop = null;
+            for (int i = 0; i < Main.instance.shop.Length; i++)
+            {
+                Chest cand = Main.instance.shop[i];
+                if (cand == null) continue;
+                foreach (Item probeItem in cand.item)
+                    if (probeItem != null && probeItem.type > 0) { shop = cand; break; }
+                if (shop != null) break;
+            }
+            if (shop == null) return Json.Error("商店容器里没有商品（对话没打开商店？）");
+            if (slot < 0 || slot >= shop.item.Length) return Json.Error("slot 越界");
+            Item stock = shop.item[slot];
+            if (stock == null || stock.type <= 0) return Json.Error("商店这个格子是空的");
+            int n = Math.Clamp(Json.Int(p, "count", 1), 1, Math.Max(1, stock.stack));
+            long price = ShopPrice(stock) * n;
+            int freeSlot = -1;
+            for (int i = 0; i < pl.inventory.Length; i++)
+                if (pl.inventory[i] != null && pl.inventory[i].type == 0) { freeSlot = i; break; }
+            if (freeSlot < 0) return Json.Error("背包没有空位");
+            if (!pl.BuyItem(price))
+                return Json.Error($"钱不够：需要 {price} 铜币（{price / 100} 银币）");
+            Item got = stock.Clone();
+            got.stack = n;
+            pl.inventory[freeSlot] = got;
+            return Json.Ok(new { bought = got.Name, count = n, priceCopper = price, slot = freeSlot });
+        }
+
+        private static string ShopSell(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int slot = Json.Int(p, "slot", -1);
+            if (slot < 0 || slot >= pl.inventory.Length) return Json.Error("slot 越界");
+            Item it = pl.inventory[slot];
+            if (it == null || it.type <= 0) return Json.Error("这个格子是空的");
+            if (it.type == ItemID.CopperCoin || it.type == ItemID.SilverCoin
+                || it.type == ItemID.GoldCoin || it.type == ItemID.PlatinumCoin)
+                return Json.Error("不卖钱币本身");
+            long price = it.value / 5 * it.stack;
+            if (price <= 0) return Json.Error($"{it.Name} 卖不出价钱");
+            // 直接给铜币总量，按原版折算
+            long left = price;
+            void Give(int coinType, long unit)
+            {
+                long n = left / unit;
+                if (n <= 0) return;
+                left -= n * unit;
+                while (n > 0)
+                {
+                    int chunk = (int)Math.Min(n, 999);
+                    Item.NewItem(new EntitySource_DropAsItem(pl), pl.Center, Vector2.Zero, coinType, chunk);
+                    n -= chunk;
+                }
+            }
+            Give(ItemID.PlatinumCoin, 1000000);
+            Give(ItemID.GoldCoin, 10000);
+            Give(ItemID.SilverCoin, 100);
+            Give(ItemID.CopperCoin, 1);
+            string name = it.Name;
+            pl.inventory[slot] = new Item();
+            pl.inventory[slot].SetDefaults(0);
+            return Json.Ok(new { sold = name, priceCopper = price });
+        }
+
+        /// <summary>
+        /// Read-only API lookup: find a type by name and list its members whose name contains a
+        /// filter, with their real signatures. Exists because guessing a signature wastes a build
+        /// cycle ("Chest.SetupShop takes a string" was only discoverable from the compiler).
+        /// </summary>
+        private static string ApiLookup(JsonElement p)
+        {
+            string typeName = Json.Str(p, "type", "");
+            string filter = Json.Str(p, "member", "");
+            if (typeName.Length == 0) return Json.Error("api 需要 type（例如 Terraria.Chest）");
+            Type t = typeof(Main).Assembly.GetType(typeName);
+            if (t == null)
+            {
+                // 允许只给短名
+                foreach (Type cand in typeof(Main).Assembly.GetTypes())
+                    if (cand.Name == typeName) { t = cand; break; }
+            }
+            if (t == null) return Json.Error($"找不到类型 {typeName}");
+
+            var list = new List<string>();
+            const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly;
+            foreach (var m in t.GetMethods(flags))
+                if (filter.Length == 0 || m.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
+                    list.Add(m.IsStatic + " | " + m.ToString());
+            foreach (var f in t.GetFields(flags))
+                if (filter.Length > 0 && f.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
+                    list.Add("field | " + f.FieldType.Name + " " + f.Name);
+            return Json.Ok(new { type = t.FullName, count = list.Count, members = list });
         }
 
         /// <summary>
