@@ -66,6 +66,8 @@ namespace DshTerrariaBridge
         public override void Load()
         {
             modRef = Mod;
+            keepFocusThread = new Thread(KeepFocusLoop) { IsBackground = true, Name = "dsh-keepfocus" };
+            keepFocusThread.Start();
             // Note: single player freezes when the window loses focus (measured: paused =
             // true, nothing ticks), so co-op play uses Host & Play, which never pauses.
             try
@@ -236,6 +238,28 @@ namespace DshTerrariaBridge
                 catch (Exception e) { item.Response = Json.Error(e.Message); }
                 finally { Json.CurrentReq = null; }
                 item.Done.Set();
+            }
+        }
+
+        /* ── 后台运行 ────────────────────────────────────────────────────
+         * 单人模式下 Main.DoUpdate 会在 !hasFocus && netMode==0 时直接
+         * gamePaused=true; return，整帧不做世界更新——所以任何钩子都不会被调用。
+         * 由于这个早退发生在所有模组钩子之前，只能在另一个线程里把 hasFocus
+         * 顶住（每 8ms 写一次），让世界照常 tick，而键盘/鼠标仍是真实状态。
+         */
+        private static Thread keepFocusThread;
+        private static volatile bool keepFocusRun;
+
+        private static void KeepFocusLoop()
+        {
+            while (running)
+            {
+                try
+                {
+                    if (!Main.gameMenu) Main.hasFocus = true;
+                }
+                catch { /* game not ready */ }
+                Thread.Sleep(8);
             }
         }
 
