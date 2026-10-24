@@ -131,6 +131,30 @@ exist when judging whether an action was legitimately earned.
   top-down, then walks. A move that produces no displacement is almost always a
   solid tile in one of those rows, not a broken game.
 
+## Persistence: only the game's own path survives `[measured]`
+
+Two independent things silently destroyed work in this project, both worth checking first
+when "it worked a second ago and now it is gone":
+
+1. **Forced placement is not real.** `WorldGen.PlaceTile(..., forced: true)` (and
+   `WorldGen.PlaceWall` called directly) put a tile in the map, and it even reads back
+   correctly, but after the world is reloaded the tile **is gone**. Placing through the
+   player's own item use (`ItemCheck` -> `PlaceThing` -> `WorldGen.PlaceTile`) produces a
+   properly framed, valid tile that persists. Measured: 3 blocks + 1 wall placed via the item
+   path were all still there after a restart; 2 blocks placed forced were both gone.
+2. **Killing the host process loses the world.** `CloseMainWindow()` on the `dotnet.exe`
+   console host terminates the process before the game saves. Post `WM_CLOSE` to the **game
+   window** (the `SDL_app` window of that process) instead, and let it exit by itself; then
+   tile changes persist.
+
+Rules that follow from the above:
+
+- Every world change (mine, place, wall) goes through the game's item use; never edit tiles
+  directly except for throwaway tests.
+- A placement needs support: blocks need an adjacent block/solid ground, walls need an
+  adjacent block or wall. Mid-air requests are refused (and are not charged).
+- After building something worth keeping, close the game window properly before restarting.
+
 ## Housing (what makes an NPC move in) `[wiki]`
 
 A room is valid when: interior area is at least 60 tiles (and not absurdly huge),

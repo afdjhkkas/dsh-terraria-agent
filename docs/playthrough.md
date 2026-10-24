@@ -40,6 +40,8 @@
 | 挖了但没掉落、也看不到挥动 | `PreItemCheck` 返回了 false，取消 `ItemCheck_Inner` | 返回 true；挖掘默认走原版 ItemCheck |
 | 后台什么都不会发生 | 单人失焦时 `Main.DoUpdate` 整帧早退（`gamePaused=true`） | 后台线程顶住 `Main.hasFocus` |
 | 长脚本跑到一半全毁 | 脚本没有应变：缺料/挡路/被打断就继续硬走 | 小步闭环：看→做→回读→再决定 |
+| 建好的房子重启后全没了 | ①`PlaceTile(forced)`/直接 `PlaceWall` 的格子不合法，重载被丢；②杀 `dotnet` 控制台进程导致没存档 | 只走游戏物品使用路径；关**游戏窗口**（`SDL_app` 的 WM_CLOSE）正常退出 |
+| 怪物/僵尸穿过墙 | 同上，格子不是游戏认可的方块 | 同上 |
 
 ## 每轮的下一步
 

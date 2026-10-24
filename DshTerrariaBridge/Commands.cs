@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.DataStructures;
 using Terraria.ID;
+using Terraria.IO;
 using Terraria.ModLoader;
 
 namespace DshTerrariaBridge
@@ -33,6 +34,7 @@ namespace DshTerrariaBridge
                 case "mirror": return MirrorHome(p);
                 case "housing": return Housing(p);
                 case "items": return DroppedItems(p);
+                case "save": return SaveWorld(p);
                 case "place": return Place(p);
                 case "move": return Move(p);
                 case "jump": return Jump(p);
@@ -533,6 +535,30 @@ namespace DshTerrariaBridge
             return Json.Ok(new { count = list.Count, items = list });
         }
 
+        /// <summary>
+        /// Save the world through the game's own writer. Killing the host process loses every
+        /// tile change made since the last autosave, so anything that restarts the game must
+        /// call this first and check that it really happened.
+        /// </summary>
+        private static string SaveWorld(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            try
+            {
+                WorldFile.SaveWorld(false);
+                return Json.Ok(new
+                {
+                    saved = true,
+                    world = Main.worldName,
+                    spawn = new { x = Main.spawnTileX, y = Main.spawnTileY },
+                });
+            }
+            catch (Exception e)
+            {
+                return Json.Error("存档失败：" + e.Message);
+            }
+        }
+
         private static string Housing(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
@@ -678,57 +704,12 @@ namespace DshTerrariaBridge
                 if (!BridgeSystem.InReach(pl, x, y)) return Json.Error("够不到：离这一格超过 7 格，先走过去");
                 int slot = FindItemForTile(pl, type);
                 if (slot < 0) return Json.Error($"背包里没有能放置 {TileID.Search.GetName(type)} 的物品");
-                // Placing through a real mouse click is refused by the game's placement rules
-                // in this setup (the swing runs, the block never lands), so the block is
-                // consumed from the inventory and placed with the game's own placement call.
-                // The economics are the player's: the item is really spent, and it must be
-                // in the inventory and in hand first.
-                Item item = pl.inventory[slot];
-                int playerBefore = TileCode(Main.tile[x, y]);
-                int stackBefore = item.stack;
-                item.stack -= 1;
-                bool placeTileOk = WorldGen.PlaceTile(x, y, type, false, forced, -1, style);
-                bool placeObjectOk = false;
-                // Multi-tile furniture (workbench, chair, door...) is not handled by
-                // PlaceTile: those need PlaceObject, which picks the object's origin.
-                if (Main.tile[x, y].TileType != type)
-                    placeObjectOk = WorldGen.PlaceObject(x, y, type, false, style);
-                int playerAfter = TileCode(Main.tile[x, y]);
-                bool didPlace = playerAfter == type;
-                if (!didPlace)
-                {
-                    item.stack = stackBefore;   // nothing happened: do not charge the player
-                }
-                else
-                {
-                    if (item.stack <= 0) item.SetDefaults(0);
-                    pl.selectedItem = slot;
-                    Item held = pl.inventory[slot];
-                    pl.direction = x * 16f >= pl.Center.X ? 1 : -1;
-                    if (held != null && held.useAnimation > 0)
-                    {
-                        pl.SetItemAnimation(Math.Max(1, held.useAnimation));
-                        pl.SetItemTime(Math.Max(1, held.useTime));
-                    }
-                }
-                return Json.Ok(new
-                {
-                    mode = "player",
-                    emulated = true,
-                    x,
-                    y,
-                    placed = didPlace,
-                    requested = type,
-                    before = playerBefore,
-                    after = playerAfter,
-                    slot,
-                    consumed = didPlace ? 1 : 0,
-                    remaining = item.stack,
-                    held = new { type = item.type, name = item.Name, stack = item.stack },
-                    placeTileOk,
-                    placeObjectOk,
-                    hint = "方块已从背包消耗并放置；挖掘才是真实鼠标点击。",
-                });
+                // Place through the game's own item use (left click), the same path a player
+                // uses: it frames the tile, registers it as a solid, consumes the item and
+                // respects support. Placing with WorldGen.PlaceTile(forced:true) produced tiles
+                // that looked fine but did not behave like real blocks (mobs walked through).
+                int ms = Math.Clamp(Json.Int(p, "ms", 320), 100, 2000);
+                return StartSwing(slot, x, y, ms, false, Json.Bool(p, "os", false));
             }
             bool ok = WorldGen.PlaceTile(x, y, type, false, forced, -1, style);
             int after = TileCode(Main.tile[x, y]);
@@ -771,39 +752,9 @@ namespace DshTerrariaBridge
                     slot = FindItemForWall(pl, type);
                     if (slot < 0) return Json.Error($"背包里没有能放置该墙的物品（wall id {type}）");
                 }
-                Item witem = pl.inventory[slot];
-                int wbefore = Main.tile[x, y].WallType;
-                int wstack = witem.stack;
-                if (!remove) witem.stack -= 1;
-                if (remove) WorldGen.KillWall(x, y, false);
-                else WorldGen.PlaceWall(x, y, type, false);
-                int wafter = Main.tile[x, y].WallType;
-                bool wok = remove ? wafter == 0 : wafter == type;
-                if (!wok) { if (!remove) witem.stack = wstack; }
-                else
-                {
-                    if (!remove && witem.stack <= 0) witem.SetDefaults(0);
-                    pl.selectedItem = slot;
-                    if (witem.useAnimation > 0)
-                    {
-                        pl.SetItemAnimation(Math.Max(1, witem.useAnimation));
-                        pl.SetItemTime(Math.Max(1, witem.useTime));
-                    }
-                }
-                return Json.Ok(new
-                {
-                    mode = "player",
-                    emulated = true,
-                    ok = wok,
-                    x,
-                    y,
-                    remove,
-                    requested = remove ? 0 : type,
-                    before = wbefore,
-                    after = wafter,
-                    consumed = (!remove && wok) ? 1 : 0,
-                    remaining = witem.stack,
-                });
+                int ms = Math.Clamp(Json.Int(p, "ms", 320), 100, 2000);
+                // Walls are placed (and hammered away) with the LEFT button in vanilla.
+                return StartSwing(slot, x, y, ms, false, Json.Bool(p, "os", false));
             }
             Tile t = Main.tile[x, y];
             int before = t.WallType;
