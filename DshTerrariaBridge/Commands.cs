@@ -32,6 +32,7 @@ namespace DshTerrariaBridge
                 case "tile": return TileAt(p);
                 case "mine": return Mine(p);
                 case "mirror": return MirrorHome(p);
+                case "accessory": return Accessory(p);
                 case "housing": return Housing(p);
                 case "needs": return RoomDiagnostics(p);
                 case "items": return DroppedItems(p);
@@ -624,6 +625,52 @@ namespace DshTerrariaBridge
             });
         }
 
+        /// <summary>
+        /// Take an accessory off (or put it back). Needed to measure base movement: wings change
+        /// jump height and flight entirely, so any jump measurement has to happen without them.
+        /// </summary>
+        private static string Accessory(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            bool off = Json.Bool(p, "off", true);
+
+            if (off)
+            {
+                int want = Json.Int(p, "slot", -1);
+                for (int a = 3; a <= 9; a++)
+                {
+                    Item it = pl.armor[a];
+                    if (it == null || it.type <= 0) continue;
+                    if (want >= 0 && a != want) continue;
+                    for (int i = 0; i < pl.inventory.Length; i++)
+                    {
+                        if (pl.inventory[i] != null && pl.inventory[i].type > 0) continue;
+                        pl.inventory[i] = it.Clone();
+                        pl.armor[a] = new Item();
+                        pl.armor[a].SetDefaults(0);
+                        return Json.Ok(new { action = "unequip", from = a, to = i, item = it.Name });
+                    }
+                }
+                return Json.Error("没有可卸的饰品，或者背包满了");
+            }
+
+            int from = Json.Int(p, "from", -1);
+            if (from < 0) return Json.Error("穿上饰品需要 from（背包槽位）");
+            Item src = pl.inventory[from];
+            if (src == null || src.type <= 0) return Json.Error($"槽位 {from} 是空的");
+            for (int a = 3; a <= 9; a++)
+            {
+                if (pl.armor[a] != null && pl.armor[a].type > 0) continue;
+                pl.armor[a] = src.Clone();
+                pl.inventory[from] = new Item();
+                pl.inventory[from].SetDefaults(0);
+                return Json.Ok(new { action = "equip", from, slot = a, item = src.Name });
+            }
+            return Json.Error("饰品栏满了");
+        }
+
         private static string MirrorHome(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
@@ -871,7 +918,12 @@ namespace DshTerrariaBridge
             if (!CanTick(out string perr2)) return Json.Error(perr2);
             Player pl = P;
             int ms = Math.Clamp(Json.Int(p, "ms", 150), 1, 2000);
-            BridgeSystem.BeginJump(BridgeSystem.Now + BridgeSystem.Ticks(ms));
+            // Optional height in tiles: the bridge solves the impulse, because the game's
+            // variable-height jump cannot be driven without real key input.
+            float height = 5.5f;
+            var hp = p.TryGetProperty("height", out var hv) ? hv : default;
+            if (hp.ValueKind == JsonValueKind.Number) height = (float)hp.GetDouble();
+            BridgeSystem.BeginJump(BridgeSystem.Now + BridgeSystem.Ticks(ms), height);
             return Json.Ok(new
             {
                 ms,

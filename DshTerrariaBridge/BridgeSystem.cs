@@ -299,7 +299,7 @@ namespace DshTerrariaBridge
                 // unpowered climb; wings and auto-jump are left to vanilla.
                 if (!JumpIssued && p.velocity.Y == 0f && p.oldVelocity.Y == 0f)
                 {
-                    p.velocity.Y = -5.6f;
+                    p.velocity.Y = JumpImpulse;
                     JumpIssued = true;
                 }
             }
@@ -636,11 +636,19 @@ namespace DshTerrariaBridge
         }
 
         /// <summary>Arm one jump for the given deadline (a single ground impulse).</summary>
-        internal static void BeginJump(ulong until)
+        internal static void BeginJump(ulong until, float heightTiles = 5.5f)
         {
             JumpUntil = until;
             JumpIssued = false;
+            // A fixed impulse made every jump identical (measured 2.30 tiles no matter how long
+            // the key was held, because the game's variable jump height is never driven).
+            // Solve the impulse for the requested apex instead: h = v^2 / (2g).
+            float g = Main.LocalPlayer?.gravity is > 0.05f ? Main.LocalPlayer.gravity : 0.4f;
+            float tiles = Math.Clamp(heightTiles, 1f, 12f);
+            JumpImpulse = -(float)Math.Sqrt(2.0 * g * tiles * 16.0);
         }
+
+        internal static float JumpImpulse = -8.4f;
 
         /// <summary>
         /// Performs a real player-owned hit against a hostile NPC.  This uses
