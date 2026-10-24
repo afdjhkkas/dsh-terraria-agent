@@ -92,9 +92,10 @@ always confirm with `tile` rather than trusting a table from memory.
 
 ## Journey mode `[measured]`
 
-`DshTest` is Journey (`GameMode: 3`): duplication, difficulty slider, time/weather control,
-and `give`-style creative actions are all available. Useful for tests — you can spawn
-items and enemies freely.
+In Journey mode (`GameMode: 3`) duplication, a difficulty slider and time/weather control are
+available, and creative item/enemy spawning is allowed. That makes it convenient for tests —
+but a Journey run is not the same as a normal playthrough, so do not assume those affordances
+exist when judging whether an action was legitimately earned.
 
 ## Placing and digging in play `[measured]`
 
