@@ -266,6 +266,7 @@ namespace DshTerrariaBridge
         public override void PostUpdateEverything()
         {
             TickMining();
+            TickTravel();
             DrainPending();
         }
 
@@ -957,6 +958,144 @@ namespace DshTerrariaBridge
             p.direction = Mine.X * 16f >= p.Center.X ? 1 : -1;
             Mine.Hits++;
             Mine.NextHit = Now + (ulong)Math.Max(6, (int)(tool.useTime * 0.6f));
+        }
+
+        /* ── 直线旅行任务 ────────────────────────────────────────────────
+         * 把脚本层验证过无数次的“挖-铺-走”循环搬进游戏内：每帧自己挖掉前方挡路格、
+         * 补上脚下地板、按住方向键前进。遇敌/血低自动停下交还给脚本层做决策——
+         * C# 只干最耗时的地形活，判断仍留在外面。
+         */
+        internal struct TravelJob
+        {
+            public bool Active;
+            public int Dir;          // -1 西, +1 东
+            public int TargetX;
+            public ulong Deadline;
+            public ulong NextMine;
+            public int Mined, Filled, Steps;
+            public string StopReason;
+        }
+
+        internal static TravelJob Travel;
+
+        internal static void StartTravel(int dir, int targetX, int ms)
+        {
+            Travel = new TravelJob
+            {
+                Active = true,
+                Dir = dir,
+                TargetX = targetX,
+                Deadline = Now + Ticks(ms),
+                NextMine = Now,
+                StopReason = "",
+            };
+        }
+
+        internal static void StopTravel(string reason)
+        {
+            if (!Travel.Active) return;
+            Travel.Active = false;
+            Travel.StopReason = reason ?? "stopped";
+            LeftUntil = 0; RightUntil = 0;
+        }
+
+        internal static string TravelStatus()
+        {
+            Player p = Main.LocalPlayer;
+            int px = p == null ? -1 : (int)MathF.Floor(p.Center.X / 16f);
+            int py = p == null ? -1 : (int)MathF.Floor(p.Center.Y / 16f);
+            return Json.Ok(new
+            {
+                active = Travel.Active,
+                dir = Travel.Dir > 0 ? "right" : "left",
+                targetX = Travel.TargetX,
+                x = px,
+                y = py,
+                mine = Travel.Mined,
+                fill = Travel.Filled,
+                steps = Travel.Steps,
+                stopReason = Travel.StopReason,
+                hp = p == null ? 0 : (int)(100f * p.statLife / Math.Max(1, p.statLifeMax2)),
+            });
+        }
+
+        private static void TickTravel()
+        {
+            if (!Travel.Active) return;
+            Player p = Main.LocalPlayer;
+            if (p == null || !p.active || p.dead) { StopTravel(p == null || !p.active ? "no-player" : "dead"); return; }
+            if (Now > Travel.Deadline) { StopTravel("timeout"); return; }
+
+            int px = (int)MathF.Floor(p.Center.X / 16f);
+            int py = (int)MathF.Floor(p.Center.Y / 16f);
+            // 到达
+            if (Travel.Dir > 0 ? px >= Travel.TargetX : px <= Travel.TargetX) { StopTravel("reached"); return; }
+            // 血低 / 有敌人：交还给脚本层
+            if (p.statLife < p.statLifeMax2 * 0.45f) { StopTravel("lowhp"); return; }
+            for (int i = 0; i < Main.npc.Length; i++)
+            {
+                NPC n = Main.npc[i];
+                if (n == null || !n.active || !n.friendly || n.lifeMax <= 5) continue;
+                if (n.townNPC) continue;
+                if (Math.Abs(n.Center.X - p.Center.X) / 16f > 9f) continue;
+                if (Math.Abs(n.Center.Y - p.Center.Y) / 16f > 9f) continue;
+                StopTravel("enemy");
+                return;
+            }
+
+            // 每 tick 持续推进方向键
+            ulong until = Now + 40;
+            if (Travel.Dir > 0) { RightUntil = until; LeftUntil = 0; }
+            else { LeftUntil = until; RightUntil = 0; }
+
+            if (Now < Travel.NextMine) return;
+            Travel.NextMine = Now + 4;
+
+            // 找镐
+            int pick = -1;
+            for (int i = 0; i < 10; i++)
+            {
+                Item it = p.inventory[i];
+                if (it != null && it.type > 0 && it.pick > 0) { pick = i; break; }
+            }
+            if (pick < 0) { StopTravel("no-pickaxe"); return; }
+
+            // 1) 先补脚下地板（前方 2 格）
+            if (Travel.Steps % 3 == 0)
+            {
+                for (int d = 1; d <= 2; d++)
+                {
+                    int fx = px + Travel.Dir * d, fy = py + 2;
+                    if (!WorldGen.InWorld(fx, fy, 2)) continue;
+                    Tile ft = Main.tile[fx, fy];
+                    if (ft.HasTile) continue;
+                    // 需要邻居支撑：检查脚下那层是否有实心
+                    bool support = false;
+                    for (int ddx = -1; ddx <= 1; ddx++)
+                    {
+                        int sx = fx + ddx;
+                        if (!WorldGen.InWorld(sx, fy, 2)) continue;
+                        if (Main.tile[sx, fy].HasTile) { support = true; break; }
+                    }
+                    if (!support) continue;
+                    WorldGen.PlaceTile(fx, fy, TileID.Stone, false, false);
+                    if (Main.tile[fx, fy].HasTile) Travel.Filled++;
+                }
+            }
+
+            // 2) 再挖挡路格（前方 1 列，身体高度 3 行）
+            int bx = px + Travel.Dir;
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                int by = py + dy;
+                if (!WorldGen.InWorld(bx, by, 2)) continue;
+                Tile t = Main.tile[bx, by];
+                if (!t.HasTile) continue;
+                p.selectedItem = pick;
+                p.PickTile(bx, by, p.inventory[pick].pick);
+                if (!Main.tile[bx, by].HasTile) Travel.Mined++;
+            }
+            Travel.Steps++;
         }
 
         /// <summary>Arm one jump for the given deadline (a single ground impulse).</summary>

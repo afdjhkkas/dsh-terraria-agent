@@ -35,6 +35,7 @@ namespace DshTerrariaBridge
                 case "mirror": return MirrorHome(p);
                 case "accessory": return Accessory(p);
                 case "walkto": return WalkTo(p);
+                case "travel": return TravelCmd(p);
                 case "path": return PathTo(p);
                 case "research": return Research(p);
                 case "find": return FindTile(p);
@@ -1410,6 +1411,25 @@ namespace DshTerrariaBridge
             var head = new List<object>();
             for (int i = 0; i < Math.Min(6, path.Count); i++) head.Add(new { x = path[i].x, y = path[i].y });
             return Json.Ok(new { from = new { x = px, y = py }, to = new { x, y }, length = path.Count, head });
+        }
+
+        /// <summary>
+        /// 直线旅行：在游戏内跑“补地板 + 挖挡路格 + 按住方向键”的循环。
+        /// C# 只做最耗时的地形活；遇敌、血低、到达、超时都会停下，把决策交回脚本层。
+        /// </summary>
+        private static string TravelCmd(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            if (Json.Bool(p, "stop", false)) { BridgeSystem.StopTravel("requested"); return BridgeSystem.TravelStatus(); }
+            string dir = (Json.Str(p, "dir", "right") ?? "right").ToLowerInvariant();
+            if (dir != "left" && dir != "right") return Json.Error($"dir 只能是 left/right，收到 {dir}");
+            int distance = Math.Clamp(Json.Int(p, "distance", 100), 1, 4200);
+            int ms = Math.Clamp(Json.Int(p, "ms", 60000), 200, 900000);
+            int sign = dir == "right" ? 1 : -1;
+            int px = (int)MathF.Floor(P.Center.X / 16f);
+            BridgeSystem.StartTravel(sign, px + sign * distance, ms);
+            return BridgeSystem.TravelStatus();
         }
 
         private static string WalkTo(JsonElement p)
