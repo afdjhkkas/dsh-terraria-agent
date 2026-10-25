@@ -44,6 +44,7 @@ namespace DshTerrariaBridge
                 case "fill": return FillArea(p);
                 case "housing": return Housing(p);
                 case "needs": return RoomDiagnostics(p);
+                case "homeroom": return HomeRoom(p);
                 case "items": return DroppedItems(p);
                 case "grab": return GrabLoot(p);
                 case "save": return SaveWorld(p);
@@ -1328,6 +1329,37 @@ namespace DshTerrariaBridge
                 homeless,
                 townNPCs = homes.Count,
                 homes,
+            });
+        }
+
+        /// <summary>
+        /// 一键让 NPC 回家：直接调用原版 WorldGen.moveRoom —— 就是房屋菜单里点"回家/搬到这间屋"
+        /// 走的那条路。房间不合法时原版自己会拒绝，npc.homeless 不会变，所以结果可验证。
+        /// </summary>
+        private static string HomeRoom(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
+            int who = Json.Int(p, "who", -1);
+            if (x < 0 || y < 0) return Json.Error("homeroom 需要 x,y（房间内任意一格）");
+            if (who < 0 || who >= Main.maxNPCs) return Json.Error("homeroom 需要 who（NPC 索引，housing 的 homes[].who）");
+            NPC n = Main.npc[who];
+            if (n == null || !n.active || !n.townNPC) return Json.Error($"NPC {who} 不是活跃的城镇 NPC");
+            bool wasHomeless = n.homeless;
+            int oldX = n.homeTileX, oldY = n.homeTileY;
+            bool roomFound = WorldGen.StartRoomCheck(x, y);
+            if (!roomFound) return Json.Error($"({x},{y}) 不是一个房间，没法让人搬进去");
+            WorldGen.moveRoom(x, y, who);
+            return Json.Ok(new
+            {
+                who,
+                name = n.FullName,
+                wasHomeless,
+                homeless = n.homeless,
+                moved = wasHomeless != n.homeless,
+                roomFound,
+                oldHome = new { x = oldX, y = oldY },
+                home = new { x = n.homeTileX, y = n.homeTileY },
             });
         }
 

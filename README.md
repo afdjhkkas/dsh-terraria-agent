@@ -200,78 +200,74 @@ terraria_attack({"who": NPC_WHO, "slot": WEAPON_SLOT, "durationMs":2500})
 terraria_observe({})
 ```
 
-#### `terraria_spawn_npc({type?, x?, y?})`
-
-生成 NPC，仅用于测试或创造模式操作。
-
-- `type` 默认 1（蓝史莱姆），必须是真实存在的 NPC 类型 ID（桥会校验，非法 ID 直接报错）。
-- `x`、`y` 省略时生成在玩家右侧约 5 格。
-- 这是管理员/创造操作，不要在普通探索中随意调用。
-
 #### `terraria_stop({})`
 
 清除插件发出的移动、跳跃、使用物品和攻击保持状态，返回 `{stopped:true}`。
 不会清除 `attack.last`。遇到异常或需要切换动作时优先调用。
 
-### 背包、世界编辑和传送
+### 背包与建造（真实操作）
+
+这一节里的每个工具都走**角色自己的手**：选中背包里的镐子/方块/家具，做出原版的使用动作，
+然后**轮询世界直到看到效果**才返回。判断标准不是"命令被接受了"，而是"格子真的变了、物品真的少了"。
+（实现见 `src/primitives.js`，单测见 `test/primitives.test.js`。）
 
 #### `terraria_inventory({})`
 
 返回当前选中槽位，以及所有非空背包物品。每项包含 `slot`、`hotbar`、`type`、`name`、
 `stack`、`prefix`、`rare`。
 
-#### `terraria_mine({x, y, noItem?})`
+#### `terraria_mine({x, y, ms?, tries?})`
 
-移除指定 tile 的**方块**（v0.2.0 起默认不动背景墙）。
+用背包里的镐子挖掉一格，**确认这一格真的空了**才返回。
 
-- `x`、`y` 必填，必须在世界范围内。
-- `noItem` 默认 false；true 时抑制掉落。
-- 返回 `{ok,x,y,removedTile,removedWall,before,after,wallBefore,wall}`，
-  `before`/`after` 用 `-1` 表示空。默认 `walls:false`，墙只会被记录（`wallBefore`），不会被挖掉；
-  需要连墙一起挖时，直接调桥传 `walls:true`（工具目前不透出这个参数）。
-- 本来就是空的会返回 `ok:false`，这是正常拒绝，不代表桥失败。
-- 调用前先用 `terraria_tile` 或 `terraria_scan` 确认坐标。
+- `ms` 是单次挥动的按住时间（默认 1300ms；丛林草/冰雪/石头在铁镐下要 1.2~1.3 秒）。
+- `tries` 是重试次数（默认 3）：硬方块一次挥不动就再挥，不会把"还没挖掉"当成失败。
+- 返回 `{ok, removed, x, y, attempts, before, swings[]}`；每次挥动都记录当时手持的工具和
+  `aimed`（是否在攻击范围内）。
+- `ok:false` 的 `reason` 会直接说明原因：`目标不在屏幕内`、`够不到（超过 7 格）`、`背包里没有镐子`。
 
 #### `terraria_place({x, y, type, style?})`
 
-按 Terraria 的放置规则在指定位置放一个方块。
+从背包里拿出**能放成这种方块的物品**，放到指定格，确认格子变成 `type` 且**背包数量减少 1** 才返回。
 
-- `x`、`y`、`type` 必填；`type` 必须是合法 tile id（`1..TileID.Count-1`，桥会校验，越界直接报错）。
-- `type` 是 Terraria tile 类型 ID，不是物品名称；`style` 默认 0。
-- 工具固定使用 `forced:false`（走正常放置规则：需要支撑、不能和已有方块重叠）。
-- 返回 `{ok,x,y,requested,after}`，`after` 是放置后该格实际类型（`-1` 为空）；`after` 与
-  `requested` 不同就说明没放成功。
-- 直接操作世界，不模拟鼠标，也不消耗背包物品；视为管理员/世界编辑操作。
+- `type` 是 Terraria **tile id**（注意：石头是 `1`，木材是 `30`，土块是 `0`）。
+- 返回 `{ok, placed, consumed, slot, stackBefore, stackAfter}`；`consumed` 是背包真实减少的数量。
+- 需要支撑（下/左/右有实心方块），空气格孤立漂浮会放不上。
 
-#### `terraria_teleport({x, y})`
+#### `terraria_tiledata({type, style?})`
 
-把本地玩家传送到 tile 坐标。
+直接读游戏里的 `TileObjectData`：`width`/`height` 是家具占的格子，`originX`/`originY` 是
+**光标要瞄准的格子在占位框里的位置**。放家具前先查它，不要靠猜。
 
-- `x`、`y` 必填，必须是**有限数值且在世界范围内**；桥会拒绝 `NaN`/无穷/越界坐标。
-- 桥会把玩家从实心方块里向上推出（返回 `adjusted` 表示是否调整过），并清零速度；
-  但仍可能落在岩浆、水、空中或敌怪旁边，落点不做安全判断。
-- 返回 `{x,y,from,tile,adjusted}`。
-- 传送后立即调用 `terraria_observe`，必要时调用 `terraria_scan`。
+#### `terraria_place_object({x, y, type, style?})`
 
-#### `terraria_give_item({type, stack?})`
+放多格家具（箱子/熔炉/铁砧/桌子/椅子/门/床）。`x`、`y` 是**占位框左上角**，
+工具自己查锚点、瞄准 `root + origin`，放完逐格回读。
 
-直接把物品生成到本地玩家背包中，是创造/管理员操作。
+- 返回 `{ok, placed, consumed, footprint, cells[], filled, complete}`：
+  `complete` 表示占位框里每一格都变成了目标类型。
+- 例：熔炉 3×2 锚点 (1,1)；工作台 2×1 锚点 (0,0)；箱子 2×2 锚点 (0,1)；椅子 1×2 锚点 (0,1)。
 
-- `type` 必填，必须是真实存在的 item 类型 ID（桥会校验）。
-- `stack` 默认 1，限制 1～9999。
-- 返回 `{type,stack,name,added,dropped}`：`added` 是真正进了背包的数量，`dropped` 是背包放不下
-  而掉在地上的数量；两者都可能为 0，物品名以返回值为准。
+#### `terraria_equip({slot})`
+
+把背包某个槽位的护甲/饰品穿上，回读装备栏和防御力。
+
+- 返回 `{ok, item, defenseBefore, defenseAfter, equipment[]}`；`equipment[]` 里 `slot 0/1/2` 是
+  头/身/腿。
+
+#### `terraria_chest({action, invSlot?, slot?, count?})`
+
+操作**身边 6 格内**的箱子：`list` 看内容，`put` 把背包某格放进去，`take` 从箱子某格取出来。
+两边的数量都会回读，失败会说是哪一边没动。
 
 #### `terraria_craft({item, times?})`
 
-按物品类型 ID 合成物品。
+按**产出物品的类型 ID**（不是配方 ID，也不要求手上有材料清单）合成物品，站到工作台/熔炉/铁砧
+旁边才能做对应配方。
 
-- `item` 必填，是产出物品的类型 ID；`times` 默认 1，桥侧限制 1～20（工具参数允许更大，但会被
-  桥截断到 20，返回值里的 `times` 是桥实际执行的次数）。建议按 20 或更小的批次调用。
-- 支持配方组（"任意木材/任意矿石"）和配方条件（附近有水/墓地/夜晚等），也检查工作站；
-  条件不满足会明确报错，不会凭空合成。
-- 返回 `{item,name,crafted,times,perCraft,reason?,dropped?}`：`crafted` 只统计真正进了背包的数量，
-  掉在地上的数量在 `dropped` 里。材料不足或缺少工作站时会返回部分成功（`crafted` + `reason`）。
+- `times` 1~20；支持配方组（"任意木材"）和配方条件。
+- 返回 `{ok, item, name, times, before, after, gained, expected, crafted, dropped}`：
+  `gained` 必须等于 `expected` 才算真的做完；背包满时会体现在 `dropped` 而不是"材料不足"。
 
 ### 聊天
 

@@ -8,7 +8,7 @@ import { apply } from '../index.js'
  * answers `{"ok":true,"data":{}}`. This is how we pin the argument mapping
  * without a game: every assertion below is about what actually goes on the wire.
  */
-async function withBridge (run) {
+async function withBridge (run, respond = () => ({})) {
   const seen = []
   const server = net.createServer(socket => {
     let buffer = ''
@@ -22,7 +22,8 @@ async function withBridge (run) {
         if (!line.trim()) continue
         const request = JSON.parse(line)
         seen.push(request)
-        const reply = { ok: true, data: {}, ...(request.req === undefined ? {} : { req: request.req }) }
+        const data = respond(request) ?? {}
+        const reply = { ok: true, data, ...(request.req === undefined ? {} : { req: request.req }) }
         socket.write(JSON.stringify(reply) + '\n')
       }
     })
@@ -154,14 +155,30 @@ test('a paused game gets an actionable hint', async () => {
     await new Promise(resolve => server.close(resolve))
   }
 })
-test('tile type 0 (Dirt) is a legal placement', async () => {
+test('tile type 0 (Dirt) is a legal placement and gets verified', async () => {
+  // The tool now reads the cell first, places, then polls until the cell shows
+  // the tile and the stack really went down, so the fake has to answer like a
+  // world that accepts one dirt block.
+  let placed = false
+  let stack = 3
+  const respond = request => {
+    if (request.cmd === 'tile') return placed
+      ? { x: request.params.x, y: request.params.y, hasTile: true, type: 0, wall: 0 }
+      : { x: request.params.x, y: request.params.y, hasTile: false, type: -1, wall: 0 }
+    if (request.cmd === 'place') { placed = true; stack -= 1; return { slot: 5, stackBefore: 3, name: 'DirtBlock', item: '土块' } }
+    if (request.cmd === 'inventory') return { items: [{ slot: 5, type: 0, stack }] }
+    return {}
+  }
   await withBridge(async ({ exec, seen }) => {
-    await exec('terraria_place', { x: 10, y: 20, type: 0 })
-    // Player mode places, then re-reads the tile to verify, so there is more than one call.
-    assert.equal(seen[0].cmd, 'place')
-    assert.equal(seen[0].params.type, 0, 'dirt must survive argument mapping')
-    assert.equal(seen[1].cmd, 'tile')
-  })
+    const parsed = JSON.parse(await exec('terraria_place', { x: 10, y: 20, type: 0 }))
+    assert.equal(parsed.data.placed, true)
+    assert.equal(parsed.data.consumed, 1)
+    const place = seen.find(r => r.cmd === 'place')
+    assert.equal(place.params.type, 0, 'dirt must survive argument mapping')
+    // Read first, then place, then verify: the order is the guarantee.
+    assert.equal(seen[0].cmd, 'tile')
+    assert.equal(seen[1].cmd, 'place')
+  }, respond)
 })
 
 test('the wall command reaches the bridge with its wall id', async () => {

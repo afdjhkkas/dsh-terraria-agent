@@ -310,3 +310,58 @@ if (pPlaced) WorldGen.RangeFrame(x - 2, y - 2, x + 3, y + 3);
 - `housing` / `needs` 要 `x,y`（房间内部坐标）。
 - `craft` 的 `item` 是**产物物品 id**，`times` 是次数。
 - `fill` 的 `type` 也是方块 ID（石头 1，木头 30）。
+
+---
+
+## 二、基础能力原语化（2026-10-25 晚，用户指令「先做基础能力，不要写脚本一键建造」）
+
+用户原话（m03907）：「你应该实现的是放置,挖掘,开箱子,穿装备,制作装备等这类贯穿整个游戏的基础能力,
+这些能成功实现后,再考虑运用这些能力去规划和建造房子,而不是写类似脚本的东西一键建造」。
+
+### 问题诊断
+
+旧实现的通病是**fire-and-forget + 睡一下再看一眼**：
+`mine` 只是给角色挂上挥镐动作就返回，`place` 只是挂上使用动作就返回，
+然后工具 `sleep(500)` 读一次格子。运气好读到 `placed:true`，运气不好读到失败——
+同一段代码时而成功时而失败，看起来像"随机坏掉"。挖矿连挥 15 下只报成功 9 次、家具
+一会儿放上一会儿放不上，都是这个模式造成的。
+
+### 做法：每个原语自己持有"等到世界改变"的保证
+
+新增 `src/primitives.js`（纯逻辑、可单测），三个保证：
+
+1. **先读后写**：动手前读一次格子/背包，作为"变化前"的基线。
+2. **轮询而不是睡**：动手后每 120ms 读一次，直到看见效果或自己超时；超时就报 `ok:false` 并附证据。
+3. **失败是值不是异常**：`{ok:false, reason, ...evidence}`，只有传输故障才抛异常。
+
+导出：`mineTile` / `placeTile` / `placeObject` / `objectInfo` / `craftItem` / `equipFromSlot` /
+`chestList` / `chestPut` / `chestTake` / `pollUntil` / `isTransportFault`。
+
+### 游戏内实测（2026-10-25 19:0x，真实世界，全部回读）
+
+| 原语 | 实测证据 |
+|---|---|
+| `mineTile` | 挖 (2103,303) Stone → `{ok:true, removed:true, attempts:1, swings:[{held:{type:1,name:铁镐}, aimed:true, type:-1}]}` |
+| `placeTile` | 同格放石块 → `{placed:true, consumed:1, stackBefore:2312, stackAfter:2311}` |
+| `placeObject` 椅子 | 木椅(tile 15, 1×2, 锚点 0,1) 放在 (2096,301) → `cells` 两格都是 15，`filled:2, complete:true`，木椅 4→3 |
+| `placeObject` 工作台 | tile 18 (2×1, 锚点 0,0) 放在 (2097,304) → 两格都是 18，`complete:true`，工作台 3→2 |
+| `objectInfo` | 熔炉 17 = 3×2 锚点(1,1)；工作台 18 = 2×1 锚点(0,0)；箱子 21 = 2×2 锚点(0,1)；椅子 15 = 1×2 锚点(0,1)；铁砧 16 = 2×1 锚点(0,0) |
+| `craftItem` | 站在刚放下的工作台旁合木箭 → `{gained:25, expected:25, crafted:25, dropped:0}`，75→100 |
+| `equipFromSlot` | 穿雨帽（槽 25）→ `defenseBefore:0, defenseAfter:1`，equipment[0]=雨帽 |
+| `chestList/Put/Take` | 桥侧 `chest` 命令可用，但**基地附近 80×40 内没有箱子**（`find type:21` 返回 0），本轮未能实测；下一步做出箱子后补验证 |
+
+单测：`test/primitives.test.js` 17 条（mine/place/object/craft/equip/chest 的成功、超时、拒绝路径），
+`node --test "test/*.test.js"` → **67 tests, 65 pass, 0 fail, 2 skip**。
+
+### 工具层变化（`index.js`）
+
+- 改造：`terraria_mine` / `terraria_place` / `terraria_craft` 全部走原语（含 `tries` 参数）。
+- 新增：`terraria_tiledata`、`terraria_place_object`、`terraria_equip`、`terraria_chest`。
+- 删掉：`terraria_teleport`、`terraria_give_item`、`terraria_spawn_npc` 的文档说明（工具早已删除）。
+
+### 仍然存在的短板（不要假装能用）
+
+1. `chest` 三个动作没有游戏内实测证据（缺箱子）。
+2. `place` 在"目标格四周全空"时会失败（需要支撑）——这是原版规则，不是 bug。
+3. 家具摆放仍然要求玩家站得够近（原版 5~6 格），远处放不上。
+4. 一个格子的挖掘要 1.3 秒挥动；这是真实手感，也是速率上限。

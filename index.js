@@ -1,5 +1,6 @@
 import { defineTool } from './src/tool-def.mjs'
 import { createBridgeClient } from './src/bridge-client.js'
+import { createPrimitives } from './src/primitives.js'
 
 export const name = 'dsh-terraria-agent'
 export const inject = ['tools']
@@ -122,6 +123,11 @@ export function apply(ctx, rawConfig = {}) {
   const timeoutMs = bounded(config.timeoutMs, 500, 30000, 5000)
   const client = createBridgeClient({ host: '127.0.0.1', port, timeoutMs })
   const request = makeSerialRunner(client)
+  // Verified primitives: they poll the world instead of sleeping and hoping,
+  // so "placed: true" means the tile is really there (see src/primitives.js).
+  const primitives = createPrimitives({
+    request: (command, params, options) => request(command, params, { signal: options?.signal }),
+  })
 
   const register = ({ name: toolName, description, parameters = {}, command, timeout, mapArgs = () => ({}), run }) => {
     ctx.tools.register(defineTool({
@@ -389,29 +395,13 @@ export function apply(ctx, rawConfig = {}) {
       ms: integer('How long to swing, 100..4000 (default 900).'),
     },
     command: 'mine',
-    timeout: 15000,
+    timeout: 25000,
     async run(args, exec) {
       const x = mustInt(args.x, 'x')
       const y = mustInt(args.y, 'y')
-      const ms = bounded(args.ms, 100, 4000, 900)
-      const before = await request('tile', { x, y }, exec)
-      const swing = await request('mine', { x, y, ms }, exec)
-      await sleep(ms + 320)
-      const after = await request('tile', { x, y }, exec)
-      const removed = after.data?.hasTile === false
-      const data = {
-        x,
-        y,
-        mode: 'player',
-        tool: swing.data?.held,
-        aimed: swing.data?.onScreen,
-        before: before.data?.type,
-        after: after.data?.type,
-        removed,
-      }
-      if (!data.aimed) data.hint = '目标不在屏幕内：先走近一点再挖'
-      else if (!removed) data.hint = '还没挖掉：增大 ms 多挥几下，或者换更好的镐子'
-      return JSON.stringify({ ok: true, data })
+      const ms = bounded(args.ms, 100, 4000, 1300)
+      const result = await primitives.mineTile({ x, y, ms, tries: bounded(args.tries, 1, 6, 3), signal: exec?.signal })
+      return JSON.stringify({ ok: result.ok, data: { ...result, mode: 'player' } })
     },
   })
 
@@ -428,18 +418,13 @@ export function apply(ctx, rawConfig = {}) {
       style: integer('Tile style, usually 0.'),
     },
     command: 'place',
-    timeout: 15000,
+    timeout: 20000,
     async run(args, exec) {
       const x = mustInt(args.x, 'x')
       const y = mustInt(args.y, 'y')
       const type = mustInt(args.type, 'type', 0, 100000)
-      const placeReq = await request('place', { x, y, type, ms: 300 }, exec)
-      await sleep(520)
-      const after = await request('tile', { x, y }, exec)
-      const placed = after.data?.hasTile === true && after.data?.type === type
-      const data = { x, y, type, mode: 'player', item: placeReq.data?.held, placed, after: after.data?.type }
-      if (!placed) data.hint = after.data?.hasTile ? '这一格已经有别的方块了' : '没放上：确认背包里有这种方块，且目标格有支撑'
-      return JSON.stringify({ ok: true, data })
+      const result = await primitives.placeTile({ x, y, type, style: bounded(args.style, 0, 1000, 0), deadlineMs: 4000, signal: exec?.signal })
+      return JSON.stringify({ ok: result.ok, data: { ...result, mode: 'player' } })
     },
   })
 
@@ -480,15 +465,111 @@ export function apply(ctx, rawConfig = {}) {
 
   register({
     name: 'terraria_craft',
-    description: 'Craft by output item id using the inventory and nearby stations. Handles recipe groups ("any wood") and recipe conditions. '
-      + 'crafted counts items that reached the inventory; dropped counts items that fell on the floor. '
-      + `times is capped at 20 per call. ${RULES}`,
+    description: 'Craft by output item id using the inventory and nearby stations (workbench / furnace / anvil must be within ~1 tile). '
+      + 'Handles recipe groups ("any wood") and recipe conditions. It waits until the products are really in the bag and reports '
+      + 'gained/expected; a full bag shows up as a dropped>0 warning, not as "no materials". '
+      + `This takes an ITEM id (not a recipe id). times is capped at 20 per call. ${RULES}`,
     parameters: {
       item: integer('Output item type id (required).', { required: true }),
       times: integer('Number of crafts, 1..20.'),
     },
     command: 'craft',
-    mapArgs: ({ item, times }) => ({ item: mustInt(item, 'item', 1, 100000), times: bounded(times, 1, 20, 1) }),
+    timeout: 20000,
+    async run(args, exec) {
+      const item = mustInt(args.item, 'item', 1, 100000)
+      const times = bounded(args.times, 1, 20, 1)
+      const result = await primitives.craftItem({ item, times, signal: exec?.signal })
+      return JSON.stringify({ ok: result.ok, data: result })
+    },
+  })
+
+  register({
+    name: 'terraria_tiledata',
+    description: 'Furniture footprint and anchor, straight from the game (TileObjectData). '
+      + 'width/height are the cells the object occupies and origin is the cell inside the footprint that the cursor must be on. '
+      + 'Use it before placing furniture: a 3x2 furnace with origin (1,1) is placed by aiming one right and one down from its top-left cell. '
+      + `${RULES}`,
+    parameters: { type: integer('Tile id of the furniture (required).', { required: true }), style: integer('Style, usually 0.') },
+    command: 'tiledata',
+    async run(args, exec) {
+      const type = mustInt(args.type, 'type', 0, 100000)
+      const info = await primitives.objectInfo(type, { style: bounded(args.style, 0, 1000, 0), signal: exec?.signal })
+      return JSON.stringify({ ok: true, data: info })
+    },
+  })
+
+  register({
+    name: 'terraria_place_object',
+    description: 'Place a multi-cell furniture (chest, furnace, anvil, table, chair, door, bed) at its ROOT cell - the top-left cell of its footprint. '
+      + 'It looks the anchor up instead of guessing, aims at root+origin, then checks every footprint cell and reports filled/total. '
+      + 'Use terraria_tiledata first if you want to see the footprint. '
+      + `${RULES}`,
+    parameters: {
+      x: integer('Root cell X (top-left of the footprint, required).', { required: true }),
+      y: integer('Root cell Y (top-left of the footprint, required).', { required: true }),
+      type: integer('Tile id of the furniture (required).', { required: true }),
+      style: integer('Style, usually 0.'),
+    },
+    command: 'place',
+    timeout: 25000,
+    async run(args, exec) {
+      const x = mustInt(args.x, 'x')
+      const y = mustInt(args.y, 'y')
+      const type = mustInt(args.type, 'type', 0, 100000)
+      const result = await primitives.placeObject({ x, y, type, style: bounded(args.style, 0, 1000, 0), signal: exec?.signal })
+      return JSON.stringify({ ok: result.ok, data: { ...result, mode: 'player' } })
+    },
+  })
+
+  register({
+    name: 'terraria_equip',
+    description: 'Equip the armour or accessory sitting in one bag slot, then read the equipment slots and defence back. '
+      + 'armour slots are 0=head 1=body 2=legs; accessories follow. '
+      + `${RULES}`,
+    parameters: { slot: integer('Bag slot holding the item (required).', { required: true }) },
+    command: 'equip',
+    timeout: 12000,
+    async run(args, exec) {
+      const slot = mustInt(args.slot, 'slot', 0, 58)
+      const result = await primitives.equipFromSlot({ slot, signal: exec?.signal })
+      return JSON.stringify({ ok: result.ok, data: result })
+    },
+  })
+
+  register({
+    name: 'terraria_chest',
+    description: 'Work with the chest you are standing next to (within 6 tiles): '
+      + 'action="list" shows its slots, "put" moves a bag slot into it, "take" moves a chest slot into the bag. '
+      + 'Every action is verified on both sides (chest contents and bag count) before it reports success. '
+      + `${RULES}`,
+    parameters: {
+      action: string('list | put | take (required).', { required: true, enum: ['list', 'put', 'take'] }),
+      invSlot: integer('Bag slot to move into the chest (action=put).'),
+      slot: integer('Chest slot to take from (action=take).'),
+      count: integer('How many to take (action=take, default all).'),
+    },
+    command: 'chest',
+    timeout: 15000,
+    async run(args, exec) {
+      const action = String(args.action ?? 'list')
+      if (action === 'list') {
+        const result = await primitives.chestList({ signal: exec?.signal })
+        return JSON.stringify({ ok: result.ok, data: result })
+      }
+      if (action === 'put') {
+        const result = await primitives.chestPut({ invSlot: mustInt(args.invSlot, 'invSlot', 0, 58), signal: exec?.signal })
+        return JSON.stringify({ ok: result.ok, data: result })
+      }
+      if (action === 'take') {
+        const result = await primitives.chestTake({
+          slot: mustInt(args.slot, 'slot', 0, 39),
+          ...(args.count === undefined ? {} : { count: bounded(args.count, 1, 999, 1) }),
+          signal: exec?.signal,
+        })
+        return JSON.stringify({ ok: result.ok, data: result })
+      }
+      throw new Error('action must be list, put or take.')
+    },
   })
 
     register({
