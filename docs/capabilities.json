@@ -517,6 +517,9 @@
       "returns": [
         "selected",
         "count",
+        "free",
+        "freeMain",
+        "freeAll",
         "items",
         "equipment",
         "canFly"

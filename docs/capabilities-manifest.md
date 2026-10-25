@@ -23,7 +23,7 @@
 | `housediag` | `x` `y` `tiles` `box` |
 | `housing` | `townNPCs` |
 | `idmap` | `rows` |
-| `inventory` | `selected` `count` `items` `equipment` `canFly` |
+| `inventory` | `selected` `count` `free` `freeMain` `freeAll` `items` `equipment` `canFly` |
 | `items` | `count` `items` |
 | `map` | `mapWidth` `mapHeight` `sampled` `revealedPercent` `explored` |
 | `needs` | `worldFields` `npc` `name` `homeless` `homeTile` `position` |

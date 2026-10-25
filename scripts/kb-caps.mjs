@@ -83,6 +83,9 @@ const ACTION_MARKERS = [
 const KIND_OVERRIDE = {
   // 会写盘（导出 TSV），但不动世界、不动角色 → 对角色来说仍是只读
   idmap: 'read',
+  // state 只是读；它把 guard.latched 里的 climbUp/climbDown 快照打出来，
+  // 机械规则看到字段名 ClimbUpUntil/ClimbDownUntil 就误判成“动作”。
+  state: 'read',
   // 会写世界存档文件，属于动作
   save: 'act',
   // 只算路径，不动角色

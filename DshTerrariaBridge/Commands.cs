@@ -301,6 +301,21 @@ namespace DshTerrariaBridge
                 data["guard"] = new
                 {
                     active = BridgeSystem.GuardUntil > BridgeSystem.Now,
+                    guardDefault = BridgeSystem.GuardDefault,
+                    resetReason = BridgeSystem.LastResetReason,
+                    resetCount = BridgeSystem.ResetCount,
+                    latched = new
+                    {
+                        left = BridgeSystem.LeftUntil > BridgeSystem.Now,
+                        right = BridgeSystem.RightUntil > BridgeSystem.Now,
+                        up = BridgeSystem.UpUntil > BridgeSystem.Now,
+                        down = BridgeSystem.DownUntil > BridgeSystem.Now,
+                        jump = BridgeSystem.JumpUntil > BridgeSystem.Now,
+                        use = BridgeSystem.UseUntil > BridgeSystem.Now,
+                        climbUp = BridgeSystem.ClimbUpUntil > BridgeSystem.Now,
+                        climbDown = BridgeSystem.ClimbDownUntil > BridgeSystem.Now,
+                        travel = BridgeSystem.Travel.Active,
+                    },
                     engaged = BridgeSystem.GuardEngaged,
                     target = BridgeSystem.GuardLastTarget,
                     radius = BridgeSystem.GuardRadius,
@@ -597,12 +612,18 @@ namespace DshTerrariaBridge
         {
             Player pl = P;
             if (pl.dead) return "玩家已死亡，请先复活";
-            if (!BridgeSystem.InReach(pl, x, y)) return "够不到：离这一格超过 7 格，先走过去再挖";
             Tile t = Main.tile[x, y];
             // Which tool a tile needs is a game fact, not a guess: Main.tileAxe marks every
             // tree-like tile (palm, vanity trees, cactus...). Checking only TileID.Trees made the
             // agent swing a pickaxe at a vanity tree and conclude the tile was unbreakable.
             bool needsAxe = t.HasTile && Main.tileAxe[t.TileType];
+            // 斧头的有效距离比镐短：实测同一棵树，4.3 格外挥斧游戏接指令但格子不掉，
+            // 走到 1.5 格内立刻掉。所以砍树单独用 4 格判定，别让人白挥。
+            int reach = needsAxe ? 4 : 7;
+            if (!BridgeSystem.InReach(pl, x, y, reach))
+                return needsAxe
+                    ? $"砍树要靠近：离这一格超过 {reach} 格，先走过去再砍"
+                    : "够不到：离这一格超过 7 格，先走过去再挖";
             int slot = needsAxe ? FindAxe(pl) : FindPickaxe(pl);
             if (slot < 0) return needsAxe ? "背包里没有斧头，砍树需要斧头" : "背包里没有镐子，挖方块需要镐子";
 
@@ -1838,7 +1859,8 @@ namespace DshTerrariaBridge
         {
             if (!InWorld(out string err)) return Json.Error(err);
             int type = Json.Int(p, "type", -1);
-            if (type <= 0) return Json.Error("find 需要 type");
+            // 土块是 tile id 0：以前用 type <= 0 判空，把"找泥土"整个挡掉了。
+            if (type < 0) return Json.Error("find 需要 type（0 是土块，合法）");
             int x1 = Json.Int(p, "x1", 0);
             int x2 = Json.Int(p, "x2", Main.maxTilesX - 1);
             int y1 = Json.Int(p, "y1", 0);
@@ -2835,10 +2857,21 @@ namespace DshTerrariaBridge
                     wingSlot = it.wingSlot > 0,
                 });
             }
+            // 空位数量：背包满时掉落物会静默丢失，调用方必须能提前看到。
+            int freeMain = 0, freeAll = 0;
+            for (int i = 0; i < pl.inventory.Length; i++)
+            {
+                Item it = pl.inventory[i];
+                bool empty = it == null || it.type <= 0 || it.stack <= 0;
+                if (empty) { freeAll++; if (i < 50) freeMain++; }
+            }
             return Json.Ok(new
             {
                 selected = pl.selectedItem,
                 count = slots.Count,
+                free = freeMain,
+                freeMain = freeMain,
+                freeAll = freeAll,
                 items = slots.ToArray(),
                 equipment = equip.ToArray(),
                 canFly = pl.wingTimeMax > 0 || pl.velocity.Y != 0f && pl.wingsLogic > 0,

@@ -1447,8 +1447,9 @@ namespace DshTerrariaBridge
         internal static int GuardLastTarget = -1, GuardWeaponSlot = -1;
         // 真挥了几刀：itemAnimation 从 >0 回到 0 就是"这一次挥击播完了"。
         internal static int GuardSwings, GuardPrevAnim, GuardSavedSlot = -1;
-        // 默认开：真人不会站着挨打。命令里显式 guard off 才关。
-        internal static volatile bool GuardDefault = true;
+        // 默认关：用户明确要求删掉"自动打怪"这种会干扰实验的自动行为。
+        // 需要打架就显式发 guard {ms}，它只在这段时间内生效，不会自己续命。
+        internal static volatile bool GuardDefault = false;
         internal static bool GuardEngaged;
         internal static volatile bool HookHeld;
         internal static ulong HookUntil;
@@ -1466,6 +1467,23 @@ namespace DshTerrariaBridge
         public static void ApplyControls(Player player)
         {
             ulong now = Main.GameUpdateCount;
+
+            // 换世界 / 回菜单 / 死亡：把上一次留下的所有"会自己动"的状态清干净。
+            // 静态字段跨世界不会归零，这正是"角色一直往右走、一直自动打怪"的来源。
+            if (Main.gameMenu)
+            {
+                if (KnownWorldId != -2) { ResetMotion("menu"); KnownWorldId = -2; }
+                return;
+            }
+            if (KnownWorldId != Main.worldID)
+            {
+                int id = Main.worldID;
+                KnownWorldId = id;
+                ResetMotion("world#" + id);
+            }
+            if (player != null && player.active && player.dead && GuardUntil > 0)
+                ResetMotion("death");
+
             if (LeftUntil > now) player.controlLeft = true;
             if (RightUntil > now) player.controlRight = true;
             if (UpUntil > now) player.controlUp = true;
@@ -1506,6 +1524,33 @@ namespace DshTerrariaBridge
         ClearAttack();
     }
 
+    /// <summary>
+    /// 把所有"会自己动"的状态一次清干净。
+    /// 静态字段在换世界/重开客户端时不会自动归零，之前就是靠这个静默地一直往前走、
+    /// 一直自动打怪——用户在旁边看着像"有两个脚本在干扰"。换世界和死亡时必须清。
+    /// </summary>
+    internal static void ResetMotion(string why)
+    {
+        ClearControls();
+        StopPath("reset:" + why);
+        StopWalk("reset:" + why);
+        FollowActive = false;
+        Travel.Active = false;
+        GuardUntil = 0;
+        GuardEngaged = false;
+        GuardTargets = 0;
+        HookHeld = false;
+        HookUntil = 0;
+        HookReleasePending = false;
+        HookForceDetachAt = 0;
+        LastResetReason = why;
+        ResetCount++;
+    }
+
+    internal static volatile string LastResetReason = "";
+    internal static int ResetCount;
+    internal static int KnownWorldId = -1;
+
         /// <summary>
         /// 自动防守：每 tick 找最近的敌对 NPC，视线可达就换武器、瞄准它、按住使用键。
         /// 伤害由原版挥击/弹幕产生（这里只管"手怎么动"，不直接扣血、不动世界）。
@@ -1513,7 +1558,7 @@ namespace DshTerrariaBridge
         private static void ApplyGuard(Player p, ulong now)
         {
             if (UseUntil > now || UseTileUntil > now) return; // 手上有明确的活（挖/放）就不抢手
-            if (GuardDefault) GuardUntil = now + Ticks(300);
+            // 不再自动续期：guard 只在命令给的时长内有效（用户要求删掉自动打怪）。
             if (GuardUntil <= now)
             {
                 if (GuardEngaged) { GuardEngaged = false; GuardLastTarget = -1; }

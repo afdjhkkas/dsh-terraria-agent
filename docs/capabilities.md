@@ -353,3 +353,16 @@ api {type:"Terraria.Player", member:"controlHook"} → "field | Boolean controlH
 每次触发、重试、失败都写六列日志（序号 / 异常 / 证据 / 动作 / 结果 / 第几次）。
 
 `apply:true` 时只下发 `move` / `jump` / `heal` / `attack` 这类**控制角色**的命令，不碰世界。
+
+### 行进状态可见性
+
+`state` 的 `guard` 块里带 `latched`：
+
+```json
+{"left":false,"right":false,"up":false,"down":false,"jump":false,"use":false,
+ "climbUp":false,"climbDown":false,"travel":false}
+```
+
+还有 `guardDefault`、`resetReason`、`resetCount`。换世界 / 回菜单 / 死亡时 `ResetMotion()`
+会把全部 latch、path、walk、follow、travel、guard、hook 一次清空，`resetReason` 会记下原因
+（例如 `world#1224859936`）。这是排查「角色自己一直往右走 / 一直自动打怪」的第一现场。
