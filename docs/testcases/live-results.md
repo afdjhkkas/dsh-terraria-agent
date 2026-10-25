@@ -51,3 +51,4 @@
 ## 环境提醒
 
 - 新世界「蒸汽 险境」4200×1200，此前旧档的所有坐标作废；本文里的坐标只是当次实测位置，不是知识。
+| H1 | 建一间有效房屋（六条全过）| PASS | `housediag {x:2125,y:274}` → `{"tiles":64,"box":[2122,2129,272,279],"enclosed":true,"walled":64,"floorRatio":1,"ceilRatio":1,"leftRatio":1,"rightRatio":1,"light":1,"comfort":2,"doors":3,"missing":[],"valid":true}`；`homeroom {x:2125,y:274,who:1}` → `moved:true, wasHomeless:true, home:{x:2125,y:274}` |
