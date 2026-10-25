@@ -45,6 +45,7 @@ namespace DshTerrariaBridge
                 case "housing": return Housing(p);
                 case "needs": return RoomDiagnostics(p);
                 case "items": return DroppedItems(p);
+                case "grab": return GrabLoot(p);
                 case "save": return SaveWorld(p);
                 case "removeblock": return RemoveBlock(p);
                 case "recipes": return Recipes(p);
@@ -175,7 +176,7 @@ namespace DshTerrariaBridge
         {
             commands = new[]
             {
-                "ping", "state", "scan{x,y,r}", "tile{x,y}", "mine{x,y,noItem}",
+                "ping", "state", "scan{x,y,r}", "tile{x,y}", "mine{x,y,noItem}", "items{r}", "grab{r}",
                 "place{x,y,type,style,forced}", "move{dir,ms}", "jump{ms}", "use{slot,right,ms}",
                 "attack{who,r,ms,interval,slot}", "spawn_npc{type,x,y}",
                 "stop", "teleport{x,y}", "inventory", "craft{item,times}", "give{type,stack}",
@@ -580,6 +581,46 @@ namespace DshTerrariaBridge
                 });
             }
             return Json.Ok(new { count = list.Count, items = list });
+        }
+
+        /// <summary>
+        /// 捡起脚下够得着的地面掉落物。走原版 GetItem —— 玩家碰到物品时游戏自己调的那个函数，
+        /// 所以这是"控制角色去捡"，不是凭空生成。掉落物有时压在地里不自动入包，没有这条命令
+        /// 就分不清"没掉"和"掉在脚下却捡不到"。
+        /// </summary>
+        private static string GrabLoot(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            int radius = Math.Clamp(Json.Int(p, "r", 6), 1, 60);
+            Player pl = P;
+            var got = new List<object>();
+            int seen = 0;
+            for (int i = 0; i < Main.maxItems; i++)
+            {
+                Item it = Main.item[i];
+                if (it == null || !it.active || it.stack <= 0 || it.type <= 0) continue;
+                if (Vector2.Distance(it.Center, pl.Center) > radius * 16f) continue;
+                seen++;
+                string name = it.Name;
+                int type = it.type;
+                int before = it.stack;
+                // 掉落物可能还挂着"属于别的玩家"的预约或落地延迟，那两条会让原版
+                // GetItem 直接返回；清掉之后才是玩家真的走过去碰它会发生的事。
+                it.playerIndexTheItemIsReservedFor = (byte)pl.whoAmI;
+                it.noGrabDelay = 0;
+                pl.GetItem(pl.whoAmI, it, GetItemSettings.PickupItemFromWorld);
+                bool gone = !it.active || it.stack <= 0 || it.type != type;
+                if (gone || it.stack < before)
+                    got.Add(new { type, name, stack = before - (gone ? 0 : it.stack) });
+            }
+            return Json.Ok(new
+            {
+                picked = got.Count,
+                seen,
+                items = got,
+                diag = new { pl.whoAmI, Main.myPlayer, Main.netMode },
+            });
         }
 
         /// <summary>
@@ -1134,7 +1175,9 @@ namespace DshTerrariaBridge
             if (!InWorld(out string err)) return Json.Error(err);
             try
             {
-                WorldFile.SaveWorld(false);
+                // SaveWorld(bool) 在 Host&Play 里会 NRE（实测：Object reference not set…），
+                // 无参重载走的那条路径不需要 ActiveWorldFileData，是同一个写入器。
+                WorldFile.SaveWorld();
                 return Json.Ok(new
                 {
                     saved = true,
