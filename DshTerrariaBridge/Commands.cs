@@ -54,6 +54,7 @@ namespace DshTerrariaBridge
                 case "removeblock": return RemoveBlock(p);
                 case "recipes": return Recipes(p);
                 case "api": return ApiLookup(p);
+                case "idmap": return IdMap(p);
                 case "talk": return TalkTo(p);
                 case "shop": return ShopList(p);
                 case "shopdebug": return ShopDebug(p);
@@ -1202,6 +1203,68 @@ namespace DshTerrariaBridge
                 if (filter.Length > 0 && f.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
                     list.Add("field | " + f.FieldType.Name + " " + f.Name);
             return Json.Ok(new { type = t.FullName, count = list.Count, members = list });
+        }
+
+        /// <summary>
+        /// Dump the engine constant tables to a TSV file so the knowledge base can be generated
+        /// instead of hand-typed. These numbers are program constants: the same id points at the
+        /// same object in every world, which is why they belong in the KB (user m05433).
+        ///
+        /// Two kinds of rows:
+        ///   tile/wall  → id + enum name (from the ID classes)
+        ///   item       → id + name + what it places + its tool/damage stats
+        /// Read-only with respect to the world; it only writes the file you name.
+        /// </summary>
+        private static string IdMap(JsonElement p)
+        {
+            string path = Json.Str(p, "path", "");
+            if (string.IsNullOrWhiteSpace(path)) return Json.Error("idmap 需要 path（TSV 输出路径）");
+
+            var lines = new List<string>
+            {
+                "kind\tid\tenum\tname\tcreateTile\tcreateWall\tpick\taxe\thammer\tdamage\tmaxStack",
+            };
+            int tiles = 0, walls = 0, items = 0;
+
+            var tileT = typeof(Main).Assembly.GetType("Terraria.ID.TileID");
+            if (tileT != null)
+                foreach (var f in tileT.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+                {
+                    long id;
+                    try { id = Convert.ToInt64(f.GetRawConstantValue()); } catch { continue; }
+                    lines.Add("tile\t" + id + "\t" + f.Name + "\t" + f.Name + "\t-1\t-1\t0\t0\t0\t0\t0");
+                    tiles++;
+                }
+
+            var wallT = typeof(Main).Assembly.GetType("Terraria.ID.WallID");
+            if (wallT != null)
+                foreach (var f in wallT.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+                {
+                    long id;
+                    try { id = Convert.ToInt64(f.GetRawConstantValue()); } catch { continue; }
+                    lines.Add("wall\t" + id + "\t" + f.Name + "\t" + f.Name + "\t-1\t-1\t0\t0\t0\t0\t0");
+                    walls++;
+                }
+
+            // 物品行用游戏自己的原型表：名称、放置后变成哪个物块/墙、镐斧锤力、伤害、堆叠上限。
+            foreach (var kv in ContentSamples.ItemsByType)
+            {
+                Item it = kv.Value;
+                if (it == null || it.type <= 0) continue;
+                string nm = (it.Name ?? "").Replace('\t', ' ').Replace('\n', ' ').Trim();
+                if (nm.Length == 0) continue;
+                string en = "";
+                try { en = ItemID.Search.GetName(it.type) ?? ""; } catch { en = ""; }
+                if (en.Length == 0) en = nm;
+                lines.Add("item\t" + it.type + "\t" + en + "\t" + nm + "\t" + it.createTile + "\t" + it.createWall
+                          + "\t" + it.pick + "\t" + it.axe + "\t" + it.hammer + "\t" + it.damage
+                          + "\t" + it.maxStack);
+                items++;
+            }
+
+            try { System.IO.File.WriteAllLines(path, lines); }
+            catch (Exception ex) { return Json.Error("写不了 " + path + ": " + ex.Message); }
+            return Json.Ok(new { path, tiles, walls, items, rows = lines.Count - 1 });
         }
 
         /// <summary>
