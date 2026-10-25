@@ -168,3 +168,63 @@ const { docs } = await buildContext('把家完善一下', { tags })
 // 不传 tags 时才会用关键词兜底
 const fallback = await buildContext('把家完善一下')
 ```
+
+## 8. 元自检（拿到知识之后、动手之前，固定五问）
+
+规则正文：`prompts/meta-check.md`（`terraria_kb { meta: true }` 可取）。
+这不是知识库里的一个库，是**顶层元规则**；不管什么新任务都跑同一套。
+
+**触发点**：`NEED_KNOWLEDGE` 检索完之后、生成任何移动/交互动作之前。同一个回合，不新开请求。
+
+**五项固定核验**（顺序不许改，每项都要能说出依据）：
+
+| # | 维度 | 不通过记作 |
+|---|---|---|
+| 1 | 规则核验：库里有没有**完整**机制（触发条件 / 判定 / 后果） | 【知识缺口】 |
+| 2 | 道具核验：必需物品对不对得上背包；缺了要说出取得链 | 【道具缺口】 |
+| 3 | 地形/路径核验：群系、危险、能否抵达、未知障碍 | 【路径缺口】 |
+| 4 | 动作原语核验：整条动作序列能不能用**清单里真实存在**的命令拼出来 | 【动作原语缺口】 |
+| 5 | 状态读取核验：判定时机需要的状态有没有对应读取字段 | 【状态读取缺口】 |
+
+第 4、5 维必须对着本节末尾的能力块（或 `docs/capabilities-manifest.md`）核，**不许凭记忆**。
+清单里没有的命令名一律视为不存在。
+
+**输出格式（机器会解析，必须照写）**：
+
+```
+SELF_CHECK:
+1 规则核验: PASS
+2 道具核验: GAP 缺虫网（蛛网×30 → 工作台，虫网再抓虫）
+3 地形/路径核验: PASS
+4 动作原语核验: GAP 没有"抓取活物"的原语
+5 状态读取核验: GAP 读不到小动物弹幕
+```
+
+- `SELF_CHECK:` 独占第一行；五行齐全；`GAP` 后面必须写缺什么。
+- **五项全 PASS 才动手**。任意 GAP → 不许生成动作，先给缺口清单 + `分支A（先补前置）/ 分支B（放弃）`，
+  等玩家选。
+- 只读小事（查坐标、看背包、走两步）可以写 `SELF_CHECK: skip（只读）`。
+- 禁止编造清单里没有的命令/字段/规则；"大概能用"算 GAP。
+- 机器校验：`terraria_kb { selfcheck: "<本回合输出>" }` → `canAct` / `gaps` / `unknownCommands`。
+
+<!-- caps:begin 本节由 scripts/kb-caps.mjs 生成，不要手改 -->
+
+**只读（26）**：api boss chatpoll event find help housediag housing idmap inventory items needs npc path ping players recipes research roomcheck scan shop shopdebug shops state tile tiledata
+
+**动作（41）**：accessory attack buy chat chatpost climb craft down drop duplicate equip fill fly follow grab guard heal homeroom hook idle jump left mine minion mirror move place removeblock right save select sell shoot stop talk travel unhook up use walkto wall
+
+**看参数（2）**：chest mount
+
+**明确做不到**：
+- 通用弹幕状态
+- 生物 AI 内部状态
+- 随机事件与时机窗口
+- NPC 对话文本
+- 容器以外的容器
+- 画面语义
+- 音效与事件字幕
+- 合成树自动规划
+
+完整表（含每个只读命令返回哪些字段）见 `docs/capabilities-manifest.md`。
+
+<!-- caps:end -->

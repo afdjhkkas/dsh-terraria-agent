@@ -5,6 +5,7 @@ import {
   buildContext, normalizeTags, loadRouterPrompt, loadSelfRoutePrompt,
   parseNeedKnowledge, buildContinuation, TAGS,
 } from './src/kb-router.js'
+import { loadMetaCheckPrompt, selfCheck, loadCapabilities } from './src/meta-check.js'
 
 export const name = 'dsh-terraria-agent'
 export const inject = ['tools']
@@ -205,6 +206,8 @@ export function apply(ctx, rawConfig = {}) {
       + 'Fallbacks: (1) prompt:true returns the intent-classifier prompt — run it on the player\'s sentence and it answers '
       + 'ONLY with tags such as "safety_limit, game_rule, build_standard, atomic_action". '
       + '(2) pass those tags (or task text as a fallback) and get back the text of exactly the matching libraries. '
+      + 'Also carries the meta-check (meta:true) and the resident capability manifest (manifest:true), plus the parser for the '
+      + 'SELF_CHECK block (selfcheck). '
       + `Valid tags: ${TAGS.join(', ')}. Load order matters: earlier docs override later ones. ${RULES}`,
     parameters: {
       system: boolean('true = return the single-turn self-routing system prompt (see prompts/self-route.md).'),
@@ -213,10 +216,34 @@ export function apply(ctx, rawConfig = {}) {
       prompt: boolean('true = return the one-shot classifier prompt (fallback when no NEED_KNOWLEDGE line was written).'),
       tags: string('Labels to load, e.g. "game_rule, build_standard". Unknown tags are dropped and reported.'),
       task: string('The player sentence. Only used when tags/need are omitted (keyword fallback, rougher than the classifier).'),
+      meta: boolean('true = return the META-CHECK prompt (prompts/meta-check.md): the fixed five-dimension pre-flight check to run '
+        + 'after loading knowledge and before generating any action.'),
+      manifest: boolean('true = return the resident capability manifest (every command, which ones are read-only, what each read '
+        + 'returns, and what the agent explicitly cannot do). This is what dimensions 4 and 5 must be checked against.'),
+      selfcheck: string('Pass the model output that contains the "SELF_CHECK:" block. Returns whether it may act '
+        + '(canAct), the parsed five dimensions, the gap list, the A/B branches, and any command name that is NOT in the '
+        + 'capability manifest (hallucinated command).'),
     },
     async run(args) {
       if (args.system) return JSON.stringify({ ok: true, prompt: loadSelfRoutePrompt() })
       if (args.prompt) return JSON.stringify({ ok: true, prompt: loadRouterPrompt() })
+      if (args.meta) return JSON.stringify({ ok: true, prompt: await loadMetaCheckPrompt() })
+      if (args.manifest) {
+        const caps = await loadCapabilities()
+        const read = caps.commands.filter((c) => c.kind === 'read')
+        const act = caps.commands.filter((c) => c.kind === 'act')
+        return JSON.stringify({
+          ok: true,
+          file: 'docs/capabilities-manifest.md',
+          commands: caps.commands,
+          notSupported: caps.notSupported,
+          counts: { total: caps.commands.length, read: read.length, act: act.length },
+        })
+      }
+      if (String(args.selfcheck ?? '').trim()) {
+        const result = await selfCheck(String(args.selfcheck), { task: String(args.task ?? '') })
+        return JSON.stringify({ ok: true, ...result })
+      }
 
       const need = String(args.need ?? '')
       if (need.trim()) {

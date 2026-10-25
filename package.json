@@ -49,7 +49,8 @@
     "smoke": "node scripts/live-smoke.mjs",
     "kb:lint": "node scripts/kb-lint.mjs",
     "kb:ids": "node scripts/kb-ids.mjs",
-    "kb:route": "node scripts/route.mjs"
+    "kb:route": "node scripts/route.mjs",
+    "kb:caps": "node scripts/kb-caps.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": "*"

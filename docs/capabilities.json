@@ -1,0 +1,993 @@
+{
+  "commands": [
+    {
+      "name": "accessory",
+      "kind": "act",
+      "params": [
+        "off",
+        "slot",
+        "from"
+      ],
+      "returns": [
+        "action",
+        "from",
+        "to",
+        "item",
+        "changed",
+        "note",
+        "slot"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "api",
+      "kind": "read",
+      "params": [
+        "type",
+        "member"
+      ],
+      "returns": [
+        "type",
+        "count",
+        "members"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "attack",
+      "kind": "act",
+      "params": [
+        "who",
+        "r",
+        "ms",
+        "interval",
+        "slot"
+      ],
+      "returns": [
+        "attacking",
+        "who",
+        "slot",
+        "weapon"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "boss",
+      "kind": "read",
+      "params": [],
+      "returns": [
+        "active",
+        "bosses"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "buy",
+      "kind": "act",
+      "params": [
+        "slot",
+        "shopId"
+      ],
+      "returns": [
+        "bought",
+        "priceCopper",
+        "slot",
+        "stack"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "chat",
+      "kind": "act",
+      "params": [
+        "text"
+      ],
+      "returns": [
+        "sent"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "chatpoll",
+      "kind": "read",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "chatpost",
+      "kind": "act",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "chest",
+      "kind": "both",
+      "params": [
+        "action",
+        "slot",
+        "count",
+        "invSlot"
+      ],
+      "returns": [
+        "chest",
+        "took",
+        "count",
+        "put",
+        "chestSlot"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "climb",
+      "kind": "act",
+      "params": [
+        "dir",
+        "ms"
+      ],
+      "returns": [
+        "ropeCount",
+        "from"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "craft",
+      "kind": "act",
+      "params": [
+        "item",
+        "times"
+      ],
+      "returns": [
+        "item",
+        "name",
+        "reason",
+        "perCraft",
+        "groupsUsed"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "down",
+      "kind": "act",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "drop",
+      "kind": "act",
+      "params": [
+        "slot",
+        "count"
+      ],
+      "returns": [
+        "dropped",
+        "failed",
+        "item",
+        "asked",
+        "err",
+        "note",
+        "count",
+        "onGround",
+        "left",
+        "verify"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "duplicate",
+      "kind": "act",
+      "params": [
+        "item",
+        "count"
+      ],
+      "returns": [
+        "item",
+        "unlockedCount"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "equip",
+      "kind": "act",
+      "params": [
+        "slot"
+      ],
+      "returns": [
+        "equipped",
+        "replaced"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "event",
+      "kind": "read",
+      "params": [],
+      "returns": [
+        "dayTime",
+        "time",
+        "day",
+        "bloodMoon",
+        "eclipse",
+        "invasionType",
+        "invasionSize",
+        "pumpkinMoon",
+        "snowMoon",
+        "raining",
+        "hardMode",
+        "downedEye",
+        "downedEater",
+        "downedSkeletron",
+        "downedWall",
+        "downedPlantera",
+        "downedGolem"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "fill",
+      "kind": "act",
+      "params": [
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "type"
+      ],
+      "returns": [
+        "left",
+        "next"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "find",
+      "kind": "read",
+      "params": [
+        "type",
+        "x1",
+        "x2",
+        "y1",
+        "y2",
+        "max"
+      ],
+      "returns": [
+        "scanned"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "fly",
+      "kind": "act",
+      "params": [
+        "ms"
+      ],
+      "returns": [
+        "hasWings",
+        "wingTimeMax",
+        "wingTime",
+        "velY",
+        "hint"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "follow",
+      "kind": "act",
+      "params": [
+        "off",
+        "player",
+        "guard",
+        "range"
+      ],
+      "returns": [
+        "follow",
+        "target",
+        "targetIndex",
+        "guard",
+        "range",
+        "dist",
+        "note"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "grab",
+      "kind": "act",
+      "params": [
+        "r"
+      ],
+      "returns": [
+        "picked",
+        "nearest",
+        "nearestDist",
+        "items",
+        "diag"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "guard",
+      "kind": "act",
+      "params": [
+        "off",
+        "ms",
+        "r"
+      ],
+      "returns": [
+        "off",
+        "note",
+        "untilTick",
+        "radius",
+        "hostileInRange",
+        "weaponSlot",
+        "weapon"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "heal",
+      "kind": "act",
+      "params": [],
+      "returns": [
+        "healed",
+        "hasPotion"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "help",
+      "kind": "read",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "homeroom",
+      "kind": "act",
+      "params": [
+        "x",
+        "y",
+        "who"
+      ],
+      "returns": [
+        "name",
+        "homeless",
+        "moved",
+        "reason",
+        "reasonValue",
+        "tiles",
+        "oldHome"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "hook",
+      "kind": "act",
+      "params": [
+        "x",
+        "y",
+        "slot",
+        "ms"
+      ],
+      "returns": [
+        "grapCountBefore",
+        "held"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "housediag",
+      "kind": "read",
+      "params": [
+        "x",
+        "y"
+      ],
+      "returns": [
+        "x",
+        "y",
+        "tiles",
+        "box"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "housing",
+      "kind": "read",
+      "params": [
+        "x",
+        "y"
+      ],
+      "returns": [
+        "townNPCs"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "idle",
+      "kind": "act",
+      "params": [],
+      "returns": [
+        "idle",
+        "note"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "idmap",
+      "kind": "read",
+      "params": [
+        "path"
+      ],
+      "returns": [
+        "rows"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "inventory",
+      "kind": "read",
+      "params": [],
+      "returns": [
+        "selected",
+        "count",
+        "items",
+        "equipment",
+        "canFly"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "items",
+      "kind": "read",
+      "params": [
+        "r"
+      ],
+      "returns": [
+        "count",
+        "items"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "jump",
+      "kind": "act",
+      "params": [
+        "ms"
+      ],
+      "returns": [
+        "from"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "left",
+      "kind": "act",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "mine",
+      "kind": "act",
+      "params": [
+        "x",
+        "y",
+        "ms"
+      ],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "minion",
+      "kind": "act",
+      "params": [
+        "slot"
+      ],
+      "returns": [
+        "slots",
+        "held"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "mirror",
+      "kind": "act",
+      "params": [],
+      "returns": [
+        "mode",
+        "item",
+        "from"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "mount",
+      "kind": "both",
+      "params": [
+        "action",
+        "slot"
+      ],
+      "returns": [
+        "activeAfter",
+        "held",
+        "action",
+        "active",
+        "type",
+        "flight",
+        "items"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "move",
+      "kind": "act",
+      "params": [
+        "dir",
+        "ms"
+      ],
+      "returns": [
+        "untilTick",
+        "tick"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "needs",
+      "kind": "read",
+      "params": [
+        "x",
+        "y"
+      ],
+      "returns": [
+        "worldFields",
+        "npc",
+        "name",
+        "homeless",
+        "homeTile",
+        "position"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "npc",
+      "kind": "read",
+      "params": [
+        "r"
+      ],
+      "returns": [
+        "radius",
+        "count",
+        "npcs"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "path",
+      "kind": "read",
+      "params": [
+        "x",
+        "y",
+        "ms",
+        "dig"
+      ],
+      "returns": [
+        "from"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "ping",
+      "kind": "read",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "place",
+      "kind": "act",
+      "params": [
+        "x",
+        "y",
+        "type",
+        "ms"
+      ],
+      "returns": [
+        "armed",
+        "placed",
+        "requested",
+        "name",
+        "next"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "players",
+      "kind": "read",
+      "params": [],
+      "returns": [
+        "count",
+        "players"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "recipes",
+      "kind": "read",
+      "params": [
+        "q",
+        "limit"
+      ],
+      "returns": [
+        "count",
+        "recipes"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "removeblock",
+      "kind": "act",
+      "params": [
+        "x",
+        "y",
+        "ms"
+      ],
+      "returns": [
+        "removed",
+        "next"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "research",
+      "kind": "read",
+      "params": [
+        "slot"
+      ],
+      "returns": [
+        "item",
+        "alreadyFull",
+        "researched",
+        "have",
+        "unlocked"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "right",
+      "kind": "act",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "roomcheck",
+      "kind": "read",
+      "params": [
+        "x",
+        "y",
+        "npc",
+        "mode"
+      ],
+      "returns": [
+        "ok",
+        "reason",
+        "reasonValue"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "save",
+      "kind": "act",
+      "params": [],
+      "returns": [
+        "saved",
+        "via",
+        "world",
+        "spawn",
+        "hasWorldFileData",
+        "worldPath"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "scan",
+      "kind": "read",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "walls",
+        "format"
+      ],
+      "returns": [
+        "x0",
+        "y0",
+        "w",
+        "h",
+        "format",
+        "center",
+        "playerTile",
+        "stride",
+        "fields",
+        "tiles",
+        "legend",
+        "map"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "select",
+      "kind": "act",
+      "params": [
+        "slot",
+        "item"
+      ],
+      "returns": [
+        "slot",
+        "held"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "sell",
+      "kind": "act",
+      "params": [
+        "slot"
+      ],
+      "returns": [
+        "sold",
+        "priceCopper"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "shoot",
+      "kind": "act",
+      "params": [
+        "x",
+        "y",
+        "slot",
+        "ms"
+      ],
+      "returns": [
+        "held"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "shop",
+      "kind": "read",
+      "params": [
+        "shopId",
+        "npc"
+      ],
+      "returns": [
+        "npc",
+        "shop",
+        "npcType",
+        "distance"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "shopdebug",
+      "kind": "read",
+      "params": [
+        "npc"
+      ],
+      "returns": [
+        "npc",
+        "npcType"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "shops",
+      "kind": "read",
+      "params": [
+        "want"
+      ],
+      "returns": [
+        "scanned"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "state",
+      "kind": "read",
+      "params": [],
+      "returns": [
+        "inWorld",
+        "version",
+        "paused",
+        "hasFocus",
+        "screen",
+        "mouseWorld",
+        "mouseTile",
+        "world",
+        "player",
+        "guard",
+        "attack",
+        "path",
+        "walk",
+        "input",
+        "hint"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "stop",
+      "kind": "act",
+      "params": [],
+      "returns": [
+        "stopped"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "talk",
+      "kind": "act",
+      "params": [
+        "npc"
+      ],
+      "returns": [
+        "npc",
+        "type",
+        "distance",
+        "talkNPC",
+        "npcShop",
+        "hasShop"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "tile",
+      "kind": "read",
+      "params": [
+        "x",
+        "y"
+      ],
+      "returns": [
+        "hasTile",
+        "type",
+        "name",
+        "wall",
+        "liquid",
+        "slope",
+        "halfBlock",
+        "actuator"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "tiledata",
+      "kind": "read",
+      "params": [
+        "type",
+        "style",
+        "alternate"
+      ],
+      "returns": [
+        "name",
+        "hasObjectData",
+        "frameImportant",
+        "width",
+        "height",
+        "originX",
+        "originY",
+        "styleHorizontal",
+        "styleWrapLimit"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "travel",
+      "kind": "act",
+      "params": [
+        "stop",
+        "dir",
+        "distance",
+        "ms",
+        "dig"
+      ],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "unhook",
+      "kind": "act",
+      "params": [],
+      "returns": [
+        "grapCountBefore"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "up",
+      "kind": "act",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "use",
+      "kind": "act",
+      "params": [
+        "slot",
+        "right",
+        "ms",
+        "x",
+        "y"
+      ],
+      "returns": [
+        "slot",
+        "held"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "walkto",
+      "kind": "act",
+      "params": [
+        "x",
+        "y",
+        "tol",
+        "ms"
+      ],
+      "returns": [
+        "target"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "wall",
+      "kind": "act",
+      "params": [
+        "x",
+        "y",
+        "type",
+        "remove",
+        "ms"
+      ],
+      "returns": [],
+      "summary": ""
+    }
+  ],
+  "notSupported": [
+    {
+      "what": "通用弹幕状态",
+      "detail": "只能间接判断两类：自己名下的弹幕**数量**（远程攻击的凭证）、抓钩弹幕的**类型**（aiStyle 7）。拿不到任意弹幕的位置/速度/生命周期，读不到\"浮标有没有落水\"\"咬钩没咬钩\"这类状态。"
+    },
+    {
+      "what": "生物 AI 内部状态",
+      "detail": "可以列半径内 NPC 的类型/血量/坐标/是否敌对，但读不到目标、路径、攻击冷却、拾取意图。"
+    },
+    {
+      "what": "随机事件与时机窗口",
+      "detail": "没有任何\"等到某件事发生再动手\"的原语。现有命令都是「发一个动作 → 到点返回」，不支持「等随机时长 → 在窗口内做第二动作」（钓鱼、抓虫、躲冲撞都属于这一类）。"
+    },
+    {
+      "what": "NPC 对话文本",
+      "detail": "可以买东西、看商店清单，但读不到对话内容与任务进度。"
+    },
+    {
+      "what": "容器以外的容器",
+      "detail": "只能读 6 格内的箱子（list/take）。梳妆台、展示框、武器架、展示柜都读不到。"
+    },
+    {
+      "what": "画面语义",
+      "detail": "截图只能看像素（本机没前台也能抓），但不能识别\"这是什么怪\"\"这里黑不黑\"。一切判定必须落到 state / tile / inventory 这类数值上。"
+    },
+    {
+      "what": "音效与事件字幕",
+      "detail": "读不到游戏内提示文本（\"你感觉邪恶的东西在看着你\"之类），只能靠 boss/event 状态反推。"
+    },
+    {
+      "what": "合成树自动规划",
+      "detail": "能查配方、能按 id 合成，但不会自己把\"缺 3 个铁锭\"翻译成\"该去挖 9 个铁矿\"。要我自己推。"
+    }
+  ]
+}

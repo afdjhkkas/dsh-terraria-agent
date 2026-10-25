@@ -108,6 +108,19 @@ system prompt 原文：[`prompts/self-route.md`](../../prompts/self-route.md)
 关键词表的**唯一事实来源**是 `src/kb-router.js` 的 `KEYWORDS`
 （每条规则都可审计：命中哪些词、各打几分，`route()` 会一起返回）。
 
+
+## 元自检不在库里
+
+五维核验（规则 / 道具 / 地形路径 / 动作原语 / 状态读取）是**顶层元规则**，不属于任何知识库：
+正文在 `prompts/meta-check.md`，硬规则在 `AGENTS.md` §8。
+它要对照的"我真实拥有什么"是生成物：
+
+| 生成物 | 内容 | 生成命令 |
+|---|---|---|
+| `AGENTS.md` 能力块 | 紧凑版（只读 / 动作 / 明确做不到） | `npm run kb:caps` |
+| `docs/capabilities-manifest.md` | 完整版（含每个只读命令返回哪些字段） | 同上 |
+| `docs/capabilities.json` | 机器版（`terraria_kb { selfcheck }` 用它校验命令名） | 同上 |
+
 ## 用法
 
 ```js
@@ -125,6 +138,9 @@ buildContext('为什么 NPC 不住进去')  // → 安全库 + 命中库的正�
 | 校验命令表与代码一致 | `node scripts/kb-sync.mjs --check`（`npm test` 里也有） |
 | 重新生成 ID 对照表 | 游戏内 `{"cmd":"idmap","params":{"path":"<临时目录>/ids.tsv"}}` → `npm run kb:ids -- --tsv <该文件>` |
 | 看单轮自路由 system prompt | `node scripts/route.mjs --system` |
+| 重新生成能力清单（AGENTS.md 能力块 + md + json） | `npm run kb:caps` |
+| 校验能力清单与代码一致 | `node scripts/kb-caps.mjs --check`（`npm test` 里也有） |
+| 看元自检规则正文 | `terraria_kb { meta: true }` 或读 `prompts/meta-check.md` |
 | 从模型输出里抓标记 | `node scripts/route.mjs --need "<模型输出>"`（抓不到 exit 1） |
 | 看看兜底分类器 Prompt | `node scripts/route.mjs --prompt` |
 | 校验一份分类器输出 | `node scripts/route.mjs --tags "game_rule, atomic_action"` |

@@ -67,3 +67,13 @@ NEED_KNOWLEDGE:safety_limit,game_rule,build_standard,atomic_action,item_operatio
 1. 用一次性分类器 `prompts/intent-router.md` 补判一次；
 2. 还没有，就用关键词兜底 `node scripts/route.mjs "<原话>"`；
 3. 三条路都拿不到，就只加载 `safety_limit` 并在回复里说明"这次没判出库标签"。
+
+---
+
+## 检索之后还有一步：元自检
+
+`NEED_KNOWLEDGE` 拿到库正文之后，**不要直接开始动手**。
+先按 `prompts/meta-check.md` 跑五维核验（规则 / 道具 / 地形路径 / 动作原语 / 状态读取），
+把结果写成 `SELF_CHECK:` 块。任意一项 GAP 就不许生成动作，先给缺口清单和 A/B 分支。
+
+两层分工：本文件决定**查哪几个库**，元自检决定**这次够不够格动手**。
