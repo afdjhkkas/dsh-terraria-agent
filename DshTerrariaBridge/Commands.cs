@@ -525,6 +525,10 @@ namespace DshTerrariaBridge
                 type = TileCode(t),
                 name = t.HasTile ? TileID.Search.GetName(t.TileType) : "",
                 wall = t.WallType,
+                // 原版对「这面墙算不算有效住房墙」的唯一权威答案：Main.wallHouse[wallType]。
+                // 地图自带的泥土墙/岩石原生墙是 false，玩家摆的木墙/石砖墙是 true。
+                // 只看 wall != 0 会把自然墙当住房墙，房子永远判定不合法。
+                wallHouse = t.WallType > 0 && Main.wallHouse[t.WallType],
                 liquid = t.LiquidAmount,
                 // 液体类型（水/岩浆/蜂蜜/微光）。只有数量读不出"这格会不会烧死我"，
                 // 下地狱、挖狱石、找微光池都要靠这个。
