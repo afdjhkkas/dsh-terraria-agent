@@ -22,12 +22,14 @@
 | `progression_boss` | 进程与首领库 | 进程骨牌顺序、首领召唤条件与前置、祭坛用途、进入困难模式、战前准备 |
 | `combat_math` | 战斗数值库 | 伤害结算顺序、防御的减法效应、暴击/击退/无敌帧、伤害类型与穿透、生命魔力召唤位、减益、幸运 |
 | `loot_source` | 物品来源库 | 容器在哪能开到什么、掉落规则、钓鱼与板条箱、首领与事件掉落、NPC 商店与幸福度、转化回收 |
+| `npc_town` | NPC 与城镇库 | NPC 入住的两个必要条件、各 NPC 的出现条件、幸福度三因素、传送水晶激活规则、商店价格 |
+| `gear_route` | 装备进阶路线库 | 镐力门槛、矿石阶梯（前困难/困难）、护甲三件与职业分支、四条武器线、机动性饰品、词条重铸、增益药水 |
 
 ## 规则
 
 1. 可以同时输出多个标签，按任务实际需要组合。
 2. **只输出标签，不要解释、不要额外文字、不要编号、不要引号。**
-3. 输出顺序固定为加载顺序：`safety_limit` → `game_rule` → `world_biome` → `progression_boss` → `combat_math` → `loot_source` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。
+3. 输出顺序固定为加载顺序：`safety_limit` → `game_rule` → `world_biome` → `progression_boss` → `gear_route` → `combat_math` → `loot_source` → `npc_town` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。
 4. 分隔符是英文逗号加一个空格：`a, b, c`。
 5. 只要任务里出现**要角色真的动手改世界或动身体**的动作（放、挖、切、铺、捡、走、打），就一定要带 `atomic_action` 或 `actor_behavior`。
 6. 只要任务涉及**大规模破坏地形、在危险环境作业、可能致死**，就一定要带 `safety_limit`。
@@ -41,6 +43,8 @@
 - 问"下一步打谁""怎么召唤""祭坛能干什么""怎么进困难模式" → `progression_boss`
 - 问"为什么打不动""多少伤害""防御值有用吗""怎么提高掉落"（数值层面） → `combat_math`
 - 问"东西去哪找""箱子要不要开""怎么刷钱""钓鱼能出什么" → `loot_source`
+- 问"NPC 为什么不来""房价怎么便宜""传送水晶怎么用" → `npc_town`
+- 问"该做什么装备""挖不动这个矿""护甲要不要穿齐""武器怎么选""饰品堆什么" → `gear_route`
 - 问"这东西能干什么""这把镐能挖什么""背包里有没有料" → `item_operation`
 - 要建/要改地形（房子、平台、农场、竖井、隧道、桥） → `build_standard`
 - 要走、要打、要躲、要捡、要跟 NPC 说话买东西 → `actor_behavior`
@@ -92,6 +96,15 @@
 **玩家**：想搞点铁矿又不想挖，还有什么路子
 **输出**：safety_limit, loot_source
 
+**玩家**：商人怎么还不来，我房间都建好了
+**输出**：safety_limit, game_rule, npc_town
+
+**玩家**：现在挖得动狱石了吗，挖不动该先升什么
+**输出**：safety_limit, gear_route, item_operation
+
+**玩家**：这身护甲要不要全换成钴蓝的，还是先做别的
+**输出**：safety_limit, gear_route
+
 ---
 
 ## 输出示例（供校验）
@@ -108,6 +121,9 @@
 | 手上有晶状体了，下一步该打谁，要做什么召唤物 | `progression_boss` `loot_source` `safety_limit` |
 | 为什么我怎么打它都掉不动血，是不是防御太高 | `combat_math` `safety_limit` |
 | 想搞点铁矿又不想挖，还有什么路子 | `loot_source` `safety_limit` |
+| 商人怎么还不来，我房间都建好了 | `game_rule` `npc_town` `safety_limit` |
+| 现在挖得动狱石了吗，挖不动该先升什么 | `gear_route` `item_operation` `safety_limit` |
+| 这身护甲要不要全换成钴蓝的，还是先做别的 | `gear_route` `safety_limit` |
 
 上表由 `test/intent-router.test.js` 校验：
 

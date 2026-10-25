@@ -12,15 +12,17 @@ import { extractCommands, extractTools, braceDelta } from '../scripts/kb-sync.mj
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-test('十一个标签都有库文件，且文件真实存在', async () => {
+test('十三个标签都有库文件，且文件真实存在', async () => {
   assert.deepEqual(Object.keys(LIBRARIES).sort(), [
     'actor_behavior',
     'atomic_action',
     'build_standard',
     'combat_math',
     'game_rule',
+    'gear_route',
     'item_operation',
     'loot_source',
+    'npc_town',
     'progression_boss',
     'safety_limit',
     'task_correct',
@@ -160,6 +162,8 @@ const REQUIRED_SECTIONS = {
   'progression-boss.md': ['进程是骨牌', '前困难模式首领', '困难模式首领', '祭坛', '打首领前的通用准备'],
   'combat-math.md': ['一次攻击的结算顺序', '暴击、击退、无敌帧', '伤害类型与穿透', '生命、魔力、召唤位', '减益', '幸运'],
   'loot-source.md': ['自然容器', '掉落规则', '钓鱼与板条箱', '首领与事件掉落', 'NPC 商店', '转化与回收'],
+  'npc-town.md': ['NPC 入住的两个必要条件', '常见 NPC 的出现条件', '幸福度', '传送水晶', '交易与商店'],
+  'gear-route.md': ['镐力门槛', '矿石阶梯', '护甲', '武器', '饰品与机动性', '词条', '增益药水'],
 }
 
 test('每个库保留规格要求的子分类小节', async () => {

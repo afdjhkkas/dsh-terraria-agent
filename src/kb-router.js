@@ -23,8 +23,10 @@ export const LIBRARIES = {
   game_rule: 'game-rule.md',
   world_biome: 'world-biome.md',
   progression_boss: 'progression-boss.md',
+  gear_route: 'gear-route.md',
   combat_math: 'combat-math.md',
   loot_source: 'loot-source.md',
+  npc_town: 'npc-town.md',
   build_standard: 'build-standard.md',
   actor_behavior: 'actor-behavior.md',
   atomic_action: 'atomic-action.md',
@@ -187,6 +189,17 @@ const KEYWORDS = {
     '不是', '别', '不要', '错了', '又', '听不懂', '我说过', '上次', '纠正', '重新',
     '模糊', '什么意思', '你是傻', '废话', '没做完', '不对',
   ],
+  npc_town: [
+    'npc', 'npc 房', '住进来', '住进去', '不来', '入住', '幸福度', '好感', '价格贵',
+    '卖贵', '便宜', '优惠', '商店', '货架', '传送水晶', 'pylon', '水晶塔', '渔夫',
+    '旅商', '哥布林工匠', '电工妹', '护士', '商人', '树妖', '蒸汽朋克', '松露人',
+    '税收官', '派对女孩', '骷髅商人', '解绑', '救人',
+  ],
+  gear_route: [
+    '装备', '升级', '镐力', '挖不动', '矿石等级', '护甲', '套装', '头盔', '胸甲',
+    '护腿', '武器线', '近战', '远程', '魔法', '召唤', '饰品', '词条', '重铸',
+    '前缀', '机动性', '翅膀', '靴子', '二段跳', '进阶', '该做什么装备', '下一步装备',
+  ],
 }
 
 const SCORE_STRONG = 3 // 明确的技术词
@@ -202,6 +215,11 @@ const STRONG = new Set([
   ...KEYWORDS.combat_math,
   // loot_source 里"买/卖/商店/幸福度"同时是 actor_behavior 的泛用词，只算弱信号
   ...KEYWORDS.loot_source.filter((w) => !['买', '卖', '商店', '幸福度'].includes(w)),
+  ...KEYWORDS.npc_town.filter((w) => !['商店'].includes(w)),
+  // gear_route 里"装备/武器/翅膀/靴子"与 item_operation、actor_behavior 重叠，只算弱信号
+  ...KEYWORDS.gear_route.filter(
+    (w) => !['装备', '武器线', '翅膀', '靴子', '召唤', '魔法', '远程', '近战'].includes(w),
+  ),
   '镐', '斧', '锤', '物品', '道具', '工具', '装备', '武器', '弓', '箭', '弹药',
   '药水', '抓钩', '钩爪', '翅膀', '坐骑', '背包', '分类', '怎么用', '用法', '能干什么',
 ])

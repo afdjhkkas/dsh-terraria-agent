@@ -24,6 +24,8 @@
 | `progression_boss` | 进程与首领库 | 进程骨牌顺序、首领召唤条件与前置、祭坛用途、进入困难模式、战前准备 |
 | `combat_math` | 战斗数值库 | 伤害结算顺序、防御的减法效应、暴击/击退/无敌帧、类型与穿透、生命魔力召唤位、减益、幸运 |
 | `loot_source` | 物品来源库 | 容器在哪开到什么、掉落规则、钓鱼与板条箱、首领与事件掉落、NPC 商店与幸福度、转化回收 |
+| `npc_town` | NPC 与城镇库 | NPC 入住的两个必要条件、各 NPC 出现条件、幸福度三因素、传送水晶激活、商店价格 |
+| `gear_route` | 装备进阶路线库 | 镐力门槛、矿石阶梯、护甲三件与职业分支、四条武器线、机动性饰品、词条重铸、增益药水 |
 
 ## 要求
 
@@ -36,7 +38,7 @@
 
 3. 标记行之后不要解释"我为什么选这些标签"，直接开始构思任务方案（可以先写一两行草稿思路）。
 4. 这行标记是给程序用的检索指令，代表你自己认为接下来需要这些知识来支撑动作规划。
-5. 标签按加载顺序排：`safety_limit` → `game_rule` → `world_biome` → `progression_boss` → `combat_math` → `loot_source` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。
+5. 标签按加载顺序排：`safety_limit` → `game_rule` → `world_biome` → `progression_boss` → `gear_route` → `combat_math` → `loot_source` → `npc_town` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。
 6. **只要任务里出现动手改世界或动身体**（放、挖、切、铺、捡、走、打），必须带 `atomic_action` 或 `actor_behavior`。
 7. **只要涉及大范围动土、危险环境、可能致死**，必须带 `safety_limit`。
 8. 玩家在纠正我、或问"为什么没做成"时，必须带 `task_correct`。
