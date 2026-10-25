@@ -37,6 +37,62 @@ export const TAGS = Object.keys(LIBRARIES)
 /** 前置分类器 Prompt 的位置：玩家发话先跑它，拿到标签再查库。 */
 export const ROUTER_PROMPT_PATH = join(HERE, '..', 'prompts', 'intent-router.md')
 
+/** 单轮自路由的 system prompt。 */
+export const SELF_ROUTE_PROMPT_PATH = join(HERE, '..', 'prompts', 'self-route.md')
+
+let selfRouteCache = null
+
+/** 单轮自路由 system prompt 正文（惰性读盘）。 */
+export function loadSelfRoutePrompt() {
+  if (selfRouteCache == null) selfRouteCache = readFileSync(SELF_ROUTE_PROMPT_PATH, 'utf8')
+  return selfRouteCache
+}
+
+/** 模型自己写的那行标记。 */
+export const NEED_MARKER = 'NEED_KNOWLEDGE'
+
+/**
+ * 从模型输出里抓 `NEED_KNOWLEDGE:a, b, c`。
+ *
+ * 容忍：大小写、前后空格、全角冒号、CRLF；标签行尾部跟着的标点会被截掉。
+ * 不宽容：标记必须整行独立（行内乱入不算），抓不到就 found:false 让上层去兜底。
+ *
+ * @param {string} text 模型这一回合的输出
+ * @returns {{found: boolean, tags: string[], unknown: string[], draft: string, markerFirst: boolean}}
+ */
+export function parseNeedKnowledge(text) {
+  const s = String(text ?? '')
+  const re = /(?:^|\n)[ \t]*NEED_KNOWLEDGE[ \t]*[:：][ \t]*([^\n]*)/i
+  const m = re.exec(s)
+  if (!m) {
+    // 标记写在了行中间（例如先说了一句废话）：不算数，但要报 nearMiss，
+    // 好让上层决定"重问一次"而不是静默退到关键词兜底。
+    const nearMiss = new RegExp(NEED_MARKER, 'i').test(s)
+    return { found: false, tags: [], unknown: [], draft: s.trim(), markerFirst: false, nearMiss }
+  }
+  // 标签行只取合法字符段，后面跟的中文说明/标点一律丢掉
+  const rawTags = m[1].split(/[^A-Za-z0-9_,，、 ]/)[0]
+  const { tags, unknown } = normalizeTags(rawTags)
+  const draft = (s.slice(0, m.index) + s.slice(m.index + m[0].length)).trim()
+  return { found: true, tags, unknown, draft, markerFirst: m.index === 0, nearMiss: false }
+}
+
+/**
+ * 把检索到的知识拼成"续传提示"：追加到同一个会话里，让模型接着出动作方案。
+ * @param {{tag: string, file: string, text: string}[]} docs
+ * @param {{task?: string, ask?: string}} [opts]
+ */
+export function buildContinuation(docs, opts = {}) {
+  const ask = opts.ask ?? '参考上面的知识，输出完整可执行动作序列。'
+  const parts = ['【已按 NEED_KNOWLEDGE 标记检索到以下知识】']
+  for (const d of docs) {
+    parts.push('', `=== ${d.tag} · ${d.file} ===`, d.text.trim())
+  }
+  parts.push('', ask, '每一步写清：命令与参数、怎么回读确认、失败怎么改。')
+  if (opts.task) parts.push('', `原任务：${opts.task}`)
+  return parts.join('\n')
+}
+
 let promptCache = null
 
 /**

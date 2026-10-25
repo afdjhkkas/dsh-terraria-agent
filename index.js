@@ -1,7 +1,10 @@
 import { defineTool } from './src/tool-def.mjs'
 import { createBridgeClient } from './src/bridge-client.js'
 import { createPrimitives } from './src/primitives.js'
-import { buildContext, normalizeTags, loadRouterPrompt, TAGS } from './src/kb-router.js'
+import {
+  buildContext, normalizeTags, loadRouterPrompt, loadSelfRoutePrompt,
+  parseNeedKnowledge, buildContinuation, TAGS,
+} from './src/kb-router.js'
 
 export const name = 'dsh-terraria-agent'
 export const inject = ['tools']
@@ -196,21 +199,49 @@ export function apply(ctx, rawConfig = {}) {
   register({
     name: 'terraria_kb',
     description: 'Knowledge base for the Terraria agent. '
-      + 'Two uses: (1) prompt:true returns the intent-classifier prompt — run it on the player\'s sentence and it answers '
+      + 'Primary use (single-turn self-routing): system:true gives the system prompt; the model then writes '
+      + '"NEED_KNOWLEDGE:a,b" as its first line; pass that whole output back as `need` and this loads exactly those libraries '
+      + 'plus a `continuation` string to append into the SAME turn. '
+      + 'Fallbacks: (1) prompt:true returns the intent-classifier prompt — run it on the player\'s sentence and it answers '
       + 'ONLY with tags such as "safety_limit, game_rule, build_standard, atomic_action". '
       + '(2) pass those tags (or task text as a fallback) and get back the text of exactly the matching libraries. '
       + `Valid tags: ${TAGS.join(', ')}. Load order matters: earlier docs override later ones. ${RULES}`,
     parameters: {
-      prompt: boolean('true = return the classifier prompt instead of loading libraries.'),
-      tags: string('Classifier output, e.g. "game_rule, build_standard, safety_limit". Unknown tags are dropped and reported.'),
-      task: string('The player sentence. Only used when tags is omitted (keyword fallback, rougher than the classifier).'),
+      system: boolean('true = return the single-turn self-routing system prompt (see prompts/self-route.md).'),
+      need: string('The model\'s own output containing the "NEED_KNOWLEDGE:a,b,c" line. Parses it, loads exactly those libraries, '
+        + 'and returns `continuation` — paste that into the SAME turn instead of starting a new request.'),
+      prompt: boolean('true = return the one-shot classifier prompt (fallback when no NEED_KNOWLEDGE line was written).'),
+      tags: string('Labels to load, e.g. "game_rule, build_standard". Unknown tags are dropped and reported.'),
+      task: string('The player sentence. Only used when tags/need are omitted (keyword fallback, rougher than the classifier).'),
     },
     async run(args) {
+      if (args.system) return JSON.stringify({ ok: true, prompt: loadSelfRoutePrompt() })
       if (args.prompt) return JSON.stringify({ ok: true, prompt: loadRouterPrompt() })
+
+      const need = String(args.need ?? '')
+      if (need.trim()) {
+        const parsed = parseNeedKnowledge(need)
+        if (!parsed.found) {
+          throw new Error(parsed.nearMiss
+            ? 'NEED_KNOWLEDGE was written but not on its own line. Put it on the first line alone, then call again.'
+            : 'No NEED_KNOWLEDGE line found in that text. Write "NEED_KNOWLEDGE:tag1,tag2" on the first line first.')
+        }
+        if (!parsed.tags.length) throw new Error(`NEED_KNOWLEDGE line had no usable tags (unknown: ${parsed.unknown.join(', ') || 'none'}).`)
+        const ctx = await buildContext(parsed.draft, { tags: parsed.tags })
+        return JSON.stringify({
+          ok: true,
+          tags: ctx.tags,
+          unknown: [...(ctx.unknown ?? []), ...parsed.unknown],
+          markerFirst: parsed.markerFirst,
+          docs: ctx.docs.map((d) => ({ tag: d.tag, file: d.file, chars: d.text.length, text: d.text })),
+          continuation: buildContinuation(ctx.docs, { task: parsed.draft }),
+        })
+      }
+
       const tags = String(args.tags ?? '').trim()
       const task = String(args.task ?? '').trim()
       if (!tags && !task) {
-        throw new Error('terraria_kb needs tags (from the classifier), task text, or prompt:true.')
+        throw new Error('terraria_kb needs need, tags, task text, system:true or prompt:true.')
       }
       const ctx = await buildContext(task, tags ? { tags } : {})
       return JSON.stringify({

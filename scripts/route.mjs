@@ -16,7 +16,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const { route, normalizeTags, ROUTER_PROMPT } = await import(
+const { route, normalizeTags, loadRouterPrompt, parseNeedKnowledge, loadSelfRoutePrompt } = await import(
   pathToFileURL(join(HERE, '..', 'src', 'kb-router.js')).href
 )
 
@@ -25,7 +25,22 @@ const json = argv.includes('--json')
 const rest = argv.filter((a) => a !== '--json')
 
 if (rest[0] === '--prompt') {
-  process.stdout.write(ROUTER_PROMPT)
+  process.stdout.write(loadRouterPrompt())
+} else if (rest[0] === '--system') {
+  process.stdout.write(loadSelfRoutePrompt())
+} else if (rest[0] === '--need') {
+  // 从模型这一回合的输出里抓 NEED_KNOWLEDGE:...
+  const text = rest.slice(1).join(' ')
+  const r = parseNeedKnowledge(text)
+  if (json) console.log(JSON.stringify(r))
+  else if (!r.found) {
+    console.error(r.nearMiss ? '没抓到标记：它没独占一行' : '没抓到标记：输出里没有 NEED_KNOWLEDGE')
+    process.exit(1)
+  } else {
+    console.log(r.tags.join(', '))
+    if (r.unknown.length) console.error('忽略的非法标签: ' + r.unknown.join(', '))
+    if (!r.markerFirst) console.error('注意：标记不在第一行')
+  }
 } else if (rest[0] === '--tags') {
   const raw = rest.slice(1).join(' ')
   const { tags, unknown } = normalizeTags(raw)
@@ -38,7 +53,7 @@ if (rest[0] === '--prompt') {
 } else {
   const text = rest.join(' ')
   if (!text) {
-    console.error('用法: node scripts/route.mjs "<玩家原话>" | --prompt | --tags "<标签串>"')
+    console.error('用法: node scripts/route.mjs "<玩家原话>" | --prompt | --system | --need "<模型输出>" | --tags "<标签串>"')
     process.exit(2)
   }
   const { tags, scores, hits } = route(text)

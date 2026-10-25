@@ -242,22 +242,27 @@ api {type:"Terraria.Player", member:"controlHook"} → "field | Boolean controlH
 
 ---
 
-## 9. 知识库：前置分类器 + 按标签检索（`terraria_kb`）
+## 9. 知识库：单轮自路由（`terraria_kb`）
 
-玩家一句话进来，**先分类、再查资料**，不是临场挑库。
+同一个回合、同一次模型调用里，模型自己判断要查哪几个库，先吐一行标记，程序按标记取资料后
+把正文追加进**同一个会话**续传——不开第二次独立请求。
 
 ```
-玩家原话
-  → terraria_kb { prompt: true }        拿分类器 Prompt
-  → 模型跑它，只回一行标签              "safety_limit, game_rule, build_standard, atomic_action"
-  → terraria_kb { tags: "..." }         只返回命中那几个库的正文
+系统提示：terraria_kb { system: true }        → prompts/self-route.md
+模型第一行：NEED_KNOWLEDGE:safety_limit,game_rule,build_standard,atomic_action
+取资料：  terraria_kb { need: "<本回合输出>" } → { tags, docs, continuation, markerFirst, unknown }
+续传：    把 continuation 贴回同一回合继续
 ```
 
 | 调用 | 作用 |
 |---|---|
-| `terraria_kb { prompt: true }` | 返回分类器 Prompt 全文（`prompts/intent-router.md`） |
-| `terraria_kb { tags: "a, b, c" }` | 按标签取库；非法标签被丢掉并在 `unknown` 里报出来 |
-| `terraria_kb { task: "..." }` | 没有分类结果时才用的关键词兜底（粗筛，不如分类器准） |
+| `terraria_kb { system: true }` | 返回单轮自路由 system prompt（`prompts/self-route.md`） |
+| `terraria_kb { need: "<模型输出>" }` | 抓 `NEED_KNOWLEDGE:` 标记，只加载命中库，并给 `continuation` |
+| `terraria_kb { tags: "a, b, c" }` | 已有标签时直接取库；非法标签丢掉并在 `unknown` 里报出来 |
+| `terraria_kb { prompt: true }` | 兜底：返回一次性分类器 Prompt（`prompts/intent-router.md`） |
+| `terraria_kb { task: "..." }` | 兜底：关键词粗筛（不如分类器准） |
+
+标记必须**独占一行**；写在句子中间不算数，工具会报 `nearMiss` 让上层重写一行再来。
 
 七个标签与加载顺序：
 `safety_limit` → `game_rule` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。

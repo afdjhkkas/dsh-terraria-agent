@@ -102,12 +102,25 @@ PreItemCheck 钩子（游戏主线程，不需要前台、不动用户光标）
 
 知识库在 `docs/kb/`，入口 `docs/kb/README.md`。流程固定：
 
+**单轮自路由（默认路径）**：同一个回合里我自己判断要查哪几个库，把标记写在全回合第一行，
+程序捕获这行 → 检索 → 追加进**同一个会话**续传。不额外开一次独立请求。
+
 1. **永远先读** `docs/kb/safety-limit.md`（禁令 / 范围 / 边界 / 确认），不参与判定。
-2. **跑前置分类器**：把玩家原话原样喂给 `prompts/intent-router.md`，
-   拿到 `a, b, c` 形式的标签。**不许自己临场挑库**——那就是"瞎选"。
-   没有模型可用时才退回关键词兜底 `node scripts/route.mjs "<原话>"`（粗筛，不假装等价）。
-3. 标签串先过 `normalizeTags()`（去重、丢非法、按加载顺序排）——写错了要当场发现：
-   `node scripts/route.mjs --tags "game_rule, item_operation"`。
+2. 收到玩家指令，**第一行先写标记**（独占一行，只写一次）：
+   `NEED_KNOWLEDGE:标签1,标签2`，标签取自下文七个，可多选。
+   system prompt 原文：`prompts/self-route.md`（`node scripts/route.mjs --system` 可取）。
+   细则：动手改世界/动身体必带 `atomic_action` 或 `actor_behavior`；危险或大范围动土必带 `safety_limit`；
+   玩家在纠正我必带 `task_correct`。
+3. 把这行（连同自己写的草稿）交给工具取资料：
+   `terraria_kb { need: "<本回合输出>" }` → 回 `tags` / `docs` / `continuation`。
+   `continuation` 直接贴回同一回合继续，不要新开请求。
+   抓不到标记时**不许静默降级**：先看 `terraria_kb` 报的 `nearMiss`
+   （写了但没独占一行 → 重写一行再来）。
+   **兜底顺序**：① 前置分类器 `prompts/intent-router.md` 补判一次
+   （`terraria_kb { prompt: true }`）→ ② 关键词 `node scripts/route.mjs "<原话>"`
+   → ③ 都没判出来就只加载 `safety_limit` 并在回复里说明"这次没判出库标签"。
+3b. 标签串过 `normalizeTags()`（去重、丢非法、按加载顺序排）——写错要当场发现：
+   `node scripts/route.mjs --need "<模型输出>"` 会把非法标签打出来并 exit 1。
 4. **只读命中的那几个库**，不把无关资料塞进上下文；多标签按
    `safety_limit → game_rule → build_standard → actor_behavior → atomic_action → item_operation → task_correct` 叠加。
 5. 玩家带纠正语气（"不是 / 别 / 又 / 错了"）时 `task_correct` 必须带，且**优先读**，
