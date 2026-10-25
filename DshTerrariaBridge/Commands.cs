@@ -1602,12 +1602,23 @@ namespace DshTerrariaBridge
                 if (!BridgeSystem.InReach(pl, x, y)) return Json.Error("够不到：离这一格超过 7 格，先走过去");
                 int slot = FindItemForTile(pl, type);
                 if (slot < 0) return Json.Error($"背包里没有能放置 {TileID.Search.GetName(type)} 的物品");
-                // Place through the game's own item use (left click), the same path a player
-                // uses: it frames the tile, registers it as a solid, consumes the item and
-                // respects support. Placing with WorldGen.PlaceTile(forced:true) produced tiles
-                // that looked fine but did not behave like real blocks (mobs walked through).
-                int ms = Math.Clamp(Json.Int(p, "ms", 320), 100, 2000);
-                return StartSwing(slot, x, y, ms, false, Json.Bool(p, "os", false));
+                // 挥动放置有两个已实测的缺陷：(1) 异步，命令返回时方块还没出现；
+                // (2) 落点由游戏自己的瞄准决定，会偏离传入的 (x,y)（实测请求工作台却得到 WoodBlock）。
+                // 所以改成同步精确放置：WorldGen.PlaceTile 按真实规则放（含家具锚点、支撑判定），
+                // 放成功后再从背包扣掉一个对应物品——物品流仍然是真实的，但结果可预测。
+                int pBefore = TileCode(Main.tile[x, y]);
+                bool pWg = WorldGen.PlaceTile(x, y, type, false, false, -1, style);
+                int pAfter = TileCode(Main.tile[x, y]);
+                bool pPlaced = pAfter == type && pAfter != pBefore;
+                bool pConsumed = false;
+                if (pPlaced)
+                {
+                    Item it = pl.inventory[slot];
+                    it.stack--;
+                    pConsumed = true;
+                    if (it.stack <= 0) it.SetDefaults(0);
+                }
+                return Json.Ok(new { ok = pPlaced, placed = pPlaced, consumed = pConsumed, x, y, requested = type, after = pAfter, worldGenOk = pWg });
             }
             bool ok = WorldGen.PlaceTile(x, y, type, false, forced, -1, style);
             int after = TileCode(Main.tile[x, y]);

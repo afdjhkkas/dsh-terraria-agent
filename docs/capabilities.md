@@ -82,3 +82,25 @@
 发现偏了就换个位置重试。
 
 这条要写进 STATUS：家具放置是当前**最不可靠的能力**。
+
+### 修复：`place` 改为同步精确放置（第 159 轮）
+
+原实现用"选中物品挥一下"（`StartSwing`），带来两个缺陷（异步 + 落点偏移）。
+
+**新实现**：
+
+```csharp
+bool pWg = WorldGen.PlaceTile(x, y, type, false, /*forced*/false, -1, style);
+int pAfter = TileCode(Main.tile[x, y]);
+bool pPlaced = pAfter == type && pAfter != pBefore;
+if (pPlaced) { 从背包扣掉一个对应物品 }
+return { ok, placed, consumed, x, y, requested, after }
+```
+
+**设计取舍**：
+- `WorldGen.PlaceTile` 按真实规则放（家具锚点、支撑判定都走原版），**结果可预测**
+- 放成功才扣物品，**物品流仍然真实**（不是白送方块）
+- 返回里带 `consumed` 字段，可以验证"确实消耗了一个"
+
+**验证状态**：编译通过、逻辑正确，但本轮测试时角色滑到 (2099,402) 深处、
+四周实心无法放置，**端到端验证待下一轮**。
