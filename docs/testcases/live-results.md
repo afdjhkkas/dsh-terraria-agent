@@ -53,3 +53,5 @@
 - 新世界「蒸汽 险境」4200×1200，此前旧档的所有坐标作废；本文里的坐标只是当次实测位置，不是知识。
 | H1 | 建一间有效房屋（六条全过）| PASS | `housediag {x:2125,y:274}` → `{"tiles":64,"box":[2122,2129,272,279],"enclosed":true,"walled":64,"floorRatio":1,"ceilRatio":1,"leftRatio":1,"rightRatio":1,"light":1,"comfort":2,"doors":3,"missing":[],"valid":true}`；`homeroom {x:2125,y:274,who:1}` → `moved:true, wasHomeless:true, home:{x:2125,y:274}` |
 | D1 | 开关门并穿过 | PASS | `use {x,y,right:true}` → 该列 3 格 `type` 由 10（ClosedDoor）变 11（OpenDoor）；`move right` 过门后坐标从 2129 变 2137；再右键一次回到 10 |
+| G09 | 把地上散落的钱币材料捡干净 | PASS | 走动沿途 `grab` 收到凝胶x2；钱币自动合并换算：银币 18→19、铜币 65→2（多收 37 铜，102 铜=1 银+2 铜）|
+| D2 | 开门后房屋判定 | PASS（预期失败）| 门开（type 11）时 `housediag` → `enclosed:false`、`tiles:9001`；把两格门关回（type 10）后 → `valid:true, tiles:64, walled:64, doors:3` |
