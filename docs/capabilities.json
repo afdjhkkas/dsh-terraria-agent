@@ -439,6 +439,7 @@
         "name",
         "homeless",
         "moved",
+        "startRoomCheck",
         "reason",
         "reasonValue",
         "tiles",
