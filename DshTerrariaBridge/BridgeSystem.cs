@@ -445,14 +445,10 @@ namespace DshTerrariaBridge
                 if (it != null && it.type > 0 && it.stack > 0 && it.createTile > 0 && it.placeStyle >= 0) { slot = i; break; }
             }
             if (slot < 0) return false;
-            p.selectedItem = slot;
-            if (WorldGen.PlaceTile(x, y, p.inventory[slot].createTile, false, false, -1, p.whoAmI))
-            {
-                p.inventory[slot].stack--;
-                if (p.inventory[slot].stack <= 0) p.inventory[slot].SetDefaults(0);
-                return true;
-            }
-            return false;
+            // 真实放置：原来这里 WorldGen.PlaceTile + 手动 stack--，等于绕过物品流改世界。
+            // 现在只压准星按住使用，支撑判定和扣物品都由原版 ItemCheck 做。
+            BeginItemUse(slot, x, y, 140);
+            return true;
         }
 
         /* ── walkto：朝目标坐标自己走 ─────────────────────────────────────
@@ -514,11 +510,8 @@ namespace DshTerrariaBridge
             if (slot < 0) return;
             Tile t = Main.tile[x, y];
             if (!t.HasTile) return;
-            p.selectedItem = slot;
-            if (Main.tileAxe[t.TileType]) WorldGen.KillTile(x, y, false, false, false);
-            else p.PickTile(x, y, p.inventory[slot].pick);
-            p.SetItemAnimation(Math.Max(1, p.inventory[slot].useAnimation));
-            p.SetItemTime(Math.Max(1, p.inventory[slot].useTime));
+            // 砍树和锤墙也走原版使用路径（原来这里是 WorldGen.KillTile 直接删格子）。
+            BeginItemUse(slot, x, y, 140);
             p.direction = x * 16f >= p.Center.X ? 1 : -1;
             WalkNextMine = Now + 7;
         }
@@ -649,6 +642,29 @@ namespace DshTerrariaBridge
         internal static void ClearAim() { AimTileX = -1; AimTileY = -1; }
 
         /// <summary>
+        /// 让游戏自己把"使用物品"这件事做一遍：选中真实槽位、准星压到目标格、按住使用 ms 毫秒。
+        /// 真正的放置/挖掘/消耗全部由原版 ItemCheck 完成——支撑判定、家具锚点、扣物品、刷 frame
+        /// 都是游戏自己的逻辑，这里不碰 Main.tile。
+        /// 调用方必须回读确认，因为原版使用是异步的。
+        /// </summary>
+        internal static void BeginItemUse(int slot, int tileX, int tileY, int ms)
+        {
+            Player p = Main.LocalPlayer;
+            if (p == null || !p.active) return;
+            if (slot >= 0 && slot < p.inventory.Length) p.selectedItem = slot;
+            SetAim(tileX, tileY);
+            UseJustStarted = true;
+            UseUntil = Now + Ticks(ms);
+        }
+
+        internal static void EndItemUse()
+        {
+            UseUntil = 0;
+            UseTileUntil = 0;
+            ClearAim();
+        }
+
+        /// <summary>
         /// Point the in-game cursor at a tile AND synthesize the mouse button state.
         /// Setting controlUseItem alone is not enough: Terraria rebuilds the player's control
         /// flags from the physical mouse every frame, so an armed action needs Main.mouseLeft /
@@ -668,6 +684,10 @@ namespace DshTerrariaBridge
             // Player.tileTargetX/Y, which are static and are what placement/mine actually use.
             Main.mouseX = (int)screenX;
             Main.mouseY = (int)screenY;
+            // 智能光标会在 ItemCheck 里重算 tileTargetX/Y，把我们的目标格改掉
+            // （实测请求 (x,y) 却挖到旁边一格）。关掉它，准星落点就是传入的格子。
+            Main.SmartCursorEnabled = false;
+            Main.SmartCursorShowing = false;
             Player.tileTargetX = tx;
             Player.tileTargetY = ty;
 
@@ -925,36 +945,24 @@ namespace DshTerrariaBridge
             };
         }
 
-        internal static void StopMining() => Mine.Active = false;
+        internal static void StopMining() { Mine.Active = false; EndItemUse(); }
 
         private static void TickMining()
         {
             if (!Mine.Active) return;
             Tile t = Main.tile[Mine.X, Mine.Y];
-            if (!t.HasTile || Now > Mine.Deadline) { Mine.Active = false; return; }
+            if (!t.HasTile || Now > Mine.Deadline) { Mine.Active = false; EndItemUse(); return; }
             if (Now < Mine.NextHit) return;
 
             Player p = Main.LocalPlayer;
-            if (p == null || !p.active || p.dead) { Mine.Active = false; return; }
+            if (p == null || !p.active || p.dead) { Mine.Active = false; EndItemUse(); return; }
             Item tool = p.inventory[Mine.Slot];
-            if (tool == null || tool.type <= 0) { Mine.Active = false; return; }
+            if (tool == null || tool.type <= 0) { Mine.Active = false; EndItemUse(); return; }
 
-            int power = tool.pick;
-            if (power > 0)
-            {
-                p.PickTile(Mine.X, Mine.Y, power);
-            }
-            else
-            {
-                // Axes (trees) and hammers do not go through PickTile.
-                WorldGen.KillTile(Mine.X, Mine.Y, false, false, false);
-            }
-            p.selectedItem = Mine.Slot;
-            if (tool.useAnimation > 0)
-            {
-                p.SetItemAnimation(Math.Max(1, tool.useAnimation));
-                p.SetItemTime(Math.Max(1, tool.useTime));
-            }
+            // 真实挥动：选中工具、准星压到目标格、按住使用。
+            // 挖矿走原版 PickTile（含镐力/硬度/耐久/掉落），砍树和锤墙也走同一套 ItemCheck，
+            // 不再用 WorldGen.KillTile 直接删格子。
+            BeginItemUse(Mine.Slot, Mine.X, Mine.Y, 140);
             p.direction = Mine.X * 16f >= p.Center.X ? 1 : -1;
             Mine.Hits++;
             Mine.NextHit = Now + (ulong)Math.Max(6, (int)(tool.useTime * 0.6f));
@@ -1106,71 +1114,60 @@ namespace DshTerrariaBridge
             }
             if (pick < 0) { StopTravel("no-pickaxe"); return; }
 
-            // 1) 先补脚下地板（前方 2 格）
+            // 1) 先补脚下地板（前方 2 格）——真实放置：选中方块物品、准星压到该格、按住使用，
+            //    支撑/朝向/扣物品全部由原版 ItemCheck 决定。原来这里直接 WorldGen.PlaceTile。
             if (Travel.Steps % 3 == 0)
             {
                 for (int d = 1; d <= 2; d++)
                 {
                     int fx = px + Travel.Dir * d, fy = py + 2;
                     if (!WorldGen.InWorld(fx, fy, 2)) continue;
-                    Tile ft = Main.tile[fx, fy];
-                    if (ft.HasTile) continue;
-                    // 需要邻居支撑：检查脚下那层是否有实心
-                    bool support = false;
-                    for (int ddx = -1; ddx <= 1; ddx++)
+                    if (Main.tile[fx, fy].HasTile) continue;
+                    int bslot = -1;
+                    for (int i = 0; i < 10; i++)
                     {
-                        int sx = fx + ddx;
-                        if (!WorldGen.InWorld(sx, fy, 2)) continue;
-                        if (Main.tile[sx, fy].HasTile) { support = true; break; }
+                        Item it = p.inventory[i];
+                        if (it != null && it.type > 0 && it.stack > 0 && it.createTile > 0) { bslot = i; break; }
                     }
-                    if (!support) continue;
-                    WorldGen.PlaceTile(fx, fy, TileID.Stone, false, false);
-                    if (Main.tile[fx, fy].HasTile) Travel.Filled++;
+                    if (bslot < 0) break;
+                    BeginItemUse(bslot, fx, fy, 140);
+                    break;   // 一帧只压一个目标，避免连续换物品打断挥动
                 }
             }
 
-            // 2) 再挖挡路格
-            p.selectedItem = pick;
+            // 2) 再挖挡路格——同样是真实挥镐：原始 PickTile 直接结算，改成让游戏自己挥
+            int tx = px + Travel.Dir, ty = py;
             if (upward)
             {
-                // 向上：挖开头顶 3 宽 × 3 高
-                for (int dx = -1; dx <= 1; dx++)
-                    for (int dy = -3; dy <= -1; dy++)
-                    {
-                        int bx = px + dx, by = py + dy;
-                        if (!WorldGen.InWorld(bx, by, 2)) continue;
-                        if (!Main.tile[bx, by].HasTile) continue;
-                        p.PickTile(bx, by, p.inventory[pick].pick);
-                        if (!Main.tile[bx, by].HasTile) Travel.Mined++;
-                    }
+                tx = px; ty = py - 1;
+                for (int dy = -3; dy <= -1 && ty == py - 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        if (WorldGen.InWorld(px + dx, py + dy, 2) && Main.tile[px + dx, py + dy].HasTile)
+                        { tx = px + dx; ty = py + dy; dy = 9; break; }
             }
             else if (vertical)
             {
-                // 向下：挖开脚下 3 宽 × 2 高
-                for (int dx = -1; dx <= 1; dx++)
-                    for (int dy = 2; dy <= 3; dy++)
-                    {
-                        int bx = px + dx, by = py + dy;
-                        if (!WorldGen.InWorld(bx, by, 2)) continue;
-                        if (!Main.tile[bx, by].HasTile) continue;
-                        p.PickTile(bx, by, p.inventory[pick].pick);
-                        if (!Main.tile[bx, by].HasTile) Travel.Mined++;
-                    }
+                tx = px; ty = py + 2;
+                for (int dy = 2; dy <= 3 && ty == py + 2; dy++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        if (WorldGen.InWorld(px + dx, py + dy, 2) && Main.tile[px + dx, py + dy].HasTile)
+                        { tx = px + dx; ty = py + dy; dy = 9; break; }
             }
             else
             {
-                // 挖 py-2..py+1 四行：角色高 2.6 格，只挖 3 行会漏掉头顶那格
-                // （实测 2705 卡住：2706 的 321/322 是空的，但 320 是石头，人过不去）
-                int bx = px + Travel.Dir;
+                // py-2..py+1 四行：角色高 2.6 格，只挖 3 行会漏掉头顶那格
                 for (int dy = -2; dy <= 1; dy++)
                 {
                     int by = py + dy;
-                    if (!WorldGen.InWorld(bx, by, 2)) continue;
-                    if (!Main.tile[bx, by].HasTile) continue;
-                    p.PickTile(bx, by, p.inventory[pick].pick);
-                    if (!Main.tile[bx, by].HasTile) Travel.Mined++;
+                    if (!WorldGen.InWorld(tx, by, 2)) continue;
+                    if (Main.tile[tx, by].HasTile) { ty = by; break; }
                 }
             }
+            if (WorldGen.InWorld(tx, ty, 2) && Main.tile[tx, ty].HasTile)
+            {
+                BeginItemUse(pick, tx, ty, 140);
+            }
+
             Travel.Steps++;
         }
 

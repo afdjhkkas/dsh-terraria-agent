@@ -9,6 +9,7 @@ using Terraria.DataStructures;
 using Terraria.ID;
 using Terraria.IO;
 using Terraria.ModLoader;
+using Terraria.ObjectData;
 
 namespace DshTerrariaBridge
 {
@@ -61,6 +62,7 @@ namespace DshTerrariaBridge
                 case "event": return EventStatus(p);
                 case "equip": return EquipArmor(p);
                 case "place": return Place(p);
+                case "tiledata": return TileDataCmd(p);
                 case "move": return Move(p);
                 case "jump": return Jump(p);
                 case "use": return Use(p);
@@ -1141,12 +1143,22 @@ namespace DshTerrariaBridge
         private static string RemoveBlock(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
             int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
             if (x < 0 || y < 0) return Json.Error("removeblock 需要 x,y");
+            Player pl = P;
+            if (pl.dead) return Json.Error("玩家已死亡，请先复活");
+            if (!BridgeSystem.InReach(pl, x, y)) return Json.Error("够不到：离这一格超过 7 格，先走过去");
+            int slot = -1;
+            for (int i = 0; i < pl.inventory.Length; i++)
+                if (pl.inventory[i] != null && pl.inventory[i].hammer > 0) { slot = i; break; }
+            if (slot < 0) return Json.Error("背包里没有锤子，拆方块需要锤子");
             int before = Main.tile[x, y].HasTile ? (int)Main.tile[x, y].TileType : -1;
-            WorldGen.KillTile(x, y, false, false, true);
+            // 真实挥锤：原来这里是 WorldGen.KillTile，等于直接删格子。
+            BridgeSystem.BeginItemUse(slot, x, y, Math.Clamp(Json.Int(p, "ms", 900), 200, 3000));
             int after = Main.tile[x, y].HasTile ? (int)Main.tile[x, y].TileType : -1;
-            return Json.Ok(new { x, y, before, after, removed = before != after });
+            return Json.Ok(new { x, y, before, after, removed = before != after, slot,
+                next = "真实挥锤是异步的：稍等再用 tile x,y 回读确认已空" });
         }
 
         private static string SaveWorld(JsonElement p)
@@ -1270,7 +1282,7 @@ namespace DshTerrariaBridge
             }
             if (slot < 0) return Json.Error($"背包里没有能放成方块 {type} 的物品");
 
-            int placed = 0, skipped = 0, outOfRange = 0;
+            int placed = 0, skipped = 0, outOfRange = 0, armed = 0;
             for (int x = loX; x <= hiX; x++)
             {
                 for (int y = loY; y <= hiY; y++)
@@ -1279,16 +1291,14 @@ namespace DshTerrariaBridge
                     if (t.HasTile) { skipped++; continue; }
                     if (Vector2.Distance(pl.Center, new Vector2(x * 16f + 8f, y * 16f + 8f)) > 30 * 16f) { outOfRange++; continue; }
                     if (pl.inventory[slot].stack <= 0) break;
-                    if (WorldGen.PlaceTile(x, y, type, false, false, -1, pl.whoAmI))
-                    {
-                        pl.inventory[slot].stack--;
-                        placed++;
-                    }
-                    else skipped++;
-                    if (pl.inventory[slot].stack <= 0) { pl.inventory[slot].SetDefaults(0); break; }
+                    // 真实放置：选中方块物品、准星压到该格、按住使用。
+                    // 原来这里 WorldGen.PlaceTile + 手动 stack--，违反"世界只能通过真实操作改变"。
+                    BridgeSystem.BeginItemUse(slot, x, y, 140);
+                    armed++;
                 }
             }
-            return Json.Ok(new { placed, skipped, outOfRange, left = pl.inventory[slot]?.stack ?? 0 });
+            return Json.Ok(new { armed, skipped, outOfRange, left = pl.inventory[slot]?.stack ?? 0,
+                next = "真实放置是异步的：稍后逐格 tile 回读确认，不要直接相信 armed 就是放成了" });
         }
 
         /// <summary>
@@ -1533,102 +1543,90 @@ namespace DshTerrariaBridge
             int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
             if (x < 0 || y < 0) return Json.Error("mine 需要 x,y（方块坐标）");
             if (!InBounds(x, y)) return Json.Error($"out of world bounds: {x},{y}");
-            bool admin = Json.Bool(p, "admin", false);
-            if (!admin)
-            {
-                // Player mode: take out a pickaxe/axe, aim at the tile and swing. The game
-                // decides whether it breaks, drops items and consumes tool durability.
-                if (!HasPlayer(out string perr)) return Json.Error(perr);
-                // 默认 1300ms：丛林草/冰雪/石头在铁镐下要 1.2~1.3 秒，默认 900 会让"看起来挖了其实没掉"
-                // 反复踩过三次坑（100ms、800ms 都白挖），所以把默认值调到够用，下限提到 300。
-                string started = BeginPlayerMine(x, y, Math.Clamp(Json.Int(p, "ms", 1300), 300, 4000), Json.Bool(p, "os", false), !Json.Bool(p, "job", false));
-                if (started != null && started.StartsWith("{")) return started;
-                if (started != null) return Json.Error(started);
-                return Json.Error("empty player-mode response");
-            }
-            bool noItem = Json.Bool(p, "noItem", false);
-            // Walls are a separate decision: WorldGen.KillWall ignores noItem and walls drive
-            // housing validity, so removing them must be opt-in.
-            bool walls = Json.Bool(p, "walls", false);
-            Tile tile = Main.tile[x, y];
-            bool hadTile = tile.HasTile;
-            int before = TileCode(tile);
-            int wallBefore = tile.WallType;
-            if (!hadTile && wallBefore == 0)
-                return Json.Ok(new { ok = false, x, y, before, after = EmptyTile, removedTile = false, removedWall = false, note = "这一格本来就是空的" });
-            // 1.4.4 的 WorldGen.KillTile 返回 void：成败靠前后回读判断
-            if (hadTile) WorldGen.KillTile(x, y, false, false, noItem);
-            Tile tileAfter = Main.tile[x, y];
-            bool removedTile = hadTile && !tileAfter.HasTile;
-            bool removedWall = false;
-            if (walls && wallBefore != 0 && tileAfter.WallType != 0)
-            {
-                WorldGen.KillWall(x, y, false);
-                tileAfter = Main.tile[x, y];
-                removedWall = wallBefore != 0 && tileAfter.WallType == 0;
-            }
-            return Json.Ok(new
-            {
-                ok = removedTile || removedWall,
-                x,
-                y,
-                removedTile,
-                removedWall,
-                before,
-                after = TileCode(tileAfter),
-                wallBefore,
-                wall = tileAfter.WallType,
-            });
+            // 没有 admin 直写分支了：世界只能通过真实挥镐改变（AGENTS.md 第 1 条）。
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            // 默认 1300ms：丛林草/冰雪/石头在铁镐下要 1.2~1.3 秒，默认 900 会让"看起来挖了其实没掉"
+            // 反复踩过三次坑（100ms、800ms 都白挖），所以把默认值调到够用，下限提到 300。
+            string started = BeginPlayerMine(x, y, Math.Clamp(Json.Int(p, "ms", 1300), 300, 4000), Json.Bool(p, "os", false), !Json.Bool(p, "job", false));
+            if (started != null && started.StartsWith("{")) return started;
+            if (started != null) return Json.Error(started);
+            return Json.Error("empty player-mode response");
         }
 
+        /// <summary>
+        /// 放置方块/家具。**不做任何直接写世界的事**：选中真实物品、把准星压到目标格、
+        /// 按住使用，剩下的交给原版 ItemCheck（它自己判定支撑、算家具锚点、扣物品、刷 frame）。
+        ///
+        /// 因为原版放置是异步的（命令返回时方块还没出现），这里返回 armed=true 而不是
+        /// placed=true；调用方必须回读 tile 确认，背包里对应物品数量减少才是真的放下了。
+        /// </summary>
         private static string Place(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
             int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
             int type = Json.Int(p, "type", -1);
-            int style = Json.Int(p, "style", 0);
-            bool forced = Json.Bool(p, "forced", true);
-            bool admin = Json.Bool(p, "admin", false);
+            int ms = Json.Int(p, "ms", 300);
             if (x < 0 || y < 0) return Json.Error("place 需要 x,y");
             if (type < 0) return Json.Error("place 需要 type（方块类型 ID）");
             if (!ValidTileType(type)) return Json.Error($"invalid tile type {type} (0..{TileID.Count - 1}; 0 is Dirt)");
             if (!InBounds(x, y)) return Json.Error($"out of world bounds: {x},{y}");
-            if (!admin)
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            if (pl.dead) return Json.Error("玩家已死亡，请先复活");
+            if (!BridgeSystem.InReach(pl, x, y)) return Json.Error("够不到：离这一格超过 7 格，先走过去");
+
+            int slot = FindItemForTile(pl, type);
+            if (slot < 0) return Json.Error($"背包里没有能放置 {TileID.Search.GetName(type)} 的物品");
+
+            int before = TileCode(Main.tile[x, y]);
+            int stackBefore = pl.inventory[slot].stack;
+            BridgeSystem.BeginItemUse(slot, x, y, ms);
+            return Json.Ok(new
             {
-                // Player mode: the block has to exist in the inventory, we select it and aim.
-                if (!HasPlayer(out string perr)) return Json.Error(perr);
-                Player pl = P;
-                if (pl.dead) return Json.Error("玩家已死亡，请先复活");
-                if (!BridgeSystem.InReach(pl, x, y)) return Json.Error("够不到：离这一格超过 7 格，先走过去");
-                int slot = FindItemForTile(pl, type);
-                if (slot < 0) return Json.Error($"背包里没有能放置 {TileID.Search.GetName(type)} 的物品");
-                // 挥动放置有两个已实测的缺陷：(1) 异步，命令返回时方块还没出现；
-                // (2) 落点由游戏自己的瞄准决定，会偏离传入的 (x,y)（实测请求工作台却得到 WoodBlock）。
-                // 所以改成同步精确放置：WorldGen.PlaceTile 按真实规则放（含家具锚点、支撑判定），
-                // 放成功后再从背包扣掉一个对应物品——物品流仍然是真实的，但结果可预测。
-                int pBefore = TileCode(Main.tile[x, y]);
-                bool pWg = WorldGen.PlaceTile(x, y, type, false, false, -1, style);
-                int pAfter = TileCode(Main.tile[x, y]);
-                bool pPlaced = pAfter == type && pAfter != pBefore;
-                // 真实放置会在放完后刷新多格家具的 frame；WorldGen.PlaceTile 单独调用不会。
-                // 不刷新 frame 的家具"看着在、但不被识别为工作台/熔炉/铁砧"（实测合成报"附近没有工作站"）。
-                if (pPlaced) WorldGen.RangeFrame(x - 2, y - 2, x + 3, y + 3);
-                bool pConsumed = false;
-                if (pPlaced)
-                {
-                    Item it = pl.inventory[slot];
-                    it.stack--;
-                    pConsumed = true;
-                    if (it.stack <= 0) it.SetDefaults(0);
-                }
-                return Json.Ok(new { ok = pPlaced, placed = pPlaced, consumed = pConsumed, x, y, requested = type, after = pAfter, worldGenOk = pWg });
-            }
-            bool ok = WorldGen.PlaceTile(x, y, type, false, forced, -1, style);
-            int after = TileCode(Main.tile[x, y]);
-            // WorldGen.PlaceTile returns true in cases where nothing actually changed
-            // (an existing tile it refused to replace). Report what is really there.
-            bool placed = after == type;
-            return Json.Ok(new { ok = placed, placed, worldGenOk = ok, x, y, requested = type, after });
+                armed = true,
+                placed = false,          // 还没有；必须回读才算
+                x,
+                y,
+                requested = type,
+                name = TileID.Search.GetName(type),
+                slot,
+                stackBefore,
+                before,
+                ms,
+                next = "回读 tile：type 变成 " + type + " 且背包该物品少 1 个，才算真的放下了",
+            });
+        }
+
+        /// <summary>
+        /// 多格家具（熔炉/铁砧/箱子/桌子/门…）的真实尺寸与锚点。
+        /// 之前只能靠猜：熔炉是 3×2、工作台是 2×1，锚点在哪一格没有任何地方能查，
+        /// 结果 WorldGen.PlaceTile 一直返回 false，家具一个也放不下来。
+        /// </summary>
+        private static string TileDataCmd(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            int type = Json.Int(p, "type", -1);
+            int style = Json.Int(p, "style", 0);
+            int alternate = Json.Int(p, "alternate", 0);
+            if (type < 0) return Json.Error("tiledata 需要 type（方块类型 ID）");
+            if (!ValidTileType(type)) return Json.Error($"invalid tile type {type} (0..{TileID.Count - 1})");
+            TileObjectData data = TileObjectData.GetTileData(type, style, alternate);
+            string nm = TileID.Search.GetName(type);
+            if (data == null)
+                return Json.Ok(new { type, name = nm, hasObjectData = false, frameImportant = Main.tileFrameImportant[type] });
+            return Json.Ok(new
+            {
+                type,
+                name = nm,
+                hasObjectData = true,
+                frameImportant = Main.tileFrameImportant[type],
+                width = data.Width,
+                height = data.Height,
+                originX = data.Origin.X,
+                originY = data.Origin.Y,
+                styleHorizontal = data.StyleHorizontal,
+                styleWrapLimit = data.StyleWrapLimit,
+            });
         }
 
         /// <summary>
@@ -1643,46 +1641,30 @@ namespace DshTerrariaBridge
             if (!InBounds(x, y)) return Json.Error($"out of world bounds: {x},{y}");
             int type = Json.Int(p, "type", WallID.Dirt);
             bool remove = Json.Bool(p, "remove", false);
-            bool admin = Json.Bool(p, "admin", false);
-            if (!admin)
-            {
-                if (!HasPlayer(out string perr)) return Json.Error(perr);
-                Player pl = P;
-                if (pl.dead) return Json.Error("玩家已死亡，请先复活");
-                if (!BridgeSystem.InReach(pl, x, y)) return Json.Error("够不到：离这一格超过 7 格，先走过去");
-                int slot;
-                if (remove)
-                {
-                    // Removing a wall in vanilla needs a hammer.
-                    slot = -1;
-                    for (int i = 0; i < pl.inventory.Length; i++)
-                        if (pl.inventory[i] != null && pl.inventory[i].hammer > 0) { slot = i; break; }
-                    if (slot < 0) return Json.Error("背包里没有锤子，拆墙需要锤子");
-                }
-                else
-                {
-                    slot = FindItemForWall(pl, type);
-                    if (slot < 0) return Json.Error($"背包里没有能放置该墙的物品（wall id {type}）");
-                }
-                int ms = Math.Clamp(Json.Int(p, "ms", 320), 100, 2000);
-                // Walls are placed (and hammered away) with the LEFT button in vanilla.
-                return StartSwing(slot, x, y, ms, false, Json.Bool(p, "os", false));
-            }
-            Tile t = Main.tile[x, y];
-            int before = t.WallType;
+            // 没有 admin 直写分支了：墙壁也只能通过真实使用墙物品/挥锤改变。
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            if (pl.dead) return Json.Error("玩家已死亡，请先复活");
+            if (!BridgeSystem.InReach(pl, x, y)) return Json.Error("够不到：离这一格超过 7 格，先走过去");
+            int slot;
             if (remove)
             {
-                if (before != 0) WorldGen.KillWall(x, y, false);
+                // Removing a wall in vanilla needs a hammer.
+                slot = -1;
+                for (int i = 0; i < pl.inventory.Length; i++)
+                    if (pl.inventory[i] != null && pl.inventory[i].hammer > 0) { slot = i; break; }
+                if (slot < 0) return Json.Error("背包里没有锤子，拆墙需要锤子");
             }
             else
             {
                 if (type <= 0 || type >= WallID.Count) return Json.Error($"invalid wall type {type} (1..{WallID.Count - 1})");
-                if (t.HasTile) return Json.Error("这一格有方块挡着，先 mine 掉再放墙");
-                WorldGen.PlaceWall(x, y, type, false);
+                if (Main.tile[x, y].HasTile) return Json.Error("这一格有方块挡着，先 mine 掉再放墙");
+                slot = FindItemForWall(pl, type);
+                if (slot < 0) return Json.Error($"背包里没有能放置该墙的物品（wall id {type}）");
             }
-            int after = Main.tile[x, y].WallType;
-            bool ok = remove ? after == 0 : after == type;
-            return Json.Ok(new { ok, x, y, remove, requested = remove ? 0 : type, before, after });
+            int ms = Math.Clamp(Json.Int(p, "ms", 320), 100, 2000);
+            // Walls are placed (and hammered away) with the LEFT button in vanilla.
+            return StartSwing(slot, x, y, ms, false, Json.Bool(p, "os", false));
         }
 
         private static string Teleport(JsonElement p)
