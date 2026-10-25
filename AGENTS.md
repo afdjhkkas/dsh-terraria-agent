@@ -103,11 +103,14 @@ PreItemCheck 钩子（游戏主线程，不需要前台、不动用户光标）
 知识库在 `docs/kb/`，入口 `docs/kb/README.md`。流程固定：
 
 1. **永远先读** `docs/kb/safety-limit.md`（禁令 / 范围 / 边界 / 确认），不参与判定。
-2. 把玩家这句话判成标签（可审计的关键词规则在 `src/kb-router.js`）：
-   `game_rule` / `item_operation` / `build_standard` / `actor_behavior` / `atomic_action` / `task_correct`。
-3. **只读命中的那几个库**，不把无关资料塞进上下文；多标签按
+2. **跑前置分类器**：把玩家原话原样喂给 `prompts/intent-router.md`，
+   拿到 `a, b, c` 形式的标签。**不许自己临场挑库**——那就是"瞎选"。
+   没有模型可用时才退回关键词兜底 `node scripts/route.mjs "<原话>"`（粗筛，不假装等价）。
+3. 标签串先过 `normalizeTags()`（去重、丢非法、按加载顺序排）——写错了要当场发现：
+   `node scripts/route.mjs --tags "game_rule, item_operation"`。
+4. **只读命中的那几个库**，不把无关资料塞进上下文；多标签按
    `safety_limit → game_rule → build_standard → actor_behavior → atomic_action → item_operation → task_correct` 叠加。
-4. 玩家带纠正语气（"不是 / 别 / 又 / 错了"）时 `task_correct` 排在安全库之后第一位，
+5. 玩家带纠正语气（"不是 / 别 / 又 / 错了"）时 `task_correct` 必须带，且**优先读**，
    按它 §4 的流程把纠正**落成规则或代码**，不能当场改一次就算完。
 
 ### 入库校验（往知识库写任何东西之前必答）
@@ -141,7 +144,14 @@ PreItemCheck 钩子（游戏主线程，不需要前台、不动用户光标）
 想让 agent 自己取上下文时：
 
 ```js
-import { buildContext } from './src/kb-router.js'
-const { tags, docs } = await buildContext('把家完善一下')
-// tags: ['safety_limit', 'build_standard']  docs: 对应文件全文
+import { buildContext, normalizeTags } from './src/kb-router.js'
+
+// 1) 分类器（模型）给出 "build_standard, atomic_action, safety_limit"
+const { tags } = normalizeTags('build_standard, atomic_action, safety_limit')
+// 2) 只把命中的库读进来
+const { docs } = await buildContext('把家完善一下', { tags })
+// tags: ['safety_limit', 'build_standard', 'atomic_action']  docs: 对应文件全文
+
+// 不传 tags 时才会用关键词兜底
+const fallback = await buildContext('把家完善一下')
 ```

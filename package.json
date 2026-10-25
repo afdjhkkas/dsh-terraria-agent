@@ -47,7 +47,8 @@
     "install:mod": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\install-mod.ps1",
     "smoke": "node scripts/live-smoke.mjs",
     "kb:lint": "node scripts/kb-lint.mjs",
-    "kb:ids": "node scripts/kb-ids.mjs"
+    "kb:ids": "node scripts/kb-ids.mjs",
+    "kb:route": "node scripts/route.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": "*"

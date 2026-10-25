@@ -58,6 +58,13 @@ ID 表为什么算通用知识：`ItemID` / `TileID` / `WallID` 是程序常量�
 
 ## 路由逻辑
 
+**第一步永远是分类器**：[`prompts/intent-router.md`](../../prompts/intent-router.md)。
+把玩家原话原样喂进去，它只回一行标签（`a, b, c`），不带解释。
+拿到标签再走下面的树——不许跳过分类临场挑库。
+
+没有模型时用关键词兜底（`node scripts/route.mjs "<原话>"`），输出格式一样，
+但它只是粗筛，不假装能复现模型判断。
+
 ```
 玩家消息
   ├─ 永远先加载：safety_limit（禁令 / 范围 / 自检）
@@ -65,12 +72,13 @@ ID 表为什么算通用知识：`ItemID` / `TileID` / `WallID` 是程序常量�
   ├─ 问"东西怎么用"（镐/斧/锤/门/弓箭/药水/召唤物）      → item_operation
   ├─ 要建/要改地形（房子、平台、农场、竖井、隧道）        → build_standard（+ game_rule 判定）
   ├─ 做事（走/打/捡/找 NPC/喝药）                        → actor_behavior
+  ├─ 要角色动手执行单步动作（放一块/挖一格/切物品/铺墙/重试）→ atomic_action
   └─ 说得不清楚 / 我上次没做成 / 玩家纠正我              → task_correct
 ```
 
 多标签命中时的加载顺序（后者补充前者，不重复整库加载）：
 
-`safety_limit` → `game_rule` → `build_standard` → `actor_behavior` → `item_operation` → `task_correct`
+`safety_limit` → `game_rule` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`
 
 关键词表的**唯一事实来源**是 `src/kb-router.js` 的 `KEYWORDS`
 （每条规则都可审计：命中哪些词、各打几分，`route()` 会一起返回）。
@@ -91,3 +99,6 @@ buildContext('为什么 NPC 不住进去')  // → 安全库 + 命中库的正�
 | 重新生成命令附录 | `node scripts/kb-sync.mjs` |
 | 校验命令表与代码一致 | `node scripts/kb-sync.mjs --check`（`npm test` 里也有） |
 | 重新生成 ID 对照表 | 游戏内 `{"cmd":"idmap","params":{"path":"<临时目录>/ids.tsv"}}` → `npm run kb:ids -- --tsv <该文件>` |
+| 看看分类器 Prompt 全文 | `node scripts/route.mjs --prompt` |
+| 校验一份分类器输出 | `node scripts/route.mjs --tags "game_rule, atomic_action"` |
+| 离线兜底判一句 | `node scripts/route.mjs "帮我造一间护士的房子"` |

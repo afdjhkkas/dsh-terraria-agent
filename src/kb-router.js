@@ -9,6 +9,7 @@
  *  - 判定必须可解释（返回命中的证据词），不能是黑盒。
  */
 
+import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -29,6 +30,38 @@ export const LIBRARIES = {
 
 /** 永远加载，不参与判定。 */
 export const ALWAYS = ['safety_limit']
+
+/** 合法标签（顺序即加载顺序）。 */
+export const TAGS = Object.keys(LIBRARIES)
+
+/** 前置分类器 Prompt 的位置：玩家发话先跑它，拿到标签再查库。 */
+export const ROUTER_PROMPT_PATH = join(HERE, '..', 'prompts', 'intent-router.md')
+
+/** Prompt 正文（供工具层/测试直接取用，避免各处再抄一遍）。 */
+export const ROUTER_PROMPT = readFileSync(ROUTER_PROMPT_PATH, 'utf8')
+
+/**
+ * 把分类器（或人）给出的原始标签串规整成合法标签数组：
+ * 容忍中英文逗号、顿号、空格、换行、多余引号；丢掉非法标签；去重；按加载顺序排序。
+ * @param {string|string[]} raw
+ * @returns {{tags: string[], unknown: string[]}}
+ */
+export function normalizeTags(raw) {
+  const list = Array.isArray(raw) ? raw : String(raw ?? '').split(/[,，、\s]+/)
+  const seen = new Set()
+  const unknown = []
+  for (const item of list) {
+    const tag = String(item).trim().replace(/^[`'"“”]+|[`'"“”]+$/g, '')
+    if (!tag) continue
+    if (!LIBRARIES[tag]) {
+      unknown.push(tag)
+      continue
+    }
+    seen.add(tag)
+  }
+  const tags = TAGS.filter((t) => seen.has(t))
+  return { tags, unknown }
+}
 
 /**
  * 关键词表。一个词命中即算该标签打一分；分数高者优先，同分按 LIBRARIES 顺序。
@@ -131,6 +164,12 @@ export async function load(tags, opts = {}) {
  * @param {{dir?: string}} [opts]
  */
 export async function buildContext(text, opts = {}) {
+  // 传了 tags 就用传进来的（前置分类器的结果），不再自己拿关键词猜。
+  if (opts.tags) {
+    const { tags, unknown } = normalizeTags(opts.tags)
+    const docs = await load(tags, opts)
+    return { tags, unknown, scores: {}, hits: {}, docs }
+  }
   const { tags, scores, hits } = route(text)
   const docs = await load(tags, opts)
   return { tags, scores, hits, docs }
