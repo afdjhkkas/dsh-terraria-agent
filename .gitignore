@@ -6,3 +6,4 @@ artifacts/*.previous-installed.tmod
 DshTerrariaBridge/bin/
 DshTerrariaBridge/obj/
 build-save/
+t.log
