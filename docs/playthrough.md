@@ -1266,3 +1266,35 @@ row4 310 -> 311.7     每行稳定下 1 格
 补一步 `move dir=right ms=300` → 落在 (2267,304.7) grounded=true，血 100%。
 
 **爬井标准动作：climb up 冒出地面 → 立刻横move 一小步 → 回读坐标确认站稳。**
+
+## A* 执行器的两个真 bug（这轮修掉，都已实测）
+
+### 1. 往下挖只挖一列 → 永远下不去
+
+`TickPath` 的 `dy >= 1` 分支原来只有：
+```csharp
+if (PathAllowDig && !TileAir(px, py + 2)) WalkMine(px, py + 2);
+```
+角色碰撞盒占 `px-1` 和 `px` 两格，只挖 `px` 会在脚下留一格实心，
+结果就是**原地上下跳、一格都下不去**——之前"跳 60 秒"的真因不是没路，是少挖一列。
+修好后实测：y 302.7 → 305.7 → 307.4 → **311.7**（一口气挖下去 9 格）。
+
+### 2. 看门狗用坐标判据 → 抖动时永不触发
+
+第一版写的是"整数 px/py 连续 45 帧不变就停"，但人在原地抖 1 格时
+py 会在 305/306 之间来回变，计数器每帧被清零，**60 秒都不会停**。
+改成**路径下标不再前进**当判据：
+```csharp
+if (PathIndex == PathLastIndex) PathIdxStuck++;
+else { PathIdxStuck = 0; PathLastIndex = PathIndex; }
+if (PathIdxStuck > 90) { StopPath("no-progress"); return; }
+```
+实测：卡住后约 3 秒返回 `stop:"no-progress"`，`active:false`，不再干等。
+
+### 3. 部署链的坑：改仓库不等于改游戏
+
+`cycle.ps1` 原来只编译 `ModSources\DshTerrariaBridge`，而代码在 git 仓库里，
+所以**改仓库 + 重启 = 装的还是旧代码**（这轮白测了一次，`.tmod` 三次都是 95376 字节）。
+现在 cycle.ps1 在编译前自动 `仓库 -> ModSources` 同步（通配符定位仓库路径，
+不写中文字面量：PowerShell 5.1 读无 BOM 文件时会把中文路径读坏，导致同步静默跳过）。
+同步后 `.tmod` 变成 95608/95610 字节，才是真的新代码。

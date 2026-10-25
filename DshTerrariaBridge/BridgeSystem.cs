@@ -282,6 +282,7 @@ namespace DshTerrariaBridge
         internal static ulong PathDeadline;
         internal static bool PathAllowDig = true;
         private static ulong PathNextAct;
+        private static int PathLastIndex = -1, PathIdxStuck;
 
         private static bool TileAir(int x, int y)
         {
@@ -377,6 +378,7 @@ namespace DshTerrariaBridge
             PathIndex = 0; PathActive = PathCells.Count > 0;
             PathStop = PathActive ? "" : "空路径";
             PathDeadline = until; PathNextAct = 0;
+            PathLastIndex = -1; PathIdxStuck = 0;
         }
 
         internal static void StopPath(string reason)
@@ -396,6 +398,15 @@ namespace DshTerrariaBridge
             if (Now < PathNextAct) return;
 
             int px = (int)(p.Center.X / 16f), py = (int)(p.Center.Y / 16f);
+
+            // 死锁看门狗：实测在空腔竖井里 A* 会原地上下跳 60 秒、一格不动，
+            // 而 timeout 要等满 60 秒才触发。
+            // 用"路径下标不再前进"当判据，而不是坐标：人在原地上下抖 1 格时
+            // 整数 py 会在 305/306 之间来回变，坐标判据永远不会触发（实测踩过）。
+            if (PathIndex == PathLastIndex) PathIdxStuck++;
+            else { PathIdxStuck = 0; PathLastIndex = PathIndex; }
+            if (PathIdxStuck > 90) { StopPath("no-progress"); return; }
+
             while (PathIndex < PathCells.Count)
             {
                 var c = PathCells[PathIndex];
@@ -427,7 +438,11 @@ namespace DshTerrariaBridge
             }
             else if (dy >= 1)
             {
+                // 往下挖：角色碰撞盒占 px-1 和 px 两格（桥报的 px 是中心点），
+                // 只挖 px 会留一格实心在脚下，人一格都下不去——这正是之前竖井"跳 60 秒不动"的真因。
                 if (PathAllowDig && !TileAir(px, py + 2)) WalkMine(px, py + 2);
+                if (PathAllowDig && !TileAir(px - 1, py + 2)) WalkMine(px - 1, py + 2);
+                if (PathAllowDig && TileAir(px, py + 2) && TileAir(px - 1, py + 2) && !TileAir(px, py + 3)) WalkMine(px, py + 3);
             }
             PathNextAct = Now + 3;
         }
@@ -781,6 +796,7 @@ namespace DshTerrariaBridge
             public int ArmedX, ArmedY;     // 上一帧压准星的目标格（-1 = 无）
             public bool Dig;               // false = 只走路，绝不碰方块
             public string StopReason;
+            public int LastPx, LastPy, Stuck;
         }
 
         internal static TravelJob Travel;
@@ -797,6 +813,7 @@ namespace DshTerrariaBridge
                 NextMine = Now,
                 ArmedX = -1,
                 StopReason = "",
+                LastPx = -99999, LastPy = -99999, Stuck = 0,
             };
         }
 
@@ -847,6 +864,11 @@ namespace DshTerrariaBridge
             else if (vertical) reachedNow = py >= Travel.TargetX ? 1 : 0;
             else reachedNow = Travel.Dir > 0 ? (px >= Travel.TargetX ? 1 : 0) : (px <= Travel.TargetX ? 1 : 0);
             if (reachedNow == 1) { StopTravel("reached"); return; }
+
+            // 卡死看门狗：位置连续 45 帧不动就停（以前只能等超时，脚本层干等 60 秒）
+            if (px == Travel.LastPx && py == Travel.LastPy) Travel.Stuck++;
+            else { Travel.Stuck = 0; Travel.LastPx = px; Travel.LastPy = py; }
+            if (Travel.Stuck > 45) { StopTravel("stuck"); return; }
             // 血低 / 溺水 / 有敌人：交还给脚本层
             if (p.statLife < p.statLifeMax2 * 0.45f) { StopTravel("lowhp"); return; }
             if (p.wet && p.breath <= 0) { StopTravel("drowning"); return; }
