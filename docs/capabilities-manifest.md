@@ -48,7 +48,7 @@
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
 | `mount` | `activeAfter` `held` `action` `active` `type` `flight` `items` |
 
-## 二、动作能力（53 个命令）
+## 二、动作能力（54 个命令）
 
 | 命令 | 参数 | 干什么 |
 |---|---|---|
@@ -97,6 +97,7 @@
 | `startevent` | `event` | — |
 | `stop` | — | — |
 | `talk` | `npc` | — |
+| `trash` | `slot` `count` | — |
 | `travel` | `stop` `dir` `distance` `ms` `dig` | — |
 | `unhook` | — | — |
 | `up` | — | — |

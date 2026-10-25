@@ -1101,6 +1101,23 @@
       "summary": ""
     },
     {
+      "name": "trash",
+      "kind": "act",
+      "params": [
+        "slot",
+        "count"
+      ],
+      "returns": [
+        "trashed",
+        "type",
+        "count",
+        "replaced",
+        "left",
+        "hint"
+      ],
+      "summary": ""
+    },
+    {
       "name": "travel",
       "kind": "act",
       "params": [

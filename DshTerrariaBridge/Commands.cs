@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -72,6 +72,7 @@ namespace DshTerrariaBridge
                 case "capture": return Capture(p);
                 case "liquidop": return LiquidOp(p);
                 case "drop": return DropItem(p);
+                case "trash": return TrashItem(p);
                 case "heal": return HealSelf(p);
                 case "boss": return BossStatus(p);
                 case "event": return EventStatus(p);
@@ -616,7 +617,11 @@ namespace DshTerrariaBridge
             // Which tool a tile needs is a game fact, not a guess: Main.tileAxe marks every
             // tree-like tile (palm, vanity trees, cactus...). Checking only TileID.Trees made the
             // agent swing a pickaxe at a vanity tree and conclude the tile was unbreakable.
-            bool needsAxe = t.HasTile && Main.tileAxe[t.TileType];
+            // Main.tileAxe 在这个版本里并不包含 Trees(5)：实测对着树干挥镐，格子消失但
+            // 一根木头都不掉——那是"用错工具"，不是"没有掉落"。所以树木类统一按砍伐处理。
+            bool needsAxe = t.HasTile && (Main.tileAxe[t.TileType]
+                || (t.TileType < TileID.Sets.IsATreeTrunk.Length && TileID.Sets.IsATreeTrunk[t.TileType])
+                || t.TileType == TileID.Cactus);
             // 斧头的有效距离比镐短：实测同一棵树，4.3 格外挥斧游戏接指令但格子不掉，
             // 走到 1.5 格内立刻掉。所以砍树单独用 4 格判定，别让人白挥。
             int reach = needsAxe ? 4 : 7;
@@ -867,6 +872,46 @@ namespace DshTerrariaBridge
         }
 
         /* ── 丢东西 / 喝药 / Boss 与事件状态 / 穿护甲 ────────────────── */
+
+        /// <summary>
+        /// 把背包里的东西送进"垃圾桶"栏位——就是背包界面里那个专用销毁格。
+        /// 为什么不能用 drop 来腾格子：丢在地上之后空位立刻出现，自动拾取又会把它吸回来，
+        /// 于是"腾空了又满了"，看着像 bug 其实是自己丢的东西被自己捡回。销毁才是真的消失。
+        /// </summary>
+        private static string TrashItem(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int slot = Json.Int(p, "slot", -1);
+            if (slot < 0 || slot >= pl.inventory.Length) return Json.Error("slot 越界");
+            Item it = pl.inventory[slot];
+            if (it == null || it.type <= 0) return Json.Error("这个格子是空的");
+            int n = Math.Clamp(Json.Int(p, "count", it.stack), 1, it.stack);
+            string oldTrash = (pl.trashItem != null && pl.trashItem.type > 0) ? pl.trashItem.Name : null;
+
+            // 与 UI 拖入垃圾桶等价：垃圾桶里原有物品被销毁，被拖的物品离开背包。
+            Item moved = it.Clone();
+            moved.stack = n;
+            moved.position = Vector2.Zero;
+            pl.trashItem = moved;
+            if (n >= it.stack) pl.inventory[slot] = new Item();
+            else it.stack -= n;
+
+            bool gone = pl.inventory[slot] == null || pl.inventory[slot].type != moved.type
+                        || pl.inventory[slot].stack < n + (it.stack);
+            return Json.Ok(new
+            {
+                trashed = moved.Name,
+                type = moved.type,
+                count = n,
+                slot,
+                replaced = oldTrash,
+                left = pl.inventory[slot] == null ? 0 : pl.inventory[slot].stack,
+                gone,
+                hint = "真销毁：不会掉在地上被吸回来。",
+            });
+        }
 
         private static string DropItem(JsonElement p)
         {
