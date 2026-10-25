@@ -771,7 +771,10 @@ namespace DshTerrariaBridge
             // 只有"换成另一件事"才重新起手。持续挖同一格时每一帧都置 UseJustStarted 会让
             // ApplyAim 每帧塞一次 mouseLeftRelease，原版就把挥动动画不断重置——玩家在屏幕上
             // 看不到正常的挥镐动作，土方却还在消失，完全像指令挖。实测这就是"看着不像真人"的根因。
-            bool sameTarget = slot == LastUseSlot && tileX == LastUseX && tileY == LastUseY && UseUntil > Now;
+            // 上一次挥动已经播完（空手等待 / 动作结束）时，必须允许重新起手——否则连续射击同一目标
+            // 时第二箭永远不发（实测：对着同一格连射 6 次，箭一支没少）。这就是真人"按住左键连挥"。
+            bool animDone = p.itemAnimation == 0 && p.itemTime == 0;
+            bool sameTarget = slot == LastUseSlot && tileX == LastUseX && tileY == LastUseY && UseUntil > Now && !animDone;
             SetAim(tileX, tileY);
             if (!sameTarget) UseJustStarted = true;
             LastUseSlot = slot; LastUseX = tileX; LastUseY = tileY;
@@ -864,6 +867,35 @@ namespace DshTerrariaBridge
             }
             if (ClimbUpUntil > now) p.controlUp = true;
             if (ClimbDownUntil > now) p.controlDown = true;
+            if (HookHeld && HookUntil > now)
+            {
+                p.controlHook = true;
+                Main.mouseLeft = true;
+            }
+            if (HookReleasePending)
+            {
+                p.controlHook = false;
+                p.releaseHook = true;
+                HookReleasePending = false;
+            }
+            // 松手 + 跳一下之后钩子还挂着（实测原版这两步都不脱钩），兜底清附着状态。
+            // 这是角色自身状态（和走路写 velocity 同类），不动世界。
+            if (HookForceDetachAt > 0 && now >= HookForceDetachAt)
+            {
+                if (p.grapCount > 0)
+                {
+                    // 只管 grapCount/pulley 没用：下一帧原版会从还活着的抓钩弹幕把 grapCount
+                    // 重新算回来（实测位置一直钉死）。真正的脱钩就是让抓钩弹幕收回/消失。
+                    for (int i = 0; i < Main.maxProjectiles; i++)
+                    {
+                        Projectile pr = Main.projectile[i];
+                        if (pr.active && pr.owner == p.whoAmI && pr.aiStyle == 7) pr.Kill();
+                    }
+                    p.pulley = false;
+                    p.grapCount = 0;
+                }
+                HookForceDetachAt = 0;
+            }
             if (UseTileUntil > now)
             {
                 Main.mouseRight = true;
@@ -1338,6 +1370,14 @@ namespace DshTerrariaBridge
         // 攀爬：只按 controlUp/controlDown，让原版的绳子物理自己抬人。
         // 不复用 UpUntil/DownUntil —— 那两个会直接写 velocity，等于"悬停"，不是原版行为。
         internal static ulong ClimbUpUntil, ClimbDownUntil;
+        // 抓钩：原版是 Player.controlHook（真人按住左键时由输入层置位）驱动的。
+        // 之前只置 mouseLeft 没用——钩子根本不会飞出去（实测 grapCount 一直 0）。
+        internal static volatile bool HookHeld;
+        internal static ulong HookUntil;
+        // 脱钩要走原版的 releaseHook 一帧标志（和 mouseLeftRelease 同类的机制）。
+        // 只清 controlHook 不够：实测 grapCount 一直停在 1，角色被钉在原地。
+        internal static volatile bool HookReleasePending;
+        internal static ulong HookForceDetachAt;
         internal static ulong AttackUntil, AttackNextTick;
         internal static volatile int AttackTarget = -1, AttackRadius = 40, AttackIntervalTicks = 10;
         internal static volatile bool AttackAutoTarget, AttackFinished, AttackFinishedCleanly, AttackKilled, AttackBlockedByTerrain, JumpIssued;

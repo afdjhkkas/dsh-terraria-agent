@@ -365,3 +365,24 @@ if (pPlaced) WorldGen.RangeFrame(x - 2, y - 2, x + 3, y + 3);
 2. `place` 在"目标格四周全空"时会失败（需要支撑）——这是原版规则，不是 bug。
 3. 家具摆放仍然要求玩家站得够近（原版 5~6 格），远处放不上。
 4. 一个格子的挖掘要 1.3 秒挥动；这是真实手感，也是速率上限。
+
+## 位移 / 战斗 / 召唤（第 150 轮新增，全部实测）
+
+| 能力 | 命令 | 状态 | 证据 |
+|---|---|---|---|
+| 选武器 | `select {item}` | ✅ | 铁弓 → `held{type:99,name:铁弓}`，`selected` 同步 |
+| 射箭 | `shoot {x,y,ms}` | ✅ | 木箭 95→94→93（一次调用连放两箭）；僵尸 hp 22→22→**2** |
+| 甩抓钩 | `hook {x,y,ms}` | ✅ | 挂住木地板 4 格：`grapCount 0→1`、`hookType 13`，角色被拉到 2100→**2097.6** |
+| 松开抓钩 | `unhook` | ✅ | `grapCount 1→0`、`hookType -1`，角色留在原地可继续行动 |
+| 飞行 | `fly {ms}` | ⚠️ 诚实否定 | 无翅膀/坐骑时回 `hasWings:false, wingTimeMax:0` + 提示"按住跳跃只会起跳" |
+| 坐骑 | `mount {action}` | ⚠️ 无物品 | `mount` 回 `{active:false,type:-1,items:[]}`；拿到坐骑后再实测 |
+| 召唤 | `minion {slot}` | ⚠️ 部分 | 雀杖使用时 `minions 1/1`（槽位已满，命令如实回报"随从位已满"）；从 0 召唤待拿到多随从位后复测 |
+
+### 这一轮修掉的两个真 bug
+1. **连射第二箭永远不发**：`BeginItemUse` 只在"换目标"时才重新起手，弓的 `useTime` 是 28 tick（≈467ms），
+   400ms 的调用结束时还在挥动中，下一次调用被判定成"同一件事"→ 不再起手。改法：上一次动作已播完
+   （`itemAnimation == 0 && itemTime == 0`）就允许重新起手；`shoot` 默认握 600ms。
+   实测：连射 8 次只掉 1 支箭、怪一滴血不掉 → 修好后一次调用掉 2 支箭、僵尸 22→2。
+2. **抓钩甩出去挂不住**：只置 `Main.mouseLeft` 没用，抓钩由 `Player.controlHook` 驱动；
+   脱钩则要 `Player.releaseHook` 一帧 + 让抓钩弹幕收回（只清 `grapCount` 下一帧就被重算回来）。
+   改法：`hook` 期间每帧置 `controlHook`；`unhook` 置一帧 `releaseHook`，250ms 后仍挂着就 `projectile.Kill()`。

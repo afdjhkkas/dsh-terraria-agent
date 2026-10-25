@@ -70,6 +70,13 @@ namespace DshTerrariaBridge
                 case "climb": return Climb(p);
                 case "use": return Use(p);
                 case "attack": return Attack(p);
+                case "select": return SelectSlot(p);
+                case "shoot": return Shoot(p);
+                case "hook": return Hook(p);
+                case "unhook": return Unhook(p);
+                case "fly": return Fly(p);
+                case "mount": return MountCmd(p);
+                case "minion": return Minion(p);
                 case "follow": return FollowCmd(p);
                 case "idle": return IdleCmd(p);
                 case "players": return PlayersCmd();
@@ -246,6 +253,16 @@ namespace DshTerrariaBridge
                     hpPercent = pl.statLifeMax2 > 0 ? (int)(100f * pl.statLife / pl.statLifeMax2) : 0,
                     // 生物群系标志：找腐化/猩红/丛林/沙漠时不用盲挖，读这里就知道走到哪了。
                     zones = Zones(pl),
+                    // 位移/战斗能力的回读项。没有这些数，射箭/召唤/挂钩/飞行就只能"看着像做了"。
+                    minions = pl.numMinions,
+                    minionSlots = pl.maxMinions,
+                    grapCount = pl.grapCount,
+                    hookType = HookProjectile(pl),
+                    mounted = pl.mount != null && pl.mount.Active,
+                    mountType = pl.mount != null && pl.mount.Active ? pl.mount.Type : -1,
+                    wingTime = pl.wingTime,
+                    wingTimeMax = pl.wingTimeMax,
+                    hasWings = pl.wings > 0,
                 };
                 data["attack"] = BridgeSystem.AttackStatus();
                 data["path"] = new
@@ -1929,6 +1946,267 @@ namespace DshTerrariaBridge
                 held = new { type = pl.HeldItem.type, name = pl.HeldItem.Name },
                 // Evidence that something actually started, instead of just "ok".
                 anim = pl.itemAnimation,
+            });
+        }
+
+        // ==== 通行与飞行：挂钩 / 飞行 / 坐骑 / 召唤 / 远程 ====
+        //
+        // 这些能力都必须走原版物品使用路径：选槽位、压准星、按住使用键，
+        // 由游戏自己发射弹幕、召出小怪、驱动翅膀/坐骑。这里只读状态回来做证据。
+
+        /// <summary>选中一个背包槽位（快捷栏 0~9），回读手持物。</summary>
+        private static string SelectSlot(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int slot = Json.Int(p, "slot", -1);
+            int item = Json.Int(p, "item", -1);
+            if (slot < 0 && item > 0)
+            {
+                for (int i = 0; i < pl.inventory.Length; i++)
+                    if (pl.inventory[i] != null && pl.inventory[i].type == item && pl.inventory[i].stack > 0) { slot = i; break; }
+            }
+            if (slot < 0 || slot >= pl.inventory.Length) return Json.Error("没有这个槽位，也没找到该物品");
+            pl.selectedItem = slot;
+            Item held = pl.inventory[slot];
+            return Json.Ok(new
+            {
+                slot = pl.selectedItem,
+                held = held == null ? null : new { type = held.type, name = held.Name, stack = held.stack },
+                damage = held?.damage ?? 0,
+                shoot = held?.shoot ?? 0,
+                useStyle = held?.useStyle ?? 0,
+            });
+        }
+
+        /// <summary>玩家自己发射出去的弹幕数（作为"真的射出东西"的证据）。</summary>
+        private static int OwnProjectiles(Player pl)
+        {
+            int n = 0;
+            for (int i = 0; i < Main.maxProjectiles; i++)
+            {
+                Projectile q = Main.projectile[i];
+                if (q != null && q.active && q.owner == pl.whoAmI) n++;
+            }
+            return n;
+        }
+
+        /// <summary>
+        /// 远程攻击：选中弓/枪/法杖，把准星压到目标格，按住使用键让它自己发射。
+        /// 不直接扣血——箭/子弹是不是真飞出去，用弹幕数量回读证明。
+        /// </summary>
+        private static string Shoot(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            if (!CanTick(out string perr2)) return Json.Error(perr2);
+            Player pl = P;
+            if (pl.dead) return Json.Error("玩家已死亡");
+            int x = Json.Int(p, "x", int.MinValue), y = Json.Int(p, "y", int.MinValue);
+            if (x == int.MinValue || y == int.MinValue) return Json.Error("shoot 需要 x,y（瞄准的方块）");
+            int slot = Json.Int(p, "slot", -1);
+            if (slot < 0) slot = pl.selectedItem;
+            // 默认 600ms：弓的 useTime 是 28 tick（≈467ms），握太短（400ms）
+            // 一次调用只能放出一箭，而且紧接着的下一次调用还在挥动中、不会再起手——
+            // 实测对着史莱姆连射 8 次只放出 1 箭、怪一滴血没掉。
+            int ms = Math.Clamp(Json.Int(p, "ms", 600), 60, 6000);
+            Item held = pl.inventory[slot];
+            if (held == null || held.type <= 0) return Json.Error("这个槽位是空的");
+            int before = OwnProjectiles(pl);
+            int ammoBefore = 0;
+            for (int i = 0; i < pl.inventory.Length; i++)
+                if (pl.inventory[i] != null && pl.inventory[i].ammo > 0) ammoBefore += pl.inventory[i].stack;
+            BridgeSystem.BeginItemUse(slot, x, y, ms);
+            return Json.Ok(new
+            {
+                x, y, slot, ms,
+                held = new { type = held.type, name = held.Name, shoot = held.shoot, useTime = held.useTime },
+                projectilesBefore = before,
+                ammoBefore,
+            });
+        }
+
+        /// <summary>
+        /// 抓钩类物品：原版抓钩没有伤害、不耗魔力、不用弹药，但会发射一个弹幕。
+        /// 用这三条判定，比维护一张 id 表可靠（后期抓钩 id 有一大堆）。
+        /// </summary>
+        /// <summary>正挂着的抓钩弹幕类型（没有就 -1）。原版抓钩弹幕的 aiStyle 固定是 7。</summary>
+        private static int HookProjectile(Player pl)
+        {
+            for (int i = 0; i < Main.maxProjectiles; i++)
+            {
+                Projectile pr = Main.projectile[i];
+                if (pr.active && pr.owner == pl.whoAmI && pr.aiStyle == 7) return pr.type;
+            }
+            return -1;
+        }
+
+        private static bool IsHookItem(Item it)
+        {
+            if (it == null || it.type <= 0 || it.stack <= 0) return false;
+            return it.damage == 0 && it.shoot > 0 && it.ammo == 0 && it.mana == 0 && it.useStyle == 0;
+        }
+
+        /// <summary>
+        /// 抓钩：选中抓钩类物品，往目标格甩出去，读 grapCount/graphook 证明真的挂住了。
+        /// 拉动由原版物理完成（这里不写坐标）。
+        /// </summary>
+        private static string Hook(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            if (!CanTick(out string perr2)) return Json.Error(perr2);
+            Player pl = P;
+            if (pl.dead) return Json.Error("玩家已死亡");
+            int x = Json.Int(p, "x", int.MinValue), y = Json.Int(p, "y", int.MinValue);
+            if (x == int.MinValue || y == int.MinValue) return Json.Error("hook 需要 x,y（要挂住的方块）");
+            int slot = Json.Int(p, "slot", -1);
+            if (slot < 0)
+            {
+                for (int i = 0; i < pl.inventory.Length; i++)
+                {
+                    Item it = pl.inventory[i];
+                    if (it == null || it.type <= 0 || it.stack <= 0) continue;
+                    if (IsHookItem(it)) { slot = i; break; }
+                }
+            }
+            if (slot < 0 || slot >= pl.inventory.Length) return Json.Error("背包里没有抓钩");
+            int distance = (int)Vector2.Distance(pl.Center / 16f, new Vector2(x, y));
+            if (distance > 40) return Json.Error("抓钩最远约 40 格，目标在 " + distance + " 格外");
+            int before = pl.grapCount;
+            int ms = Json.Int(p, "ms", 1600);
+            // 抓钩由 Player.controlHook 驱动（真人按住左键时输入层置的就是这个标志）。
+            // 只置 mouseLeft 钩子不会飞：实测 grapCount 一直 0。
+            pl.selectedItem = slot;
+            BridgeSystem.SetAim(x, y);
+            BridgeSystem.HookHeld = true;
+            BridgeSystem.HookUntil = BridgeSystem.Now + BridgeSystem.Ticks(ms);
+            return Json.Ok(new
+            {
+                x, y, slot, distance, ms,
+                grapCountBefore = before,
+                held = new { type = pl.inventory[slot].type, name = pl.inventory[slot].Name },
+            });
+        }
+
+        /// <summary>松开抓钩：让角色做一个跳跃动作（原版里跳跃就会脱钩）。</summary>
+        private static string Unhook(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int before = pl.grapCount;
+            // 真人脱钩就是松手 + 跳一下：松手靠清掉 controlHook，跳一下帮角色脱离附着点。
+            BridgeSystem.HookHeld = false;
+            BridgeSystem.HookUntil = 0;
+            BridgeSystem.HookReleasePending = true;
+            BridgeSystem.HookForceDetachAt = BridgeSystem.Now + BridgeSystem.Ticks(250);
+            BridgeSystem.JumpUntil = BridgeSystem.Now + BridgeSystem.Ticks(160);
+            BridgeSystem.JumpIssued = false;
+            return Json.Ok(new { grapCountBefore = before });
+        }
+
+        /// <summary>
+        /// 飞行：按住跳跃键 ms 毫秒。有翅膀时原版会给升力；有飞行坐骑时同理。
+        /// 没有翅膀/坐骑时它会诚实地落回地面——这就是"能不能飞"的判据。
+        /// </summary>
+        private static string Fly(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            if (!CanTick(out string perr2)) return Json.Error(perr2);
+            Player pl = P;
+            if (pl.dead) return Json.Error("玩家已死亡");
+            int ms = Math.Clamp(Json.Int(p, "ms", 900), 60, 8000);
+            bool wings = pl.wingTimeMax > 0 || pl.equippedWings != null;
+            bool mounted = pl.mount != null && pl.mount.Active;
+            BridgeSystem.JumpUntil = BridgeSystem.Now + BridgeSystem.Ticks(ms);
+            BridgeSystem.JumpIssued = false;
+            return Json.Ok(new
+            {
+                ms,
+                hasWings = wings,
+                wingTimeMax = pl.wingTimeMax,
+                wingTime = pl.wingTime,
+                mounted,
+                velY = pl.velocity.Y,
+                hint = wings || mounted ? null : "没有翅膀也没有飞行坐骑，按住跳跃只会起跳，不会飞",
+            });
+        }
+
+        /// <summary>
+        /// 坐骑：ride 用背包里的坐骑物品（原版 use 路径），dismount 调原版下马。
+        /// </summary>
+        private static string MountCmd(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            if (!CanTick(out string perr2)) return Json.Error(perr2);
+            Player pl = P;
+            if (pl.dead) return Json.Error("玩家已死亡");
+            string action = Json.Str(p, "action", "info");
+            bool activeBefore = pl.mount != null && pl.mount.Active;
+            int typeBefore = activeBefore ? pl.mount.Type : -1;
+            if (action == "dismount")
+            {
+                if (activeBefore) pl.mount.Dismount(pl);
+                return Json.Ok(new { action, activeBefore, typeBefore, activeAfter = pl.mount != null && pl.mount.Active });
+            }
+            if (action == "ride")
+            {
+                int slot = Json.Int(p, "slot", -1);
+                if (slot < 0)
+                {
+                    for (int i = 0; i < pl.inventory.Length; i++)
+                    {
+                        Item it = pl.inventory[i];
+                        if (it != null && it.type > 0 && it.stack > 0 && it.mountType > 0) { slot = i; break; }
+                    }
+                }
+                if (slot < 0) return Json.Error("背包里没有坐骑召唤物品");
+                BridgeSystem.BeginItemUse(slot, (int)(pl.Center.X / 16f), (int)(pl.Center.Y / 16f), 240);
+                return Json.Ok(new { action, slot, activeBefore, typeBefore, held = new { type = pl.inventory[slot].type, name = pl.inventory[slot].Name } });
+            }
+            return Json.Ok(new
+            {
+                action = "info",
+                active = activeBefore,
+                type = typeBefore,
+                flight = activeBefore && pl.mount.Flight(),
+                items = Array.FindAll(pl.inventory, it => it != null && it.mountType > 0).Select(it => new { it.type, it.Name }),
+            });
+        }
+
+        /// <summary>
+        /// 召唤：用召唤法杖召出随从，读 numMinions 证明真的召出来了。
+        /// </summary>
+        private static string Minion(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            if (!CanTick(out string perr2)) return Json.Error(perr2);
+            Player pl = P;
+            if (pl.dead) return Json.Error("玩家已死亡");
+            int slot = Json.Int(p, "slot", -1);
+            if (slot < 0)
+            {
+                for (int i = 0; i < pl.inventory.Length; i++)
+                {
+                    Item it = pl.inventory[i];
+                    if (it != null && it.type > 0 && it.stack > 0 && it.DamageType == DamageClass.Summon) { slot = i; break; }
+                }
+            }
+            if (slot < 0) return Json.Error("背包里没有召唤物品");
+            int before = pl.numMinions;
+            BridgeSystem.BeginItemUse(slot, (int)(pl.Center.X / 16f) + 2, (int)(pl.Center.Y / 16f), 300);
+            return Json.Ok(new
+            {
+                slot,
+                before,
+                slots = pl.slotsMinions,
+                held = new { type = pl.inventory[slot].type, name = pl.inventory[slot].Name },
+                hint = before >= pl.slotsMinions ? "随从位已满（再多也只能减员）" : null,
             });
         }
 
