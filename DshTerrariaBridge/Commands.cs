@@ -1423,13 +1423,13 @@ namespace DshTerrariaBridge
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             if (Json.Bool(p, "stop", false)) { BridgeSystem.StopTravel("requested"); return BridgeSystem.TravelStatus(); }
             string dir = (Json.Str(p, "dir", "right") ?? "right").ToLowerInvariant();
-            if (dir != "left" && dir != "right" && dir != "down") return Json.Error($"dir 只能是 left/right/down，收到 {dir}");
+            if (dir != "left" && dir != "right" && dir != "down" && dir != "up") return Json.Error($"dir 只能是 left/right/down/up，收到 {dir}");
             int distance = Math.Clamp(Json.Int(p, "distance", 100), 1, 4200);
             int ms = Math.Clamp(Json.Int(p, "ms", 60000), 200, 900000);
             int px = (int)MathF.Floor(P.Center.X / 16f);
             int py = (int)MathF.Floor(P.Center.Y / 16f);
-            int sign = dir == "down" ? 2 : (dir == "right" ? 1 : -1);
-            int target = dir == "down" ? py + distance : px + sign * distance;
+            int sign = dir == "down" ? 2 : (dir == "up" ? 3 : (dir == "right" ? 1 : -1));
+            int target = dir == "down" ? py + distance : (dir == "up" ? py - distance : px + sign * distance);
             BridgeSystem.StartTravel(sign, target, ms);
             return BridgeSystem.TravelStatus();
         }
