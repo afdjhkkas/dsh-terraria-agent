@@ -636,6 +636,7 @@ namespace DshTerrariaBridge
         internal static volatile int AimTileX = -1, AimTileY = -1;
         internal static ulong AimUntil;
         internal static volatile bool UseJustStarted, UseTileJustStarted;
+        internal static int LastUseSlot = -1, LastUseX = -1, LastUseY = -1;
         internal static long PreItemCalls, SetControlCalls, SynthCalls;
 
         internal static void SetAim(int x, int y) { AimTileX = x; AimTileY = y; }
@@ -652,8 +653,13 @@ namespace DshTerrariaBridge
             Player p = Main.LocalPlayer;
             if (p == null || !p.active) return;
             if (slot >= 0 && slot < p.inventory.Length) p.selectedItem = slot;
+            // 只有"换成另一件事"才重新起手。持续挖同一格时每一帧都置 UseJustStarted 会让
+            // ApplyAim 每帧塞一次 mouseLeftRelease，原版就把挥动动画不断重置——玩家在屏幕上
+            // 看不到正常的挥镐动作，土方却还在消失，完全像指令挖。实测这就是"看着不像真人"的根因。
+            bool sameTarget = slot == LastUseSlot && tileX == LastUseX && tileY == LastUseY && UseUntil > Now;
             SetAim(tileX, tileY);
-            UseJustStarted = true;
+            if (!sameTarget) UseJustStarted = true;
+            LastUseSlot = slot; LastUseX = tileX; LastUseY = tileY;
             UseUntil = Now + Ticks(ms);
         }
 
@@ -661,6 +667,7 @@ namespace DshTerrariaBridge
         {
             UseUntil = 0;
             UseTileUntil = 0;
+            LastUseSlot = -1; LastUseX = -1; LastUseY = -1;
             ClearAim();
         }
 
@@ -684,10 +691,9 @@ namespace DshTerrariaBridge
             // Player.tileTargetX/Y, which are static and are what placement/mine actually use.
             Main.mouseX = (int)screenX;
             Main.mouseY = (int)screenY;
-            // 智能光标会在 ItemCheck 里重算 tileTargetX/Y，把我们的目标格改掉
-            // （实测请求 (x,y) 却挖到旁边一格）。关掉它，准星落点就是传入的格子。
-            Main.SmartCursorEnabled = false;
-            Main.SmartCursorShowing = false;
+            // 这一版 tModLoader 没有可写的智能光标开关（Main 只有只读的 SmartCursorWanted /
+            // SmartCursorIsUsed），所以不去碰设置；准星落点靠 mouseX/Y + tileTargetX/Y 直接压住，
+            // 实测 mine/place 回读的格子就是传入的那一格。
             Player.tileTargetX = tx;
             Player.tileTargetY = ty;
 
@@ -980,21 +986,25 @@ namespace DshTerrariaBridge
             public int TargetX;
             public ulong Deadline;
             public ulong NextMine;
-            public int Mined, Filled, Steps;
+            public int Mined, Filled, Steps, Swings;
+            public int ArmedX, ArmedY;     // 上一帧压准星的目标格（-1 = 无）
+            public bool Dig;               // false = 只走路，绝不碰方块
             public string StopReason;
         }
 
         internal static TravelJob Travel;
 
-        internal static void StartTravel(int dir, int targetX, int ms)
+        internal static void StartTravel(int dir, int targetX, int ms, bool dig = true)
         {
             Travel = new TravelJob
             {
                 Active = true,
+                Dig = dig,
                 Dir = dir,
                 TargetX = targetX,
                 Deadline = Now + Ticks(ms),
                 NextMine = Now,
+                ArmedX = -1,
                 StopReason = "",
             };
         }
@@ -1022,6 +1032,8 @@ namespace DshTerrariaBridge
                 mine = Travel.Mined,
                 fill = Travel.Filled,
                 steps = Travel.Steps,
+                swings = Travel.Swings,
+                aiming = Travel.ArmedX < 0 ? null : (object)new { x = Travel.ArmedX, y = Travel.ArmedY },
                 stopReason = Travel.StopReason,
                 hp = p == null ? 0 : (int)(100f * p.statLife / Math.Max(1, p.statLifeMax2)),
             });
@@ -1102,6 +1114,8 @@ namespace DshTerrariaBridge
             else if (Travel.Dir > 0) { RightUntil = until; LeftUntil = 0; }
             else { LeftUntil = until; RightUntil = 0; }
 
+            // dig:false 时只推方向键，一格都不挖、也不补地板。
+            if (!Travel.Dig) return;
             if (Now < Travel.NextMine) return;
             Travel.NextMine = Now + 4;
 
@@ -1114,10 +1128,54 @@ namespace DshTerrariaBridge
             }
             if (pick < 0) { StopTravel("no-pickaxe"); return; }
 
-            // 1) 先补脚下地板（前方 2 格）——真实放置：选中方块物品、准星压到该格、按住使用，
-            //    支撑/朝向/扣物品全部由原版 ItemCheck 决定。原来这里直接 WorldGen.PlaceTile。
-            if (Travel.Steps % 3 == 0)
+            // 先算这一帧要挖哪一格；有格子要挖就只挥镐，不再顺手铺地板——
+            // 每 tick 换两次选中物品会让原版反复打断挥动，实测把掘进速度砍掉一半。
+            int tx = px + Travel.Dir, ty = py;
+            bool hasTarget = false;
+            if (upward)
             {
+                tx = px; ty = py - 1;
+                for (int dy = -3; dy <= -1 && !hasTarget; dy++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        if (WorldGen.InWorld(px + dx, py + dy, 2) && Main.tile[px + dx, py + dy].HasTile)
+                        { tx = px + dx; ty = py + dy; hasTarget = true; break; }
+            }
+            else if (vertical)
+            {
+                tx = px; ty = py + 2;
+                for (int dy = 2; dy <= 3 && !hasTarget; dy++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        if (WorldGen.InWorld(px + dx, py + dy, 2) && Main.tile[px + dx, py + dy].HasTile)
+                        { tx = px + dx; ty = py + dy; hasTarget = true; break; }
+            }
+            else
+            {
+                // py-2..py+1 四行：角色高 2.6 格，只挖 3 行会漏掉头顶那格
+                for (int dy = -2; dy <= 1; dy++)
+                {
+                    int by = py + dy;
+                    if (!WorldGen.InWorld(tx, by, 2)) continue;
+                    if (Main.tile[tx, by].HasTile) { ty = by; hasTarget = true; break; }
+                }
+            }
+
+            // 上一帧压的那一格如果已经空了，就记一次真实挖穿（回读证据，不是计数器自我汇报）
+            if (Travel.ArmedX >= 0 && WorldGen.InWorld(Travel.ArmedX, Travel.ArmedY, 2)
+                && !Main.tile[Travel.ArmedX, Travel.ArmedY].HasTile)
+            {
+                Travel.Mined++;
+                Travel.ArmedX = -1;
+            }
+
+            if (hasTarget)
+            {
+                // 真实挥镐：让原版 ItemCheck 自己结算硬度/镐力/掉落。
+                BeginItemUse(pick, tx, ty, 140);
+                Travel.ArmedX = tx; Travel.ArmedY = ty; Travel.Swings++;
+            }
+            else if (Travel.Steps % 2 == 0)
+            {
+                // 没有格子要挖，才补脚下地板（真实放置，方块从背包扣）。
                 for (int d = 1; d <= 2; d++)
                 {
                     int fx = px + Travel.Dir * d, fy = py + 2;
@@ -1131,41 +1189,9 @@ namespace DshTerrariaBridge
                     }
                     if (bslot < 0) break;
                     BeginItemUse(bslot, fx, fy, 140);
-                    break;   // 一帧只压一个目标，避免连续换物品打断挥动
+                    if (Main.tile[fx, fy].HasTile) Travel.Filled++;
+                    break;
                 }
-            }
-
-            // 2) 再挖挡路格——同样是真实挥镐：原始 PickTile 直接结算，改成让游戏自己挥
-            int tx = px + Travel.Dir, ty = py;
-            if (upward)
-            {
-                tx = px; ty = py - 1;
-                for (int dy = -3; dy <= -1 && ty == py - 1; dy++)
-                    for (int dx = -1; dx <= 1; dx++)
-                        if (WorldGen.InWorld(px + dx, py + dy, 2) && Main.tile[px + dx, py + dy].HasTile)
-                        { tx = px + dx; ty = py + dy; dy = 9; break; }
-            }
-            else if (vertical)
-            {
-                tx = px; ty = py + 2;
-                for (int dy = 2; dy <= 3 && ty == py + 2; dy++)
-                    for (int dx = -1; dx <= 1; dx++)
-                        if (WorldGen.InWorld(px + dx, py + dy, 2) && Main.tile[px + dx, py + dy].HasTile)
-                        { tx = px + dx; ty = py + dy; dy = 9; break; }
-            }
-            else
-            {
-                // py-2..py+1 四行：角色高 2.6 格，只挖 3 行会漏掉头顶那格
-                for (int dy = -2; dy <= 1; dy++)
-                {
-                    int by = py + dy;
-                    if (!WorldGen.InWorld(tx, by, 2)) continue;
-                    if (Main.tile[tx, by].HasTile) { ty = by; break; }
-                }
-            }
-            if (WorldGen.InWorld(tx, ty, 2) && Main.tile[tx, ty].HasTile)
-            {
-                BeginItemUse(pick, tx, ty, 140);
             }
 
             Travel.Steps++;

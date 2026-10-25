@@ -1440,7 +1440,16 @@ namespace DshTerrariaBridge
             int py = (int)MathF.Floor(P.Center.Y / 16f);
             int sign = dir == "down" ? 2 : (dir == "up" ? 3 : (dir == "right" ? 1 : -1));
             int target = dir == "down" ? py + distance : (dir == "up" ? py - distance : px + sign * distance);
-            BridgeSystem.StartTravel(sign, target, ms);
+            bool dig = Json.Bool(p, "dig", true);
+            // 用户两次被从出生点推进水里/坑里：出生点周围 100 格内一律不许挖。
+            // 写进代码而不是靠自觉——忘记了就会再犯一次。
+            if (dig && dir == "down")
+            {
+                int sx = Main.spawnTileX, sy = Main.spawnTileY;
+                if (Math.Abs(px - sx) <= 100 && Math.Abs(py - sy) <= 100)
+                    return Json.Error($"拒绝在出生点 {sx},{sy} 附近 100 格内向下挖（当前 {px},{py}）；要走路请用 dig:false，要挖矿请先走远");
+            }
+            BridgeSystem.StartTravel(sign, target, ms, dig);
             return BridgeSystem.TravelStatus();
         }
 

@@ -2450,3 +2450,46 @@ placeTorchesAround(px, py, 7)  // 3~7 格内找有邻接实心的空格
 ```
 
 **675 个火把**是巨大资源，之前完全没用。
+
+## 第 一〇八 节：动画被自己打断 —— "看着像指令挖"的真正原因
+
+现象：方块确实一块块消失、背包也确实在涨，但屏幕上的角色**不挥镐**。用户直接判定
+"你这挖掘明显是指令挖掘"。
+
+根因不在挖掘实现，在输入合成：
+
+```
+BeginItemUse(slot, x, y, ms)
+    → UseJustStarted = true          // 每一帧都置
+ApplyAim() 每帧执行
+    → if (UseJustStarted) { Main.mouseLeftRelease = true; }   // 每帧塞一次"松开"
+原版 ItemCheck
+    → 看到"松开了又按下" → itemAnimation 从 0 重来
+```
+
+travel/mine 每 4 tick 重新 arm 一次同一个目标，于是 `itemAnimation` 永远走不到
+damage 帧附近，屏幕上只剩一个抖动的角色。玩家眼里这就是"指令挖"。
+
+修法：**只在目标或物品真的变化时才重新起手**。
+
+```csharp
+bool sameTarget = slot == LastUseSlot && tileX == LastUseX && tileY == LastUseY && UseUntil > Now;
+SetAim(tileX, tileY);
+if (!sameTarget) UseJustStarted = true;   // 关键
+```
+
+验证（连续采样 `itemAnimation/itemAnimationMax` + 手持物）：
+`0/19 13/19 5/19 17/19 9/19 2/19 13/19 5/19 17/19 9/19 2/19 …` —— 19 帧动画
+连续循环、不归零，手持物是 `铁镐`，靶格回读 `type=-1`（由游戏自己挖掉的）。
+
+教训：**"结果正确"和"动作正确"是两条独立的验收线**。方块变了只证明结果对；
+要证明动作对，必须看连续帧里的 `itemAnimation` 有没有走完整周期，或者直接截图看角色。
+
+## 第 一〇九 节：看不清的画面 ≈ 假操作
+
+同一段过程在无光的地下进行时，截图里角色所在处是全黑的——用户看到的是"黑屏里方块消失"，
+和"指令挖"没有区别。真人下矿会带光源，所以：
+
+- 挖之前先把火把放好（`place {type:4}`，回读 `tile.type===4`，背包数量要减少）
+- 火把需要**侧面或下方有实体方块**才能贴住；悬空位、头顶无支撑位会失败（实测 12 个候选只成功 2 个）
+- 手上拿着火把时光照随角色走（选中火把槽位即可），这是最省事的下矿照明
