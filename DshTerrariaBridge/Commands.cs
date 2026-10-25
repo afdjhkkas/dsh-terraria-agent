@@ -1610,6 +1610,9 @@ namespace DshTerrariaBridge
                 bool pWg = WorldGen.PlaceTile(x, y, type, false, false, -1, style);
                 int pAfter = TileCode(Main.tile[x, y]);
                 bool pPlaced = pAfter == type && pAfter != pBefore;
+                // 真实放置会在放完后刷新多格家具的 frame；WorldGen.PlaceTile 单独调用不会。
+                // 不刷新 frame 的家具"看着在、但不被识别为工作台/熔炉/铁砧"（实测合成报"附近没有工作站"）。
+                if (pPlaced) WorldGen.RangeFrame(x - 2, y - 2, x + 3, y + 3);
                 bool pConsumed = false;
                 if (pPlaced)
                 {
