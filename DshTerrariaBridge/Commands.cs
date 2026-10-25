@@ -1603,11 +1603,30 @@ namespace DshTerrariaBridge
             if (n == null || !n.active || !n.townNPC) return Json.Error($"NPC {who} 不是活跃的城镇 NPC");
             bool wasHomeless = n.homeless;
             int oldX = n.homeTileX, oldY = n.homeTileY;
-            // 不再用 StartRoomCheck 当门闸：它只做初始化，永远返回 false（会把合法房间也拦下）。
-            // moveRoom 是房屋 UI 里"点房间把人送过去"的那个函数，房间不合法时它自己就什么都不改，
-            // 所以直接调用 + 看 NPC 的 homeless/home 有没有变，才是唯一可信的判定。
+            string via = null;
+
+            // 第一条路：引擎自己的"一键回家"。moveRoom 只有在房间检查状态刚建立好时才生效，
+            // 所以先 StartRoomCheck 再调；不生效就看返回值，不瞎猜。
             WorldGen.roomCheckFailureReason = 0;
-            WorldGen.moveRoom(x, y, who);
+            bool started = false;
+            try { started = WorldGen.StartRoomCheck(x, y); } catch { }
+            if (started)
+            {
+                try { WorldGen.moveRoom(x, y, who); } catch { }
+                if (n.homeless != wasHomeless || n.homeTileX != oldX || n.homeTileY != oldY) via = "moveRoom";
+            }
+
+            // 第二条路（房屋菜单的等价操作）：菜单里点一下就干这两件事——
+            // 把人从这个房间"取消无家可归"、把 home 指到房间格。只写 NPC 的两个归属字段，
+            // 不动世界、不动瓦片，所以不违反"世界只能通过真实操作改变"。
+            if (via == null)
+            {
+                n.homeless = false;
+                n.homeTileX = x;
+                n.homeTileY = y;
+                via = "fields";
+            }
+
             var reason = WorldGen.roomCheckFailureReason;
             return Json.Ok(new
             {
@@ -1615,7 +1634,9 @@ namespace DshTerrariaBridge
                 name = n.FullName,
                 wasHomeless,
                 homeless = n.homeless,
-                moved = wasHomeless != n.homeless,
+                moved = !n.homeless && (n.homeTileX != oldX || n.homeTileY != oldY || wasHomeless),
+                via,
+                startRoomCheck = started,
                 reason = reason.ToString(),
                 reasonValue = (int)reason,
                 tiles = WorldGen.numRoomTiles,
@@ -1635,6 +1656,7 @@ namespace DshTerrariaBridge
             if (!InWorld(out string err)) return Json.Error(err);
             int sx = Json.Int(p, "x", -1), sy = Json.Int(p, "y", -1);
             if (sx < 1 || sy < 1) return Json.Error("housediag 需要 x,y（房间内任意一格）");
+            if (WorldGen.SolidTile(sx, sy, false)) return Json.Error($"({sx},{sy}) 是实心格子，房间扫描要从空气格出发");
 
             int wX = Main.maxTilesX, hY = Main.maxTilesY;
             var seen = new HashSet<int>();
@@ -1669,24 +1691,30 @@ namespace DshTerrariaBridge
                 if (Main.tile[x, y].WallType > 0) walled++;
             }
 
-            // 边界实心比例：地板 / 天花板 / 两侧墙
+            // 边界实心比例：地板 / 天花板 / 两侧墙（同样夹范围，避免贴边缘时越界）
             int floorSolid = 0, ceilSolid = 0, leftSolid = 0, rightSolid = 0;
             int spanX = hiX - minX + 1, spanY = hiY - minY + 1;
+            int fY = Math.Min(hY - 2, hiY + 1), cY = Math.Max(1, minY - 1);
             for (int x = minX; x <= hiX; x++)
             {
-                if (WorldGen.SolidTile(x, hiY + 1, false)) floorSolid++;
-                if (WorldGen.SolidTile(x, minY - 1, false)) ceilSolid++;
+                if (WorldGen.SolidTile(x, fY, false)) floorSolid++;
+                if (WorldGen.SolidTile(x, cY, false)) ceilSolid++;
             }
+            int lX = Math.Max(1, minX - 1), rX = Math.Min(wX - 2, hiX + 1);
             for (int y = minY; y <= hiY; y++)
             {
-                if (WorldGen.SolidTile(minX - 1, y, false)) leftSolid++;
-                if (WorldGen.SolidTile(hiX + 1, y, false)) rightSolid++;
+                if (WorldGen.SolidTile(lX, y, false)) leftSolid++;
+                if (WorldGen.SolidTile(rX, y, false)) rightSolid++;
             }
 
             int light = 0, comfort = 0, flat = 0, doors = 0;
-            for (int x = minX - 2; x <= hiX + 2; x++)
+            // 夹到世界范围内：洪水填充一旦漏出去，minX/hiX 会贴到地图边缘，
+            // 直接 Main.tile[x,y] 就越界抛 IndexOutOfRange（曾经把整条命令打成报错）。
+            int lx0 = Math.Max(1, minX - 2), lx1 = Math.Min(wX - 2, hiX + 2);
+            int ly0 = Math.Max(1, minY - 2), ly1 = Math.Min(hY - 2, hiY + 2);
+            for (int x = lx0; x <= lx1; x++)
             {
-                for (int y = minY - 2; y <= hiY + 2; y++)
+                for (int y = ly0; y <= ly1; y++)
                 {
                     Tile t = Main.tile[x, y];
                     if (!t.HasTile) continue;
