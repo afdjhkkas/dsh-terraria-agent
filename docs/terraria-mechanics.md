@@ -326,3 +326,7 @@ Duke Fishron, Empress of Light, Deerclops) can be skipped or done for gear.
 - Settings (pause options): https://terraria.wiki.gg/wiki/Settings
 - Tile IDs: https://terraria.wiki.gg/wiki/Tile_IDs
 - Recipe groups / conditions: https://github.com/tModLoader/tModLoader/wiki/Basic-Recipes
+## 顶墙判据（本档实测）
+
+- `move right` 800ms → 坐标完全不变，但 `velocity` 仍是 `[2.8, 0]`：速度有、位移被碰撞吃掉 = **正顶着墙**。
+- 同位置 `jump` 180ms + `move right` 700ms → 位移 6.1 格（越过那格石头后恢复正常行走）。
