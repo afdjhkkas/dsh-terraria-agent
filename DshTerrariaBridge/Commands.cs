@@ -69,17 +69,14 @@ namespace DshTerrariaBridge
                 case "climb": return Climb(p);
                 case "use": return Use(p);
                 case "attack": return Attack(p);
-                case "spawn_npc": return SpawnNpc(p);
                 case "stop":
                     BridgeSystem.StopPath("cancelled");
                     BridgeSystem.StopWalk("cancelled");
                     BridgeSystem.ClearControls();
                     return Json.Ok(new { stopped = true });
-                case "teleport": return Teleport(p);
                 case "wall": return Wall(p);
                 case "inventory": return Inventory();
                 case "craft": return Craft(p);
-                case "give": return Give(p);
                 case "npc": return Npcs(p);
                 case "chat": return Chat(p);
                 case "help": return Help();
@@ -1713,37 +1710,6 @@ namespace DshTerrariaBridge
             return StartSwing(slot, x, y, ms, false);
         }
 
-        private static string Teleport(JsonElement p)
-        {
-            if (!InWorld(out string err)) return Json.Error(err);
-            if (!HasPlayer(out string perr)) return Json.Error(perr);
-            float x = Json.Float(p, "x", float.NaN), y = Json.Float(p, "y", float.NaN);
-            if (float.IsNaN(x) || float.IsNaN(y)) return Json.Error("teleport 需要 x,y（方块坐标）");
-            if (!float.IsFinite(x) || !float.IsFinite(y)) return Json.Error("x,y must be finite");
-            if (x < 1 || y < 1 || x > Main.maxTilesX - 2 || y > Main.maxTilesY - 2)
-                return Json.Error($"out of world bounds: {x},{y}（世界是 {Main.maxTilesX}x{Main.maxTilesY}）");
-            Player pl = P;
-            var from = new[] { MathF.Round(pl.Center.X / 16f, 1), MathF.Round(pl.Center.Y / 16f, 1) };
-            pl.position = new Vector2(x * 16f, y * 16f - pl.height);
-            pl.velocity = Vector2.Zero;
-            pl.fallStart = pl.fallStart2 = (int)(pl.position.Y / 16f);
-            // Landing inside solid rock would leave the player stuck; lift until free.
-            int adjusted = 0;
-            while (adjusted < 40 && Collision.SolidTiles(pl.position, pl.width, pl.height, false))
-            {
-                pl.position.Y -= 16f;
-                adjusted++;
-            }
-            pl.fallStart = pl.fallStart2 = (int)(pl.position.Y / 16f);
-            return Json.Ok(new
-            {
-                x,
-                y,
-                from,
-                adjusted,
-                tile = new[] { MathF.Round(pl.Center.X / 16f, 1), MathF.Round(pl.Center.Y / 16f, 1) },
-            });
-        }
 
         /* ── 动作 ─────────────────────────────────────────────────────── */
 
@@ -1902,23 +1868,6 @@ namespace DshTerrariaBridge
             });
         }
 
-        private static string SpawnNpc(JsonElement p)
-        {
-            if (!InWorld(out string err)) return Json.Error(err);
-            if (!HasPlayer(out string perr)) return Json.Error(perr);
-            int type = Json.Int(p, "type", NPCID.BlueSlime);
-            if (!ValidNpcType(type)) return Json.Error($"invalid NPC type {type} (1..{NPCID.Count - 1})");
-            Player pl = P;
-            float x = Json.Float(p, "x", float.NaN);
-            float y = Json.Float(p, "y", float.NaN);
-            if (float.IsNaN(x)) x = pl.Center.X / 16f + 5f;
-            if (float.IsNaN(y)) y = pl.Center.Y / 16f;
-            int who = NPC.NewNPC(new EntitySource_Misc("dsh-bridge"), (int)(x * 16f), (int)(y * 16f), type, 0, 0f, 0f, 0f, 0f, pl.whoAmI);
-            if (who < 0 || who >= Main.npc.Length || Main.npc[who] == null || !Main.npc[who].active)
-                return Json.Error("NPC 生成失败");
-            NPC n = Main.npc[who];
-            return Json.Ok(new { who, type = n.type, netId = n.netID, name = n.FullName, life = n.life, tile = new[] { MathF.Round(n.Center.X / 16f, 1), MathF.Round(n.Center.Y / 16f, 1) } });
-        }
 
         /* ── 背包 / 合成 / 生成 ───────────────────────────────────────── */
 
@@ -2209,21 +2158,6 @@ namespace DshTerrariaBridge
             });
         }
 
-        private static string Give(JsonElement p)
-        {
-            if (!InWorld(out string err)) return Json.Error(err);
-            if (!HasPlayer(out string perr)) return Json.Error(perr);
-            int type = Json.Int(p, "type", 0);
-            int stack = Math.Clamp(Json.Int(p, "stack", 1), 1, 9999);
-            if (!ValidItemType(type)) return Json.Error($"invalid item type {type}: 不是有效的物品 ID");
-            Player pl = P;
-            // Put it in the inventory. QuickSpawnItem drops it on the floor and relies on the
-            // pickup delay, so "give then craft" used to fail intermittently.
-            int added = AddToInventory(pl, type, stack);
-            int dropped = stack - added;
-            if (dropped > 0) pl.QuickSpawnItem(new EntitySource_Misc("dsh-bridge"), type, dropped);
-            return Json.Ok(new { type, stack, name = Lang.GetItemNameValue(type), added, dropped });
-        }
 
         private static string Npcs(JsonElement p)
         {

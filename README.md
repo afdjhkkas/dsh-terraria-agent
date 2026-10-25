@@ -9,7 +9,7 @@
 接入本项目的 AI 应当成为一个**会玩 Terraria 的玩家**：自己合装备、盖房招 NPC、挖矿升级、
 按进度打 Boss，直到击败月亮领主，全程不使用世界编辑作弊，每一步都有回读证据。
 
-项目为此提供两样东西：**泰拉瑞亚知识**（[`docs/terraria-mechanics.md`](docs/terraria-mechanics.md)，
+项目为此提供两样东西：**泰拉瑞亚知识**（[`docs/terraria-mechanics.md`](docs/terraria-mechanics.md) · [`docs/capability-roadmap.md`](docs/capability-roadmap.md)，
 坐标/方块编码/放置支撑/房屋/战斗/暂停/通关路线，标注 wiki 还是实测）与
 **最终目标与不变量**（[`GOAL.md`](GOAL.md)）。具体的世界/角色/模式由运行环境决定，
 本项目不假设也不写死；AI 运行时的进度由它自己记在 `docs/playthrough.md`。
