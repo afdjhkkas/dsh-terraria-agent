@@ -1050,7 +1050,7 @@ namespace DshTerrariaBridge
                         {
                             int wx = px + dx, wy = py + dy;
                             if (!WorldGen.InWorld(wx, wy, 2)) continue;
-                            if (Main.tile[wx, wy].LiquidAmount > 32) water = true;
+                            if (Main.tile[wx, wy].LiquidAmount >= 200) water = true;
                         }
                 }
                 else if (vertical)
@@ -1060,7 +1060,7 @@ namespace DshTerrariaBridge
                         {
                             int wx = px + dx, wy = py + dy;
                             if (!WorldGen.InWorld(wx, wy, 2)) continue;
-                            if (Main.tile[wx, wy].LiquidAmount > 32) water = true;
+                            if (Main.tile[wx, wy].LiquidAmount >= 200) water = true;
                         }
                 }
                 else
@@ -1069,7 +1069,7 @@ namespace DshTerrariaBridge
                     {
                         int wx = ax, wy = py + dy;
                         if (!WorldGen.InWorld(wx, wy, 2)) continue;
-                        if (Main.tile[wx, wy].LiquidAmount > 32) water = true;
+                        if (Main.tile[wx, wy].LiquidAmount >= 200) water = true;
                     }
                 }
                 // 上浮例外：已经泡在水里时，向上游是唯一出路，不能因为"前方有水"就停。
