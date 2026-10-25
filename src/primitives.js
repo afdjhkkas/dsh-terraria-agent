@@ -17,6 +17,8 @@
  * ============================================================================
  */
 
+import { MAX_SUSTAINED_ATTEMPTS } from './action-loop.js'
+
 /** Default poll cadence while waiting for the game to apply an action (ms). */
 const POLL_MS = 120
 const defaultSleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -64,7 +66,7 @@ export function createPrimitives({ request, sleep = defaultSleep, now = Date.now
    *
    * @param {{x:number,y:number,ms?:number,tries?:number,signal?:AbortSignal}} args
    */
-  async function mineTile({ x, y, ms = 1300, tries = 3, signal } = {}) {
+  async function mineTile({ x, y, ms = 1300, tries = MAX_SUSTAINED_ATTEMPTS, signal } = {}) {
     const before = await readTile(x, y, signal)
     if (isEmptyCell(before)) return { ok: true, removed: false, alreadyEmpty: true, x, y, before: before.type }
 
