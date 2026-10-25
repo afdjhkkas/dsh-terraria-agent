@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { auditHousing, obsFromDiag, HOUSING_CHECKS } from '../src/house-audit.js'
+import { auditHousing, obsFromDiag, HOUSING_CHECKS, planClearance, classifyObstacle, auditClearance, BUILD_FLOW } from '../src/house-audit.js'
 
 const good = {
   enclosed: true, spaceCells: 44, interiorCells: 32, houseWallCells: 32,
@@ -43,4 +43,43 @@ test('obsFromDiag 区分人工墙与自然墙', () => {
   const r = auditHousing(obs)
   assert.equal(r.ok, false)
   assert.equal(r.defects.some(d => d.code === 'houseWalls'), true)
+})
+
+test('清场范围含向外 1 格缓冲区', () => {
+  const c = planClearance({ x0: 0, x1: 7, y0: 0, y1: 3 }, { buffer: 1 })
+  assert.equal(c.inner.length, 8 * 4)
+  assert.equal(c.cells.length, 10 * 6)
+  assert.equal(c.buffer.length, 60 - 32)
+  assert.ok(c.buffer.some(p => p.x === -1) && c.buffer.some(p => p.y === 4))
+})
+
+test('树干/植被/实心方块都算障碍，空气不算', () => {
+  assert.equal(classifyObstacle({ type: 5, solid: false, name: 'Trees' }), 'tree')
+  assert.equal(classifyObstacle({ type: 3, solid: false, name: 'Grass' }), 'plant')
+  assert.equal(classifyObstacle({ type: 1, solid: true }), 'solid')
+  assert.equal(classifyObstacle({ type: -1 }), null)
+  assert.equal(classifyObstacle(null), null)
+})
+
+test('范围内有树 → 清场不通过，且单独统计树木数量', () => {
+  const obs = [
+    { x: 2, y: 1, type: 5, solid: false }, { x: 3, y: 1, type: 5, solid: false },
+    { x: 4, y: 1, type: -1 },
+  ]
+  const r = auditClearance(obs)
+  assert.equal(r.ok, false)
+  assert.equal(r.treeCount, 2)
+  assert.match(r.verdict, /树木 2 格/)
+})
+
+test('缓冲区里的树也算障碍（不许贴着墙）', () => {
+  const obs = [{ x: 8, y: 1, type: 5, solid: false }] // 8 在 x1=7 的缓冲区里
+  const r = auditClearance(obs, { rect: { x0: 0, x1: 7, y0: 0, y1: 3 }, buffer: 1 })
+  assert.equal(r.ok, false)
+  const clean = [{ x: 9, y: 1, type: 5, solid: false }] // 超出缓冲区 → 不算
+  assert.equal(auditClearance(clean, { rect: { x0: 0, x1: 7, y0: 0, y1: 3 }, buffer: 1 }).ok, true)
+})
+
+test('建房流程固定六步，清场在搭框架之前', () => {
+  assert.deepEqual(BUILD_FLOW.map(s => s.code), ['survey', 'clear', 'frame', 'walls', 'furniture', 'verify'])
 })

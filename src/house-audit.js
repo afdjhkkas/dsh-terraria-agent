@@ -75,3 +75,74 @@ export function obsFromDiag(diag = {}, walls = []) {
     comfort: Number(diag.comfort || 0),
   }
 }
+
+/* ── 范围清场（建房第一步，先于任何砌墙动作） ────────────────────────── */
+
+/** 会挡住房屋判定的实体障碍分类。树干（Trees）虽然 solid=false，但它占格，必须清。 */
+export const OBSTACLE_KINDS = {
+  tree: '树木（树干/树冠）',
+  plant: '植被（杂草/花/藤蔓）',
+  solid: '实心方块',
+}
+
+const TREE_TILES = new Set([5, 583, 584, 585, 586, 587, 588, 589, 590, 591, 592, 593])
+const PLANT_TILES = new Set([3, 24, 32, 61, 62, 69, 73, 74, 82, 83, 84, 85, 110, 113, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260])
+
+export function classifyObstacle(tile) {
+  if (!tile) return null
+  const type = Number(tile.type)
+  if (!(type > 0)) return null
+  if (TREE_TILES.has(type)) return 'tree'
+  if (PLANT_TILES.has(type)) return 'plant'
+  return tile.solid === false && /Trees|Plant|Herb|Vine|Flower|Weed/i.test(tile.name || '') ? 'plant' : 'solid'
+}
+
+/** 划定范围（含向外 buffer 格的缓冲区）里所有需要清的格子。 */
+export function planClearance({ x0, x1, y0, y1 }, { buffer = 1 } = {}) {
+  const inner = []
+  const ring = []
+  for (let x = x0 - buffer; x <= x1 + buffer; x++) {
+    for (let y = y0 - buffer; y <= y1 + buffer; y++) {
+      const inInner = x >= x0 && x <= x1 && y >= y0 && y <= y1
+      ;(inInner ? inner : ring).push({ x, y })
+    }
+  }
+  return { inner, buffer: ring, cells: [...inner, ...ring], bufferSize: buffer }
+}
+
+/**
+ * 清场验收：范围内（含缓冲区）不许有树、植被、多余方块。
+ * @param {Array<{x:number,y:number,type:number,solid?:boolean,name?:string}>} observations
+ */
+export function auditClearance(observations = [], { buffer = 1, rect } = {}) {
+  let cells = observations
+  if (rect) {
+    const allowed = new Set(planClearance(rect, { buffer }).cells.map(c => `${c.x},${c.y}`))
+    cells = observations.filter(o => allowed.has(`${o.x},${o.y}`))
+  }
+  const obstacles = []
+  for (const o of cells) {
+    const kind = classifyObstacle(o)
+    if (kind) obstacles.push({ x: o.x, y: o.y, kind, title: OBSTACLE_KINDS[kind], type: o.type })
+  }
+  const trees = obstacles.filter(o => o.kind === 'tree')
+  return {
+    ok: obstacles.length === 0,
+    obstacleCount: obstacles.length,
+    treeCount: trees.length,
+    obstacles,
+    verdict: obstacles.length === 0
+      ? '范围内干净，可以开始搭框架'
+      : `先清 ${obstacles.length} 格（其中树木 ${trees.length} 格），清完回读确认 type === -1 再继续`,
+  }
+}
+
+/** 建房全流程（顺序固定，不许跳步）。 */
+export const BUILD_FLOW = [
+  { step: 1, code: 'survey', title: '划定建房范围（外扩 1 格缓冲区）' },
+  { step: 2, code: 'clear', title: '清理范围内所有实体障碍（树木/植被/石块），回读 type === -1' },
+  { step: 3, code: 'frame', title: '搭框架（人先进内部）' },
+  { step: 4, code: 'walls', title: '铺合规人工背景墙（wallHouse === true）' },
+  { step: 5, code: 'furniture', title: '摆家具：桌椅 + 光源 + 门' },
+  { step: 6, code: 'verify', title: 'NPC 入住校验（六条全过才算完成）' },
+]
