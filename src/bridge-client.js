@@ -109,6 +109,19 @@ export function stopBestEffort({ host = '127.0.0.1', port = 47777, timeoutMs = S
  * @param {{host?:string,port?:number,timeoutMs?:number,createConnection?:Function}} [options]
  *   `createConnection` is a test seam only; production always uses net.createConnection.
  */
+/**
+ * 这一条 `save` 的结果是不是"客户端存档、必须转给服务端进程"？
+ *
+ * Host&Play 会开两个 tModLoader 进程：无参客户端（连 47777）持有玩家但**不拥有世界**，
+ * `-server` 进程（连 47778）才是世界的宿主。客户端上调 save 会失败（或返回 saved:false），
+ * 毫无意义；真正能落盘的是服务端。所以看到 netMode:1 + saved:false 就换端口重发一次。
+ */
+export function needsServerSave(res) {
+  const d = res && typeof res === 'object' && 'data' in res ? res.data : res
+  if (!d || typeof d !== 'object') return false
+  return d.saved === false && d.netMode === 1
+}
+
 export function createBridgeClient({ host = '127.0.0.1', port = 47777, timeoutMs = 5000, createConnection = net.createConnection } = {}) {
   const sockets = new Set()
   let nextReq = 1

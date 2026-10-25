@@ -1,5 +1,5 @@
 import { defineTool } from './src/tool-def.mjs'
-import { createBridgeClient } from './src/bridge-client.js'
+import { createBridgeClient, needsServerSave } from './src/bridge-client.js'
 import { createPrimitives } from './src/primitives.js'
 import { planJump, runJumpHold, MAX_SUSTAINED_ATTEMPTS, JUMP_REACH_TILES } from './src/action-loop.js'
 import {
@@ -132,6 +132,21 @@ export function apply(ctx, rawConfig = {}) {
   const timeoutMs = bounded(config.timeoutMs, 500, 30000, 5000)
   const client = createBridgeClient({ host: '127.0.0.1', port, timeoutMs })
   const request = makeSerialRunner(client)
+  // 世界的宿主是另一个进程：专用服务端监听 47778，客户端 47777。存盘只能在服务端做，
+  // 所以在客户端上报 netMode:1 + saved:false 时自动换端口重发一次（见 needsServerSave）。
+  const serverClient = createBridgeClient({ host: '127.0.0.1', port: port === 47777 ? 47778 : port + 1, timeoutMs })
+  const requestServer = makeSerialRunner(serverClient)
+  const requestWithSaveFallback = async (command, params, options) => {
+    const res = await request(command, params, options)
+    if (command !== 'save' || !needsServerSave(res)) return res
+    try {
+      const viaServer = await requestServer(command, params, options)
+      if (needsServerSave(viaServer)) return res
+      return viaServer
+    } catch {
+      return res
+    }
+  }
   // Verified primitives: they poll the world instead of sleeping and hoping,
   // so "placed: true" means the tile is really there (see src/primitives.js).
   const primitives = createPrimitives({
@@ -192,7 +207,8 @@ export function apply(ctx, rawConfig = {}) {
           throw new Error('terraria_bridge params must be a JSON object, e.g. {"r":40}.')
         }
       }
-      const result = await request(command, params, exec)
+      // save 走带兜底的 runner：客户端存不了盘就自动改发服务端进程。
+      const result = await requestWithSaveFallback(command, params, exec)
       return displayResult(result)
     },
   })

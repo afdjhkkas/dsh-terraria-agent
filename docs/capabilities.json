@@ -867,10 +867,13 @@
       "returns": [
         "saved",
         "via",
+        "worldPath",
+        "netMode",
         "world",
         "spawn",
         "hasWorldFileData",
-        "worldPath"
+        "gameMenu",
+        "hint"
       ],
       "summary": ""
     },

@@ -1465,57 +1465,61 @@ namespace DshTerrariaBridge
                 next = "真实挥锤是异步的：稍等再用 tile x,y 回读确认已空" });
         }
 
+        /// <summary>
+        /// 存盘。两条路：
+        ///   1) 服务端进程（netMode 2 / -server）：世界本来就归它，直接 WorldFile.SaveWorld() 就行，
+        ///      绝不要自己伪造 ActiveWorldFileData —— CreateMetadata 的参数是"世界名"不是路径，
+        ///      把全路径塞进去会被净化成 `C--Users-...` 这种乱名，存档被写到另一个文件里
+        ///      （实测：返回 saved:true，但真正的 .wld 时间戳没变）。
+        ///   2) 客户端（netMode 1）：它没有世界所有权，伪造元数据只能写出一份乱名副本，
+        ///      所以直接报错并说明"要连服务端端口"。
+        /// </summary>
         private static string SaveWorld(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
-            // Host&Play 里存盘会 NRE，而 NRE 的那一行决定怎么绕：先按无参重载试，失败就把
-            // 真正的堆栈带回来（只报 Message 的话永远查不到是哪一行）。
             var attempts = new List<object>();
-            // Host&Play 的客户端是从服务器拿世界、不读文件，所以 Main.ActiveWorldFileData 是 null；
-            // SaveFileFormatHeader 要写它的 gameMode/版本信息，一碰就 NRE。先补一个元数据对象。
             bool madeMeta = false;
-            // 旧逻辑只在 ActiveWorldFileData == null 时补元数据，但联机时它"非空而内部字段为空"
-            // （Seed/GameMode 等没被填），SaveFileFormatHeader 里去读这些字段仍然 NRE。
-            // 所以这里无条件重建一次元数据，用当前世界名/种子覆盖掉那个半成品对象。
-            try
+
+            if (Main.netMode != 1)
             {
-                var md = WorldFile.CreateMetadata(string.IsNullOrEmpty(Main.worldPathName) ? Main.worldName : Main.worldPathName, false, WorldGen._lastSeed);
-                if (md != null) { Main.ActiveWorldFileData = md; madeMeta = true; }
-            }
-            catch (Exception e)
-            {
-                attempts.Add(new { step = "CreateMetadata(always)", error = e.GetType().Name, message = e.Message });
-            }
-            var tries = new (string Name, Action Run)[]
-            {
-                ("SaveWorld()", () => WorldFile.SaveWorld()),
-                ("SaveWorld(false,false)", () => WorldFile.SaveWorld(false, false)),
-            };
-            foreach (var t in tries)
-            {
-                try
+                foreach (var t in new (string Name, Action Run)[]
                 {
-                    t.Run();
-                    return Json.Ok(new
+                    ("SaveWorld()", () => WorldFile.SaveWorld()),
+                    ("SaveWorld(false,false)", () => WorldFile.SaveWorld(false, false)),
+                })
+                {
+                    try
                     {
-                        saved = true,
-                        via = t.Name,
-                        madeMeta,
-                        attempts,
-                        world = Main.worldName,
-                        spawn = new { x = Main.spawnTileX, y = Main.spawnTileY },
-                    });
-                }
-                catch (Exception e)
-                {
-                    string st = e.StackTrace ?? "";
-                    var frames = st.Split('\n').Select(s => s.Trim()).Where(s => s.Length > 0).Take(6).ToArray();
-                    attempts.Add(new { via = t.Name, error = e.GetType().Name, message = e.Message, frames });
+                        t.Run();
+                        return Json.Ok(new
+                        {
+                            saved = true,
+                            via = t.Name,
+                            madeMeta,
+                            attempts,
+                            worldPath = Main.worldPathName,
+                            netMode = Main.netMode,
+                            world = Main.worldName,
+                            spawn = new { x = Main.spawnTileX, y = Main.spawnTileY },
+                        });
+                    }
+                    catch (Exception e)
+                    {
+                        string st = e.StackTrace ?? "";
+                        var frames = st.Split('\n').Select(x => x.Trim()).Where(x => x.Length > 0).Take(6).ToArray();
+                        attempts.Add(new { via = t.Name, error = e.GetType().Name, message = e.Message, frames });
+                    }
                 }
             }
+
             return Json.Ok(new { saved = false, madeMeta, attempts,
                 hasWorldFileData = Main.ActiveWorldFileData != null,
-                worldPath = Main.worldPathName });
+                worldPath = Main.worldPathName,
+                netMode = Main.netMode,
+                gameMenu = Main.gameMenu,
+                hint = Main.netMode == 1
+                    ? "本进程是世界客户端，存盘要发给服务端进程（专用服务端端口 47778）"
+                    : null });
         }
 
         /// <summary>

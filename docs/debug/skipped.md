@@ -128,7 +128,7 @@ non-solid perimeter: 3
 
 **教训**：`place` 对着 `OpenDoor` 放方块会返回 `armed:true` 但格子仍是 `OpenDoor`（多格家具不能被单格方块覆盖）；必须先打掉再用真方块砌。
 
-## S7 世界存盘不可用：`WorldFile.SaveWorld()` 在 Host&Play 下必 NRE（未解决）
+## S7 世界存盘不可用（**已解决**：根因是连到了世界客户端，改成服务端端口 47778 + 直接 SaveWorld）
 
 `save` 命令两条路径全部失败，堆栈完全一致：
 

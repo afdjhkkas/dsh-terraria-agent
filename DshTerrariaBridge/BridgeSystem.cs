@@ -26,7 +26,29 @@ namespace DshTerrariaBridge
     /// </summary>
     public class BridgeSystem : ModSystem
     {
-        public const int Port = 47777;
+        /// <summary>客户端/单人的桥端口。</summary>
+        public const int ClientPort = 47777;
+        /// <summary>专用服务端的桥端口（世界归属于它，存盘只能在它这边做）。</summary>
+        public const int ServerPort = 47778;
+
+        /// <summary>
+        /// 本进程是专用服务端吗？Host&Play 会开两个 tModLoader 进程：一个 -server 持世界，
+        /// 一个无参的客户端。两边都会加载本 mod，所以端口必须分开，否则只有一个能绑上，
+        /// 而"谁能存盘"恰好取决于连的是哪个进程。
+        /// </summary>
+        private static bool IsDedicatedServer()
+        {
+            if (Main.dedServ) return true;
+            try
+            {
+                foreach (string a in Environment.GetCommandLineArgs())
+                    if (a == "-server") return true;
+            }
+            catch { }
+            return false;
+        }
+
+        public static int Port { get; private set; } = ClientPort;
 
         /// <summary>Logger reachable from the static connection threads.</summary>
         private static Mod modRef;
@@ -70,6 +92,7 @@ namespace DshTerrariaBridge
             keepFocusThread.Start();
             // Note: single player freezes when the window loses focus (measured: paused =
             // true, nothing ticks), so co-op play uses Host & Play, which never pauses.
+            Port = IsDedicatedServer() ? ServerPort : ClientPort;
             try
             {
                 listener = new TcpListener(IPAddress.Loopback, Port);
