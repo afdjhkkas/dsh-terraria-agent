@@ -1072,7 +1072,9 @@ namespace DshTerrariaBridge
                         if (Main.tile[wx, wy].LiquidAmount > 32) water = true;
                     }
                 }
-                if (water) { StopTravel("water"); return; }
+                // 上浮例外：已经泡在水里时，向上游是唯一出路，不能因为"前方有水"就停。
+                // （实测井底积水后 travel up 直接 stop=water，人困死在里面）
+                if (water && !(upward && p.wet)) { StopTravel("water"); return; }
             }
             for (int i = 0; i < Main.npc.Length; i++)
             {
