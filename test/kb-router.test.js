@@ -135,3 +135,58 @@ test('生成物与代码一致（忘了跑 kb-sync 就会红）', () => {
 test('KB_DIR 指向 docs/kb', () => {
   assert.match(KB_DIR.replace(/\\/g, '/'), /docs\/kb$/)
 })
+
+// 用户 m05144 的硬规格：4 大主库 + 2 辅助库，每个库必须带指定子分类小节。
+// 这条测试的作用：改库时不许把结构删掉（删了子分类 = 知识库退化成随笔）。
+const REQUIRED_SECTIONS = {
+  'game-rule.md': [
+    '世界机制',
+    '方块与物块属性',
+    'NPC 入住',
+    '怪物刷新',
+    '环境生物',
+    '扩散',
+    '地形生成',
+    '判定标准',
+  ],
+  'tool-command.md': ['通路', '命令', '坐标体系', '参数', '错误说明', '权限黑名单', '部署'],
+  'build-plan.md': [
+    '基础建筑标准模板',
+    '功能性建筑规范',
+    '方块搭配',
+    '结构布局',
+    '安全建造约束',
+    '特殊环境',
+  ],
+  'actor-interact.md': ['角色移动', '战斗行为', '拾取', 'NPC 交互', '召唤物', '药水'],
+  'chat-correct.md': ['模糊', '失败话术', '歧义', '纠错', '无法完成'],
+  'safety-limit.md': ['高危操作禁令', '范围限制', '自动操作边界', '风险操作确认'],
+}
+
+test('每个库保留 m05144 规定的子分类小节', async () => {
+  for (const [file, sections] of Object.entries(REQUIRED_SECTIONS)) {
+    const text = await readFile(join(KB_DIR, file), 'utf8')
+    for (const s of sections) {
+      assert.match(text, new RegExp(`^#{1,3}.*${s}`, 'm'), `${file} 缺少「${s}」小节`)
+    }
+  }
+})
+
+test('README 列出了六个标签且与 LIBRARIES 一致', async () => {
+  const readme = await readFile(join(KB_DIR, 'README.md'), 'utf8')
+  for (const tag of Object.keys(LIBRARIES)) {
+    assert.ok(readme.includes(tag), `README 没提到标签 ${tag}`)
+  }
+  for (const file of Object.values(LIBRARIES)) {
+    assert.ok(readme.includes(file), `README 没链接 ${file}`)
+  }
+})
+
+test('库文件里没有"应该没问题/一般来说"这类空话', async () => {
+  const docs = await load(Object.keys(LIBRARIES))
+  for (const d of docs) {
+    for (const bad of ['应该没问题', '一般来说', '大概率可以']) {
+      assert.ok(!d.text.includes(bad), `${d.file} 含空话「${bad}」`)
+    }
+  }
+})
