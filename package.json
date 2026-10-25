@@ -53,7 +53,8 @@
     "kb:caps": "node scripts/kb-caps.mjs",
     "tc:list": "node scripts/testcases.mjs --list",
     "tc:check": "node scripts/testcases.mjs --validate",
-    "tc:dry": "node scripts/testcases.mjs --dry --allow-gap"
+    "tc:dry": "node scripts/testcases.mjs --dry --allow-gap",
+    "tc:sim": "node scripts/testcases.mjs --sim --md docs/testcases/sim-packets.md"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": "*"

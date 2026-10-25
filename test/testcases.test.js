@@ -157,3 +157,35 @@ test('仓库里留了报告和基线，README 说明怎么跑', async () => {
   const report = await readFile(join(ROOT, 'docs', 'testcases', 'gap-report.md'), 'utf8')
   assert.match(report, /用例预检报告/)
 })
+test('阶段①离线推演：推演包覆盖全部用例，缺口表四类齐全', async () => {
+  const doc = await loadCases()
+  const packets = await readFile(join(ROOT, 'docs', 'testcases', 'sim-packets.md'), 'utf8')
+  const gaps = await readFile(join(ROOT, 'docs', 'testcases', 'sim-gaps.md'), 'utf8')
+  const prompt = await readFile(join(ROOT, 'prompts', 'offline-sim.md'), 'utf8')
+
+  // 每条用例都要有推演包和逐条结论
+  for (const c of doc.cases) {
+    assert.match(packets, new RegExp(`### ${c.id}（`), `推演包缺 ${c.id}`)
+    assert.match(gaps, new RegExp(`\\| ${c.id} \\|`), `缺口表缺 ${c.id}`)
+  }
+  // 推演包必须带路由标记，且编号合法（不许出现未注册标签）
+  const markers = packets.match(/NEED_KNOWLEDGE:([^\n]*)/g) ?? []
+  assert.ok(markers.length >= doc.cases.length, `路由标记少于用例数（${markers.length}）`)
+  const { TAGS } = await import('../src/kb-router.js')
+  for (const m of markers) {
+    for (const tag of m.slice('NEED_KNOWLEDGE:'.length).split(',').map((x) => x.trim()).filter(Boolean)) {
+      assert.ok(TAGS.includes(tag), `推演包里出现未注册标签 ${tag}`)
+    }
+  }
+  // 四类汇总齐全、编号唯一
+  for (const head of ['缺命令', '缺读取', '缺知识', '缺规则与判定']) {
+    assert.ok(gaps.includes(head), `缺口表缺分类：${head}`)
+  }
+  // 缺口编号是 C1/R1/K1/D1 这种不带前导零的；带前导零的是用例 id（K01…），别混
+  const ids = [...gaps.matchAll(/^\| ([CRKD][1-9]\d*) \|/gm)].map((m) => m[1])
+  assert.deepEqual(ids, [...new Set(ids)], '缺口编号重复')
+  assert.ok(ids.length >= 20, `缺口项太少（${ids.length}）`)
+  // 疑问清单要留给阶段③
+  assert.match(gaps, /留到阶段③实测验证的疑问/)
+  assert.match(prompt, /不生成任何发给游戏的动作指令/)
+})
