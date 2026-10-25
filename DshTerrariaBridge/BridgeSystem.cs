@@ -876,11 +876,18 @@ namespace DshTerrariaBridge
                 }
                 else
                 {
-                    for (int dy = -1; dy <= 2 && !water; dy++)
+                    // 横向赶路：前方 1~2 列、从头顶到脚下 5 格全扫，水和深坑都要停。
+                    // 原来只查前方 1 列的 dy -1..+2，实测在 x≈2220 的湖盆上没拦住：
+                    // 水在脚下第 3 格（dy+3），travel 一路走过去直接掉进去溺水身亡。
+                    for (int step = 1; step <= 2 && !water; step++)
                     {
-                        int wx = ax, wy = py + dy;
-                        if (!WorldGen.InWorld(wx, wy, 2)) continue;
-                        if (Main.tile[wx, wy].LiquidAmount >= 200) water = true;
+                        int wx = px + Travel.Dir * step;
+                        for (int dy = -1; dy <= 5 && !water; dy++)
+                        {
+                            int wy = py + dy;
+                            if (!WorldGen.InWorld(wx, wy, 2)) continue;
+                            if (Main.tile[wx, wy].LiquidAmount >= 200) water = true;
+                        }
                     }
                 }
                 // 上浮例外：已经泡在水里时，向上游是唯一出路，不能因为"前方有水"就停。
