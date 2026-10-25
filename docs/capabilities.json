@@ -511,6 +511,20 @@
       "summary": ""
     },
     {
+      "name": "interact",
+      "kind": "read",
+      "params": [
+        "x",
+        "y"
+      ],
+      "returns": [
+        "interact",
+        "after",
+        "method"
+      ],
+      "summary": ""
+    },
+    {
       "name": "inventory",
       "kind": "read",
       "params": [],

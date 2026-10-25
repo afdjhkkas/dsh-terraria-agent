@@ -113,6 +113,7 @@ minions,minionSlots,grapCount,hookType,mounted,wingTime,hasWings,itemAnimation }
 | `path {x,y,ms,dig}` | A* 寻路 + 可选挖掘 | ⚠️ 空腔竖井会「跳一分钟原地不动」，判据需再修 |
 | `travel {dir,distance,dig}` | 定向掘进循环 | ⚠️ **只用水平方向**：`down` 会沿斜坡漂移十几格并淹死过人 |
 | `mirror` | 魔镜回城 | 任意位置 → 出生点 |
+| `interact {x,y}` | 右键交互：开门 / 开箱 / 和 NPC 对话。走引擎自己的 `Player.TileInteractionsUse`，带 8 格距离检查，不改任何格子 | 回读 `before/after` 方块类型；开箱后 `chest` 可读内容 |
 | `hook {x,y,ms}` | 抓钩（`controlHook` 驱动） | 挂住 4 格外木地板：`grapCount 0→1`、角色被拉到 2100→2097.6 |
 | `unhook` | 松钩（`releaseHook` + 收弹幕） | `grapCount 1→0`，角色留在原地 |
 | `fly {ms}` | 飞行/跳跃 | 无翅膀时回 `hasWings:false` + 明确提示，不假装飞起来 |

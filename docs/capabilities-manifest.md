@@ -4,7 +4,7 @@
 > 元自检的第 4、5 维（动作原语 / 状态读取）就是拿这张表对照的：
 > 表里没有的接口和命令，一律视为不存在，不许在计划里使用。
 
-## 一、状态读取能力（39 个命令）
+## 一、状态读取能力（40 个命令）
 
 | 命令 | 能读到什么（返回值顶层字段） |
 |---|---|
@@ -23,6 +23,7 @@
 | `housediag` | `x` `y` `tiles` `box` |
 | `housing` | `townNPCs` |
 | `idmap` | `rows` |
+| `interact` | `interact` `after` `method` |
 | `inventory` | `selected` `count` `free` `freeMain` `freeAll` `items` `equipment` `canFly` |
 | `items` | `count` `items` |
 | `map` | `mapWidth` `mapHeight` `sampled` `revealedPercent` `explored` |

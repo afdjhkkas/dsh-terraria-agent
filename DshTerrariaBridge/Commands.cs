@@ -83,6 +83,7 @@ namespace DshTerrariaBridge
                 case "jump": return Jump(p);
                 case "climb": return Climb(p);
                 case "use": return Use(p);
+                case "interact": return Interact(p);
                 case "attack": return Attack(p);
                 case "select": return SelectSlot(p);
                 case "shoot": return Shoot(p);
@@ -2406,6 +2407,47 @@ namespace DshTerrariaBridge
                 held = new { type = pl.HeldItem.type, name = pl.HeldItem.Name },
                 // Evidence that something actually started, instead of just "ok".
                 anim = pl.itemAnimation,
+            });
+        }
+
+        /// <summary>
+        /// 右键交互：开门、开箱子、和 NPC 对话，都走引擎自己的“玩家交互”那条链。
+        /// 这里不写 WorldGen.OpenDoor，也不改任何格子——只是把玩家的 tileTarget 指到目标，
+        /// 然后调用原版右键时调用的那个方法（Player.TileInteractionsUse），让它自己判断
+        /// 够不够得着、是不是门、是不是箱子，并且自己播放开门动画。
+        /// </summary>
+        private static string Interact(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            if (pl.dead) return Json.Error("玩家已死亡，请先复活");
+            int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
+            if (x < 0 || y < 0) return Json.Error("interact 需要 x,y（要交互的那一格的格子坐标）");
+            var pc = pl.Center / 16f;
+            if (Math.Abs(x + 0.5f - pc.X) > 8 || Math.Abs(y + 0.5f - pc.Y) > 8)
+                return Json.Error($"够不到：({x},{y}) 离玩家超过 8 格，先走过去");
+            var mi = typeof(Player).GetMethod("TileInteractionsUse",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public,
+                null, new[] { typeof(int), typeof(int) }, null);
+            if (mi == null) return Json.Error("引擎里找不到 TileInteractionsUse(int,int)，交互链不可用");
+            int before = TileCode(Main.tile[x, y]);
+            Player.tileTargetX = x;   // 静态成员：全游戏同一份准星格子
+            Player.tileTargetY = y;
+            try { mi.Invoke(pl, new object[] { x, y }); }
+            catch (System.Exception e)
+            {
+                var inner = e.InnerException ?? e;
+                return Json.Error("TileInteractionsUse 抛错：" + inner.Message);
+            }
+            return Json.Ok(new
+            {
+                interact = true,
+                x,
+                y,
+                before,
+                after = TileCode(Main.tile[x, y]),
+                method = "Player.TileInteractionsUse",
             });
         }
 
