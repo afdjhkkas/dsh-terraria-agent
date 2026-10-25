@@ -127,3 +127,28 @@ non-solid perimeter: 3
 5. `housediag {x:2125,y:274}` → **`valid:true, tiles:64, box:[2122,2129,272,279], missing:[]`**。
 
 **教训**：`place` 对着 `OpenDoor` 放方块会返回 `armed:true` 但格子仍是 `OpenDoor`（多格家具不能被单格方块覆盖）；必须先打掉再用真方块砌。
+
+## S7 世界存盘不可用：`WorldFile.SaveWorld()` 在 Host&Play 下必 NRE（未解决）
+
+`save` 命令两条路径全部失败，堆栈完全一致：
+
+```
+NullReferenceException
+  at Terraria.IO.WorldFile.SaveFileFormatHeader(BinaryWriter writer)  WorldFile.cs:line 925
+  at Terraria.IO.WorldFile.SaveWorld_Version2(BinaryWriter writer)    WorldFile.cs:line 902
+  at Terraria.IO.WorldFile.InternalSaveWorld(Boolean, Boolean)        WorldFile.cs:line 681
+  at Terraria.IO.WorldFile.SaveWorld(Boolean, Boolean)                WorldFile.cs:line 647
+  at Terraria.IO.WorldFile.SaveWorld()                                WorldFile.cs:line 623
+```
+
+已排除的假设：
+
+1. `Main.ActiveWorldFileData == null` —— 试过无条件 `WorldFile.CreateMetadata(...)` 覆盖重建（`madeMeta:true`），NRE 位置不变。
+2. 参数组合 —— `SaveWorld()` 与 `SaveWorld(false,false)` 报同一个行号。
+
+**后果（很重要）**：所有世界改动只在内存里。重启游戏（`deploy2.ps1`）会回滚到上一次成功保存点。本轮出现的“房子修好 → 重启后又坏了”就是这个原因，不是房屋判定复活。
+
+**下一步线索**：
+
+- `api {type:"WorldGen",member:"Save"}` 里有 `WorldGen.saveAndPlay()` / `saveAndPlayCallBack` / `saveToonWhilePlaying()` —— 这是 Host&Play 自己的存盘链路，可能是唯一能走通的路（但要确认它不会把 `Main.gameMenu` 置真把玩家踢回主菜单）。
+- 也可以尝试把 `Main.ActiveWorldFileData` 的每个字段（Seed / GameMode / CreationTime / WorldGeneratorVersion / UniqueId）逐项打印出来，看 line 925 到底在读哪个 null 成员。

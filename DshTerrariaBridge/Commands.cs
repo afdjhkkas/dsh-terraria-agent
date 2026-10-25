@@ -1474,17 +1474,17 @@ namespace DshTerrariaBridge
             // Host&Play 的客户端是从服务器拿世界、不读文件，所以 Main.ActiveWorldFileData 是 null；
             // SaveFileFormatHeader 要写它的 gameMode/版本信息，一碰就 NRE。先补一个元数据对象。
             bool madeMeta = false;
-            if (Main.ActiveWorldFileData == null)
+            // 旧逻辑只在 ActiveWorldFileData == null 时补元数据，但联机时它"非空而内部字段为空"
+            // （Seed/GameMode 等没被填），SaveFileFormatHeader 里去读这些字段仍然 NRE。
+            // 所以这里无条件重建一次元数据，用当前世界名/种子覆盖掉那个半成品对象。
+            try
             {
-                try
-                {
-                    Main.ActiveWorldFileData = WorldFile.CreateMetadata(Main.worldPathName, false, WorldGen._lastSeed);
-                    madeMeta = Main.ActiveWorldFileData != null;
-                }
-                catch (Exception e)
-                {
-                    attempts.Add(new { step = "CreateMetadata", error = e.GetType().Name, message = e.Message });
-                }
+                var md = WorldFile.CreateMetadata(string.IsNullOrEmpty(Main.worldPathName) ? Main.worldName : Main.worldPathName, false, WorldGen._lastSeed);
+                if (md != null) { Main.ActiveWorldFileData = md; madeMeta = true; }
+            }
+            catch (Exception e)
+            {
+                attempts.Add(new { step = "CreateMetadata(always)", error = e.GetType().Name, message = e.Message });
             }
             var tries = new (string Name, Action Run)[]
             {
@@ -1778,6 +1778,20 @@ namespace DshTerrariaBridge
                 if (WorldGen.SolidTile(rX, y, false)) rightSolid++;
             }
 
+            // 漏水点：把房间矩形四条边上"非实心"的格子列出来。
+            // 之前排查一扇开着的门要逐格读 32 次；有了这个字段，一次 housediag 就能看出墙在哪破了。
+            var leaks = new List<object>();
+            void AddLeak(int x, int y)
+            {
+                if (leaks.Count >= 12) return;
+                if (x < 1 || y < 1 || x >= wX - 1 || y >= hY - 1) return;
+                if (WorldGen.SolidTile(x, y, false)) return;
+                Tile lt = Main.tile[x, y];
+                leaks.Add(new { x, y, name = lt.HasTile ? TileID.Search.GetName(lt.TileType) : "AIR" });
+            }
+            for (int x = minX; x <= hiX; x++) { AddLeak(x, cY); AddLeak(x, fY); }
+            for (int y = minY; y <= hiY; y++) { AddLeak(lX, y); AddLeak(rX, y); }
+
             int light = 0, comfort = 0, flat = 0, doors = 0;
             // 夹到世界范围内：洪水填充一旦漏出去，minX/hiX 会贴到地图边缘，
             // 直接 Main.tile[x,y] 就越界抛 IndexOutOfRange（曾经把整条命令打成报错）。
@@ -1828,6 +1842,7 @@ namespace DshTerrariaBridge
                 tiles = seen.Count,
                 box = new[] { minX, hiX, minY, hiY },
                 span = new { x = spanX, y = spanY },
+                leaks,
                 enclosed = !leak,
                 walled,
                 floorRatio = Math.Round(floorR, 2),
