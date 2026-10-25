@@ -148,13 +148,26 @@ export function parseSelfCheck(text) {
   const canAct = items.length === DIMENSIONS.length && gaps.length === 0 && missing.length === 0
   return {
     found: true,
-    markerFirst: blockStart === 0 || lines.slice(0, blockStart).every((l) => !l.trim()),
+    markerFirst: isMarkerFirst(lines, blockStart),
     skip: false,
     items,
     missing,
     gaps,
     canAct,
   }
+}
+
+/**
+ * SELF_CHECK 块前面允许有什么？
+ *
+ * 严格说它该独占第一行，但实际流程里同一回合的第一行是 `NEED_KNOWLEDGE:...`
+ * （先要资料，再核验），所以多容忍一条标记行，其他任何非空内容都算"不独占"。
+ */
+function isMarkerFirst(lines, blockStart) {
+  const before = lines.slice(0, blockStart).filter((l) => l.trim())
+  if (before.length === 0) return true
+  if (before.length === 1 && /^\s*NEED_KNOWLEDGE\s*[:：]/i.test(before[0])) return true
+  return false
 }
 
 function escapeRe(s) {

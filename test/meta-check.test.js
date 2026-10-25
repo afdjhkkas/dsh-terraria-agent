@@ -171,3 +171,12 @@ test('元自检规则正文可加载，且包含五维与 A/B 分支', async () 
   assert.match(prompt, /分支B/)
   assert.match(prompt, /SELF_CHECK/)
 })
+test('同一回合第一行是 NEED_KNOWLEDGE 时，SELF_CHECK 仍算独占第一行；有别的废话就不算', () => {
+  const ok = 'NEED_KNOWLEDGE: safety_limit, world_biome\nSELF_CHECK:\n1 规则核验: PASS\n2 道具核验: PASS\n3 地形/路径核验: PASS\n4 动作原语核验: PASS\n5 状态读取核验: PASS'
+  const good = parseSelfCheck(ok)
+  assert.equal(good.markerFirst, true)
+  assert.equal(good.canAct, true)
+
+  const noisy = '先说一句没用的\nSELF_CHECK:\n1 规则核验: PASS'
+  assert.equal(parseSelfCheck(noisy).markerFirst, false)
+})
