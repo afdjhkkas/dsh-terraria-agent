@@ -242,7 +242,32 @@ api {type:"Terraria.Player", member:"controlHook"} → "field | Boolean controlH
 
 ---
 
-## 9. 硬规则（违反会立刻出问题）
+## 9. 知识库：前置分类器 + 按标签检索（`terraria_kb`）
+
+玩家一句话进来，**先分类、再查资料**，不是临场挑库。
+
+```
+玩家原话
+  → terraria_kb { prompt: true }        拿分类器 Prompt
+  → 模型跑它，只回一行标签              "safety_limit, game_rule, build_standard, atomic_action"
+  → terraria_kb { tags: "..." }         只返回命中那几个库的正文
+```
+
+| 调用 | 作用 |
+|---|---|
+| `terraria_kb { prompt: true }` | 返回分类器 Prompt 全文（`prompts/intent-router.md`） |
+| `terraria_kb { tags: "a, b, c" }` | 按标签取库；非法标签被丢掉并在 `unknown` 里报出来 |
+| `terraria_kb { task: "..." }` | 没有分类结果时才用的关键词兜底（粗筛，不如分类器准） |
+
+七个标签与加载顺序：
+`safety_limit` → `game_rule` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。
+
+命令/参数/报错去 `docs/kb/_generated-commands.md`（生成物，69 命令 / 26 工具），
+不要往七个理论库里塞接口文档。
+
+---
+
+## 10. 硬规则（违反会立刻出问题）
 
 1. **世界只能通过真实操作改变**：`WorldGen.PlaceTile/KillTile`、`Main.tile[x,y].type = ...` 全部禁止；只能走「选物品 → 原版使用/挥击」路径。
 2. **只用桥在游戏内部驱动角色**，不用 OS 键鼠去点用户的桌面（`tr_mouse/tr_key` 那条路已废弃）。

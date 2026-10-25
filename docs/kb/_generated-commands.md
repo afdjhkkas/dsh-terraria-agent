@@ -77,7 +77,7 @@
 | `walkto` | `x` `y` `tol` `ms` |
 | `wall` | `x` `y` `type` `remove` `ms` |
 
-## DSH 插件工具（25 个）
+## DSH 插件工具（26 个）
 
 | 工具 | 作用 |
 |---|---|
@@ -93,6 +93,7 @@
 | `terraria_idle` | Stand still: cancel follow, paths, walks, movement and attack holds. Nothing is erased from the world. |
 | `terraria_inventory` | Read the inventory, the equipped armor/accessories (so you can tell whether you are armoured or have wings) and the sele |
 | `terraria_jump` | Jump once from the ground, then report the height change. Airborne it only holds the jump key, so wings  |
+| `terraria_kb` | Knowledge base for the Terraria agent.  |
 | `terraria_mine` | Mine a tile the way a player does: it selects your pickaxe (or axe for trees), aims at the tile and swings.  |
 | `terraria_move` | Hold a movement direction, then report how far the player actually went (from/to/dx/dy).  |
 | `terraria_npcs` | List active NPCs near the player with who/type/name/tile/life/friendly/boss/hostile.  |

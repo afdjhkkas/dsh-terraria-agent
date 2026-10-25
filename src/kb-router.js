@@ -37,8 +37,16 @@ export const TAGS = Object.keys(LIBRARIES)
 /** 前置分类器 Prompt 的位置：玩家发话先跑它，拿到标签再查库。 */
 export const ROUTER_PROMPT_PATH = join(HERE, '..', 'prompts', 'intent-router.md')
 
-/** Prompt 正文（供工具层/测试直接取用，避免各处再抄一遍）。 */
-export const ROUTER_PROMPT = readFileSync(ROUTER_PROMPT_PATH, 'utf8')
+let promptCache = null
+
+/**
+ * Prompt 正文。惰性读盘：只有真正用到分类器时才碰这个文件，
+ * 插件在没带 docs/prompts 的环境里加载也不会因为缺文件而崩。
+ */
+export function loadRouterPrompt() {
+  if (promptCache == null) promptCache = readFileSync(ROUTER_PROMPT_PATH, 'utf8')
+  return promptCache
+}
 
 /**
  * 把分类器（或人）给出的原始标签串规整成合法标签数组：

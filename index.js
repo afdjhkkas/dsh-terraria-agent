@@ -1,6 +1,7 @@
 import { defineTool } from './src/tool-def.mjs'
 import { createBridgeClient } from './src/bridge-client.js'
 import { createPrimitives } from './src/primitives.js'
+import { buildContext, normalizeTags, loadRouterPrompt, TAGS } from './src/kb-router.js'
 
 export const name = 'dsh-terraria-agent'
 export const inject = ['tools']
@@ -185,6 +186,41 @@ export function apply(ctx, rawConfig = {}) {
       }
       const result = await request(command, params, exec)
       return displayResult(result)
+    },
+  })
+
+  /* ── 知识库：前置分类器 + 按标签检索 ─────────────────────────── */
+
+  // 玩家一句话进来先跑分类器拿标签，再只读命中那几个库。
+  // 分类本身由模型做（prompt 见 prompt:true），这里负责"拿标签去取资料"。
+  register({
+    name: 'terraria_kb',
+    description: 'Knowledge base for the Terraria agent. '
+      + 'Two uses: (1) prompt:true returns the intent-classifier prompt — run it on the player\'s sentence and it answers '
+      + 'ONLY with tags such as "safety_limit, game_rule, build_standard, atomic_action". '
+      + '(2) pass those tags (or task text as a fallback) and get back the text of exactly the matching libraries. '
+      + `Valid tags: ${TAGS.join(', ')}. Load order matters: earlier docs override later ones. ${RULES}`,
+    parameters: {
+      prompt: boolean('true = return the classifier prompt instead of loading libraries.'),
+      tags: string('Classifier output, e.g. "game_rule, build_standard, safety_limit". Unknown tags are dropped and reported.'),
+      task: string('The player sentence. Only used when tags is omitted (keyword fallback, rougher than the classifier).'),
+    },
+    async run(args) {
+      if (args.prompt) return JSON.stringify({ ok: true, prompt: loadRouterPrompt() })
+      const tags = String(args.tags ?? '').trim()
+      const task = String(args.task ?? '').trim()
+      if (!tags && !task) {
+        throw new Error('terraria_kb needs tags (from the classifier), task text, or prompt:true.')
+      }
+      const ctx = await buildContext(task, tags ? { tags } : {})
+      return JSON.stringify({
+        ok: true,
+        tags: ctx.tags,
+        unknown: ctx.unknown ?? [],
+        scores: ctx.scores,
+        hits: ctx.hits,
+        docs: ctx.docs.map((d) => ({ tag: d.tag, file: d.file, chars: d.text.length, text: d.text })),
+      })
     },
   })
 

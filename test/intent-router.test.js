@@ -4,11 +4,13 @@ import {
   TAGS,
   LIBRARIES,
   ALWAYS,
-  ROUTER_PROMPT,
+  loadRouterPrompt,
   ROUTER_PROMPT_PATH,
   normalizeTags,
   route,
 } from '../src/kb-router.js'
+
+const ROUTER_PROMPT = loadRouterPrompt()
 
 /** 从 Prompt 的「示例」段抽出 [玩家原话, 标签串] 对。 */
 function promptExamples() {
