@@ -1157,8 +1157,10 @@ namespace DshTerrariaBridge
             }
             else
             {
+                // 挖 py-2..py+1 四行：角色高 2.6 格，只挖 3 行会漏掉头顶那格
+                // （实测 2705 卡住：2706 的 321/322 是空的，但 320 是石头，人过不去）
                 int bx = px + Travel.Dir;
-                for (int dy = -1; dy <= 1; dy++)
+                for (int dy = -2; dy <= 1; dy++)
                 {
                     int by = py + dy;
                     if (!WorldGen.InWorld(bx, by, 2)) continue;
