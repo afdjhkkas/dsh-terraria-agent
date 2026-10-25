@@ -1,0 +1,827 @@
+{
+  "schema": "terraria-testcases/1",
+  "ranAt": "2026-10-25T18:47:35.408Z",
+  "phase": null,
+  "category": null,
+  "total": 54,
+  "pass": 44,
+  "gap": 10,
+  "results": [
+    {
+      "id": "M01",
+      "phase": 1,
+      "category": "move",
+      "task": "向右连续走 10 秒，路上有 1 格台阶和 2 格坑，不能卡住",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：坑（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "M02",
+      "phase": 1,
+      "category": "move",
+      "task": "原地起跳、连续跳、从 3 格高处落下，确认重力与落地判定",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：跳跃（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "M03",
+      "phase": 1,
+      "category": "move",
+      "task": "在离家 150 格的地方向下挖一条竖井进洞穴，边挖边看地形",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：竖井（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "M04",
+      "phase": 1,
+      "category": "move",
+      "task": "依次走到海边、沙漠、丛林、雪原，每到一个记住坐标",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
+    },
+    {
+      "id": "M05",
+      "phase": 3,
+      "category": "move",
+      "task": "一路下到地狱，识别熔岩区块并绕开，不要被岩浆烧死",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
+    },
+    {
+      "id": "M06",
+      "phase": 3,
+      "category": "move",
+      "task": "找到发光蘑菇地和微光池，记录形状与位置特征",
+      "status": "GAP",
+      "gaps": [
+        {
+          "dimension": "知识缺口",
+          "detail": "world_biome 没有微光池的分布规律（在哪一层、什么地形附近会出现）"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "id": "M07",
+      "phase": 3,
+      "category": "move",
+      "task": "打开大地图，读出已探索区域范围并定位自己在地图上的位置",
+      "status": "GAP",
+      "gaps": [
+        {
+          "dimension": "动作原语缺口",
+          "detail": "没有 map"
+        },
+        {
+          "dimension": "知识缺口",
+          "detail": "没有大地图：读不到已探索区域范围，也读不到自己在地图上被标在哪"
+        }
+      ],
+      "warnings": [
+        "库里没直接出现：地图、已探索（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "G01",
+      "phase": 1,
+      "category": "gather",
+      "task": "徒手砍一棵树，捡起掉落的木材",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
+    },
+    {
+      "id": "G02",
+      "phase": 1,
+      "category": "gather",
+      "task": "用镐挖 5 块石头和 5 块泥土，掉落物要真的进背包",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
+    },
+    {
+      "id": "G03",
+      "phase": 1,
+      "category": "gather",
+      "task": "找一处铜矿或铁矿，挖下来并数清背包里多了几个",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：铜矿、铁矿（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "G04",
+      "phase": 3,
+      "category": "gather",
+      "task": "挖狱石和黑曜石，需要先解决熔岩伤害",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：狱石、黑曜石、熔岩（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "G05",
+      "phase": 2,
+      "category": "gather",
+      "task": "采几株月光草和太阳花，注意只在对应时间开花时能采",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：月光草、太阳花、开花（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "G06",
+      "phase": 1,
+      "category": "gather",
+      "task": "打碎一个陶罐，捡走里面的东西",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：罐（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "G07",
+      "phase": 1,
+      "category": "gather",
+      "task": "打开一个宝箱，把有用的拿走，不要全清空",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：宝箱（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "G08",
+      "phase": 3,
+      "category": "gather",
+      "task": "用空桶装一桶水和一桶蜂蜜",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：桶、蜂蜜（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "G09",
+      "phase": 1,
+      "category": "gather",
+      "task": "把地上散落的钱币和材料都捡干净",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：钱币（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "B01",
+      "phase": 1,
+      "category": "build",
+      "task": "铺一条 20 格长的石头平台，再接一段木墙",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
+    },
+    {
+      "id": "B02",
+      "phase": 2,
+      "category": "build",
+      "task": "照入住标准造一间 NPC 房：封闭空间、门、桌椅、光源",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
+    },
+    {
+      "id": "B03",
+      "phase": 1,
+      "category": "build",
+      "task": "铺一条 60 格长的横向通道，边铺边确认脚下不掉下去",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
+    },
+    {
+      "id": "B04",
+      "phase": 1,
+      "category": "build",
+      "task": "摆好火把、工作台、熔炉和一个箱子",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
+    },
+    {
+      "id": "B05",
+      "phase": 2,
+      "category": "build",
+      "task": "搭两层平台并用梯子或绳子上下连通",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：梯子（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "B06",
+      "phase": 2,
+      "category": "build",
+      "task": "把门、椅子、桌子摆到位置上，让房屋判定通过",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：椅子、桌子（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "K01",
+      "phase": 1,
+      "category": "craft",
+      "task": "用木材做工作台、木剑、木镐",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：木剑、木镐（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "K02",
+      "phase": 1,
+      "category": "craft",
+      "task": "在工作台旁边做火把、木平台、木墙",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：木平台、木墙（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "K03",
+      "phase": 1,
+      "category": "craft",
+      "task": "在熔炉把矿石熔成金属锭",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
+    },
+    {
+      "id": "K04",
+      "phase": 2,
+      "category": "craft",
+      "task": "做一张虫网和一根木钓竿，需要哪些前置材料",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：虫网、蛛网（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "K05",
+      "phase": 2,
+      "category": "craft",
+      "task": "整理背包，把多余材料存进箱子",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：存放（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "K06",
+      "phase": 2,
+      "category": "craft",
+      "task": "把一组 99 个的方块拆成两半，丢掉不要的垃圾",
+      "status": "GAP",
+      "gaps": [
+        {
+          "dimension": "动作原语缺口",
+          "detail": "没有 splitstack"
+        },
+        {
+          "dimension": "知识缺口",
+          "detail": "item_operation 没有堆叠拆分规则"
+        }
+      ],
+      "warnings": [
+        "库里没直接出现：拆分、丢弃（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "K07",
+      "phase": 1,
+      "category": "craft",
+      "task": "查配方判断当前材料能不能做出铁镐",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
+    },
+    {
+      "id": "N01",
+      "phase": 2,
+      "category": "npc",
+      "task": "等向导入住，跟他对话，问某个物品怎么做",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：配方（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "N02",
+      "phase": 2,
+      "category": "npc",
+      "task": "找商人买一把铜镐和两瓶弱效治疗药水",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：购买（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "N03",
+      "phase": 2,
+      "category": "npc",
+      "task": "受伤以后找护士回血",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：回血（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "N04",
+      "phase": 3,
+      "category": "npc",
+      "task": "接渔夫的钓鱼任务，钓到指定鱼后交给他",
+      "status": "GAP",
+      "gaps": [
+        {
+          "dimension": "动作原语缺口",
+          "detail": "没有 quest"
+        },
+        {
+          "dimension": "能力缺口",
+          "detail": "明确做不到：NPC 对话文本"
+        },
+        {
+          "dimension": "知识缺口",
+          "detail": "npc_town 只写了渔夫怎么出现，没有任务系统：任务进度、任务鱼种类、交付规则"
+        }
+      ],
+      "warnings": [
+        "库里没直接出现：渔夫、任务（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "N05",
+      "phase": 2,
+      "category": "npc",
+      "task": "跟武器商、防具商买卖装备",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：武器商、防具商、买卖（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "N06",
+      "phase": 2,
+      "category": "npc",
+      "task": "判断这间房为什么 NPC 不肯住，说清缺哪一条",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
+    },
+    {
+      "id": "F01",
+      "phase": 2,
+      "category": "fish",
+      "task": "装备钓竿，在水边抛竿，等浮标沉下去再收线",
+      "status": "GAP",
+      "gaps": [
+        {
+          "dimension": "动作原语缺口",
+          "detail": "没有 castline"
+        },
+        {
+          "dimension": "动作原语缺口",
+          "detail": "没有 reel"
+        },
+        {
+          "dimension": "能力缺口",
+          "detail": "明确做不到：随机事件与时机窗口"
+        },
+        {
+          "dimension": "能力缺口",
+          "detail": "明确做不到：通用弹幕状态"
+        },
+        {
+          "dimension": "知识缺口",
+          "detail": "loot_source 只写了\"需要钓竿+鱼饵、产物由群系深度决定\"，缺动作流程与判定：怎么抛竿、咬钩的时机信号、收线、鱼饵每次消耗"
+        }
+      ],
+      "warnings": [
+        "库里没直接出现：咬钩（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "F02",
+      "phase": 2,
+      "category": "fish",
+      "task": "用虫网抓一只蝴蝶、一条蠕虫、一只青蛙",
+      "status": "GAP",
+      "gaps": [
+        {
+          "dimension": "能力缺口",
+          "detail": "明确做不到：生物 AI 内部状态"
+        },
+        {
+          "dimension": "知识缺口",
+          "detail": "loot_source 只提到松露虫，缺捕捉机制：虫网怎么用、哪些生物可捕、成功率"
+        }
+      ],
+      "warnings": [
+        "库里没直接出现：虫网、小动物（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "F03",
+      "phase": 3,
+      "category": "fish",
+      "task": "把抓到的小动物放进笼子里摆好",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：笼（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "F04",
+      "phase": 3,
+      "category": "fish",
+      "task": "钓一条任务鱼，交给渔夫完成任务闭环",
+      "status": "GAP",
+      "gaps": [
+        {
+          "dimension": "动作原语缺口",
+          "detail": "没有 castline"
+        },
+        {
+          "dimension": "动作原语缺口",
+          "detail": "没有 reel"
+        },
+        {
+          "dimension": "动作原语缺口",
+          "detail": "没有 quest"
+        },
+        {
+          "dimension": "能力缺口",
+          "detail": "明确做不到：NPC 对话文本"
+        },
+        {
+          "dimension": "能力缺口",
+          "detail": "明确做不到：通用弹幕状态"
+        },
+        {
+          "dimension": "知识缺口",
+          "detail": "任务鱼与交付规则同上，未入库"
+        }
+      ],
+      "warnings": [
+        "库里没直接出现：任务鱼、渔夫（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "W01",
+      "phase": 2,
+      "category": "combat",
+      "task": "近战砍死一只史莱姆和一只僵尸，注意别被贴身",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：史莱姆、僵尸（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "W02",
+      "phase": 2,
+      "category": "combat",
+      "task": "用弓射下一只飞在天上的恶魔眼",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：弓、射箭、飞行（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "W03",
+      "phase": 2,
+      "category": "combat",
+      "task": "血少了先后撤回血，不要在低血量硬打",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：后撤、低血量（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "W04",
+      "phase": 2,
+      "category": "combat",
+      "task": "去腐化之地清掉噬魂怪和腐化史莱姆",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：噬魂怪（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "W05",
+      "phase": 2,
+      "category": "combat",
+      "task": "集齐晶状体做召唤物，在恶魔祭坛召唤并打死克苏鲁之眼",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
+    },
+    {
+      "id": "W06",
+      "phase": 2,
+      "category": "combat",
+      "task": "BOSS 打完后把掉落物都捡回来",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：战利品（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "E01",
+      "phase": 3,
+      "category": "event",
+      "task": "血月来了，在家门口顶住整夜刷怪",
+      "status": "GAP",
+      "gaps": [
+        {
+          "dimension": "动作原语缺口",
+          "detail": "没有 startevent"
+        },
+        {
+          "dimension": "能力缺口",
+          "detail": "明确做不到：随机事件与时机窗口"
+        }
+      ],
+      "warnings": [
+        "库里没直接出现：血月、刷怪（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "E02",
+      "phase": 3,
+      "category": "event",
+      "task": "手动开一次日食、南瓜月、霜月，各打一轮",
+      "status": "GAP",
+      "gaps": [
+        {
+          "dimension": "动作原语缺口",
+          "detail": "没有 startevent"
+        }
+      ],
+      "warnings": [
+        "库里没直接出现：日食、南瓜月、霜月（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "E03",
+      "phase": 3,
+      "category": "event",
+      "task": "把一件武器丢进微光池，看它变成什么，再验证能不能换回来",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
+    },
+    {
+      "id": "E04",
+      "phase": 3,
+      "category": "event",
+      "task": "击败血肉墙，进困难模式，确认新矿石和新怪出现",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：新三矿（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "E05",
+      "phase": 3,
+      "category": "event",
+      "task": "哥布林入侵或海盗入侵时守住基地",
+      "status": "GAP",
+      "gaps": [
+        {
+          "dimension": "动作原语缺口",
+          "detail": "没有 startevent"
+        },
+        {
+          "dimension": "能力缺口",
+          "detail": "明确做不到：随机事件与时机窗口"
+        }
+      ],
+      "warnings": [
+        "库里没直接出现：入侵、哥布林、海盗（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "Q01",
+      "phase": 2,
+      "category": "gear",
+      "task": "把武器、护甲、配饰分别装备到对应栏位",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：配饰、栏位（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "Q02",
+      "phase": 2,
+      "category": "gear",
+      "task": "喝一瓶敏捷药水和一瓶治疗药水，确认 buff 出现并计时",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：buff（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "Q03",
+      "phase": 2,
+      "category": "gear",
+      "task": "近战和远程来回切换打同一只怪",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：武器切换（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "Q04",
+      "phase": 2,
+      "category": "gear",
+      "task": "用钩爪把自己拉过一道 8 格宽的沟",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：抓钩（确认是不是换了说法）"
+      ]
+    }
+  ],
+  "aggregate": {
+    "commands": [
+      {
+        "what": "没有 startevent",
+        "cases": [
+          "E01",
+          "E02",
+          "E05"
+        ],
+        "count": 3
+      },
+      {
+        "what": "没有 quest",
+        "cases": [
+          "N04",
+          "F04"
+        ],
+        "count": 2
+      },
+      {
+        "what": "没有 castline",
+        "cases": [
+          "F01",
+          "F04"
+        ],
+        "count": 2
+      },
+      {
+        "what": "没有 reel",
+        "cases": [
+          "F01",
+          "F04"
+        ],
+        "count": 2
+      },
+      {
+        "what": "没有 map",
+        "cases": [
+          "M07"
+        ],
+        "count": 1
+      },
+      {
+        "what": "没有 splitstack",
+        "cases": [
+          "K06"
+        ],
+        "count": 1
+      }
+    ],
+    "knowledge": [
+      {
+        "what": "world_biome 没有微光池的分布规律（在哪一层、什么地形附近会出现）",
+        "cases": [
+          "M06"
+        ],
+        "count": 1
+      },
+      {
+        "what": "没有大地图：读不到已探索区域范围，也读不到自己在地图上被标在哪",
+        "cases": [
+          "M07"
+        ],
+        "count": 1
+      },
+      {
+        "what": "item_operation 没有堆叠拆分规则",
+        "cases": [
+          "K06"
+        ],
+        "count": 1
+      },
+      {
+        "what": "npc_town 只写了渔夫怎么出现，没有任务系统：任务进度、任务鱼种类、交付规则",
+        "cases": [
+          "N04"
+        ],
+        "count": 1
+      },
+      {
+        "what": "loot_source 只写了\"需要钓竿+鱼饵、产物由群系深度决定\"，缺动作流程与判定：怎么抛竿、咬钩的时机信号、收线、鱼饵每次消耗",
+        "cases": [
+          "F01"
+        ],
+        "count": 1
+      },
+      {
+        "what": "loot_source 只提到松露虫，缺捕捉机制：虫网怎么用、哪些生物可捕、成功率",
+        "cases": [
+          "F02"
+        ],
+        "count": 1
+      },
+      {
+        "what": "任务鱼与交付规则同上，未入库",
+        "cases": [
+          "F04"
+        ],
+        "count": 1
+      }
+    ],
+    "unsupported": [
+      {
+        "what": "明确做不到：随机事件与时机窗口",
+        "cases": [
+          "F01",
+          "E01",
+          "E05"
+        ],
+        "count": 3
+      },
+      {
+        "what": "明确做不到：NPC 对话文本",
+        "cases": [
+          "N04",
+          "F04"
+        ],
+        "count": 2
+      },
+      {
+        "what": "明确做不到：通用弹幕状态",
+        "cases": [
+          "F01",
+          "F04"
+        ],
+        "count": 2
+      },
+      {
+        "what": "明确做不到：生物 AI 内部状态",
+        "cases": [
+          "F02"
+        ],
+        "count": 1
+      }
+    ]
+  }
+}

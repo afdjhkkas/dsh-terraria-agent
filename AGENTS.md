@@ -207,6 +207,38 @@ SELF_CHECK:
 - 禁止编造清单里没有的命令/字段/规则；"大概能用"算 GAP。
 - 机器校验：`terraria_kb { selfcheck: "<本回合输出>" }` → `canAct` / `gaps` / `unknownCommands`。
 
+## 9. 任务用例库（"能不能用"靠它，不靠自由通关）
+
+用例在 `testcases/cases.json`，说明在 `docs/testcases/README.md`。
+
+自由跑一遍游戏**不算验证**：事件和生物是随机的，碰不到的场景自检永远不触发。
+所以固定成逐条用例过。九个分类（移动 / 采集 / 建造 / 合成 / NPC / 钓鱼捉虫 / 战斗 / 事件 / 装备）
+共 54 条，分四个阶段推进：1 基础（移动采集建造合成）→ 2 进阶（NPC/钓鱼/装备/BOSS/基础事件）
+→ 3 边界（困难模式/特殊事件/微光/稀有群系）→ 4 自由游玩。
+
+每条用例都走同一条链路，不许跳：
+
+```
+路由（NEED_KNOWLEDGE）→ 检索库 → 五维自检 → 缺口清单
+```
+
+产出不是"这条能不能过"，而是**该补什么**：缺动作原语（要加命令）/ 撞上明确做不到（要加读取或时序原语）/ 缺知识（要补库）。
+补的时候按"要补什么"批量补，不按用例一条条补。
+
+```bash
+npm run tc:list                 # 54 条都是什么
+npm run tc:check                # 用例库自身有没有写错
+npm run tc:dry                  # 离线预检，出缺口清单
+node scripts/testcases.mjs --dry --md docs/testcases/gap-report.md --json docs/testcases/baseline.json
+node scripts/testcases.mjs --dry --baseline docs/testcases/baseline.json   # 回归：修好了/新坏了/仍缺
+```
+
+**硬规矩**：
+- 用例里写 `missingCommands` 的东西，补上之后必须回来删声明（`--validate` 会报，测试会红）。
+- 用例里写 `unsupported` 的，只能是能力清单 `notSupported` 里真有的条目，不许自己编理由。
+- 新加命令或读取字段，先跑 `npm run tc:dry` 看它让哪几条用例从 GAP 变 PASS，再提交。
+
+
 <!-- caps:begin 本节由 scripts/kb-caps.mjs 生成，不要手改 -->
 
 **只读（26）**：api boss chatpoll event find help housediag housing idmap inventory items needs npc path ping players recipes research roomcheck scan shop shopdebug shops state tile tiledata

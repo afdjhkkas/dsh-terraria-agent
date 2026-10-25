@@ -1,0 +1,1291 @@
+{
+  "schema": "terraria-testcases/1",
+  "note": "任务用例库：每条是一条可直接下发的测试指令，加上它需要的能力声明。运行 scripts/testcases.mjs 做离线预检，跑真机时逐条下发并按五维自检判。",
+  "categories": {
+    "move": "移动与世界探索",
+    "gather": "采集挖掘",
+    "build": "建造放置",
+    "craft": "合成与背包",
+    "npc": "NPC 交互",
+    "fish": "钓鱼与捉虫",
+    "combat": "战斗",
+    "event": "事件与特殊机制",
+    "gear": "装备与增益"
+  },
+  "phases": {
+    "1": "基础：移动 / 采集 / 建造 / 基础合成",
+    "2": "进阶：NPC / 钓鱼 / 装备 / 普通 BOSS / 基础事件",
+    "3": "边界：困难模式 / 特殊事件 / 微光 / 稀有群系",
+    "4": "自由游玩：以上全过后再放开"
+  },
+  "cases": [
+    {
+      "id": "M01",
+      "phase": 1,
+      "category": "move",
+      "task": "向右连续走 10 秒，路上有 1 格台阶和 2 格坑，不能卡住",
+      "needs": {
+        "commands": [
+          "move",
+          "state",
+          "scan"
+        ],
+        "kb": [
+          "atomic_action",
+          "actor_behavior"
+        ],
+        "kbAnchors": [
+          "台阶",
+          "坑"
+        ],
+        "kbMissing": []
+      },
+      "note": "走完要回读坐标，位移<8 格算卡住"
+    },
+    {
+      "id": "M02",
+      "phase": 1,
+      "category": "move",
+      "task": "原地起跳、连续跳、从 3 格高处落下，确认重力与落地判定",
+      "needs": {
+        "commands": [
+          "jump",
+          "state"
+        ],
+        "kb": [
+          "actor_behavior"
+        ],
+        "kbAnchors": [
+          "跳跃",
+          "坠落"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "M03",
+      "phase": 1,
+      "category": "move",
+      "task": "在离家 150 格的地方向下挖一条竖井进洞穴，边挖边看地形",
+      "needs": {
+        "commands": [
+          "mine",
+          "scan",
+          "tile",
+          "state"
+        ],
+        "kb": [
+          "atomic_action",
+          "game_rule"
+        ],
+        "kbAnchors": [
+          "竖井",
+          "洞穴"
+        ],
+        "kbMissing": []
+      },
+      "note": "必须逐格挖，不能用 travel down"
+    },
+    {
+      "id": "M04",
+      "phase": 1,
+      "category": "move",
+      "task": "依次走到海边、沙漠、丛林、雪原，每到一个记住坐标",
+      "needs": {
+        "commands": [
+          "travel",
+          "state",
+          "scan"
+        ],
+        "kb": [
+          "world_biome"
+        ],
+        "kbAnchors": [
+          "海洋",
+          "沙漠",
+          "丛林",
+          "雪原"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "M05",
+      "phase": 3,
+      "category": "move",
+      "task": "一路下到地狱，识别熔岩区块并绕开，不要被岩浆烧死",
+      "needs": {
+        "commands": [
+          "travel",
+          "scan",
+          "tile",
+          "state"
+        ],
+        "kb": [
+          "world_biome",
+          "safety_limit"
+        ],
+        "kbAnchors": [
+          "地狱",
+          "岩浆"
+        ],
+        "kbMissing": []
+      },
+      "note": "需要熔岩免疫来源（护身符/黑曜石皮肤药水）"
+    },
+    {
+      "id": "M06",
+      "phase": 3,
+      "category": "move",
+      "task": "找到发光蘑菇地和微光池，记录形状与位置特征",
+      "needs": {
+        "commands": [
+          "find",
+          "travel",
+          "scan"
+        ],
+        "kb": [
+          "world_biome",
+          "loot_source"
+        ],
+        "kbAnchors": [
+          "发光蘑菇",
+          "微光"
+        ],
+        "kbMissing": [
+          "world_biome 没有微光池的分布规律（在哪一层、什么地形附近会出现）"
+        ]
+      }
+    },
+    {
+      "id": "M07",
+      "phase": 3,
+      "category": "move",
+      "task": "打开大地图，读出已探索区域范围并定位自己在地图上的位置",
+      "needs": {
+        "commands": [],
+        "kb": [],
+        "missingCommands": [
+          "map"
+        ],
+        "kbAnchors": [
+          "地图",
+          "已探索"
+        ],
+        "kbMissing": [
+          "没有大地图：读不到已探索区域范围，也读不到自己在地图上被标在哪"
+        ]
+      },
+      "note": "完全没有大地图读取能力"
+    },
+    {
+      "id": "G01",
+      "phase": 1,
+      "category": "gather",
+      "task": "徒手砍一棵树，捡起掉落的木材",
+      "needs": {
+        "commands": [
+          "use",
+          "select",
+          "grab",
+          "inventory"
+        ],
+        "kb": [
+          "item_operation",
+          "atomic_action"
+        ],
+        "kbAnchors": [
+          "树",
+          "木材"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "G02",
+      "phase": 1,
+      "category": "gather",
+      "task": "用镐挖 5 块石头和 5 块泥土，掉落物要真的进背包",
+      "needs": {
+        "commands": [
+          "mine",
+          "grab",
+          "inventory",
+          "tile"
+        ],
+        "kb": [
+          "atomic_action",
+          "item_operation"
+        ],
+        "kbAnchors": [
+          "镐",
+          "石块"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "G03",
+      "phase": 1,
+      "category": "gather",
+      "task": "找一处铜矿或铁矿，挖下来并数清背包里多了几个",
+      "needs": {
+        "commands": [
+          "find",
+          "mine",
+          "grab",
+          "inventory"
+        ],
+        "kb": [
+          "item_operation"
+        ],
+        "kbAnchors": [
+          "铜矿",
+          "铁矿",
+          "矿石"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "G04",
+      "phase": 3,
+      "category": "gather",
+      "task": "挖狱石和黑曜石，需要先解决熔岩伤害",
+      "needs": {
+        "commands": [
+          "find",
+          "mine",
+          "grab",
+          "tile"
+        ],
+        "kb": [
+          "item_operation",
+          "safety_limit"
+        ],
+        "kbAnchors": [
+          "狱石",
+          "黑曜石",
+          "熔岩"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "G05",
+      "phase": 2,
+      "category": "gather",
+      "task": "采几株月光草和太阳花，注意只在对应时间开花时能采",
+      "needs": {
+        "commands": [
+          "find",
+          "mine",
+          "grab",
+          "state"
+        ],
+        "kb": [
+          "loot_source",
+          "game_rule"
+        ],
+        "kbAnchors": [
+          "月光草",
+          "太阳花",
+          "开花"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "G06",
+      "phase": 1,
+      "category": "gather",
+      "task": "打碎一个陶罐，捡走里面的东西",
+      "needs": {
+        "commands": [
+          "mine",
+          "grab",
+          "inventory"
+        ],
+        "kb": [
+          "loot_source"
+        ],
+        "kbAnchors": [
+          "罐"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "G07",
+      "phase": 1,
+      "category": "gather",
+      "task": "打开一个宝箱，把有用的拿走，不要全清空",
+      "needs": {
+        "commands": [
+          "chest",
+          "inventory",
+          "grab"
+        ],
+        "kb": [
+          "loot_source"
+        ],
+        "kbAnchors": [
+          "宝箱",
+          "箱子"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "G08",
+      "phase": 3,
+      "category": "gather",
+      "task": "用空桶装一桶水和一桶蜂蜜",
+      "needs": {
+        "commands": [
+          "select",
+          "use",
+          "tile",
+          "inventory"
+        ],
+        "kb": [
+          "item_operation"
+        ],
+        "kbAnchors": [
+          "桶",
+          "蜂蜜",
+          "水"
+        ],
+        "kbMissing": []
+      },
+      "note": "原版用桶装液体，理论上 use 就够，但要能在液体里瞄准"
+    },
+    {
+      "id": "G09",
+      "phase": 1,
+      "category": "gather",
+      "task": "把地上散落的钱币和材料都捡干净",
+      "needs": {
+        "commands": [
+          "grab",
+          "inventory",
+          "state"
+        ],
+        "kb": [
+          "item_operation"
+        ],
+        "kbAnchors": [
+          "钱币",
+          "拾取"
+        ],
+        "kbMissing": []
+      },
+      "note": "拾取半径 4 格，超出要挪过去"
+    },
+    {
+      "id": "B01",
+      "phase": 1,
+      "category": "build",
+      "task": "铺一条 20 格长的石头平台，再接一段木墙",
+      "needs": {
+        "commands": [
+          "place",
+          "wall",
+          "tile",
+          "inventory"
+        ],
+        "kb": [
+          "build_standard",
+          "atomic_action"
+        ],
+        "kbAnchors": [
+          "平台",
+          "墙"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "B02",
+      "phase": 2,
+      "category": "build",
+      "task": "照入住标准造一间 NPC 房：封闭空间、门、桌椅、光源",
+      "needs": {
+        "commands": [
+          "place",
+          "wall",
+          "craft",
+          "homeroom",
+          "housing",
+          "housediag"
+        ],
+        "kb": [
+          "build_standard",
+          "npc_town"
+        ],
+        "kbAnchors": [
+          "房屋",
+          "门",
+          "桌椅",
+          "光源",
+          "入住"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "B03",
+      "phase": 1,
+      "category": "build",
+      "task": "铺一条 60 格长的横向通道，边铺边确认脚下不掉下去",
+      "needs": {
+        "commands": [
+          "fill",
+          "place",
+          "tile",
+          "state"
+        ],
+        "kb": [
+          "atomic_action",
+          "build_standard"
+        ],
+        "kbAnchors": [
+          "通道",
+          "填充"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "B04",
+      "phase": 1,
+      "category": "build",
+      "task": "摆好火把、工作台、熔炉和一个箱子",
+      "needs": {
+        "commands": [
+          "place",
+          "craft",
+          "chest",
+          "tile"
+        ],
+        "kb": [
+          "build_standard",
+          "item_operation"
+        ],
+        "kbAnchors": [
+          "火把",
+          "工作台",
+          "熔炉",
+          "箱子"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "B05",
+      "phase": 2,
+      "category": "build",
+      "task": "搭两层平台并用梯子或绳子上下连通",
+      "needs": {
+        "commands": [
+          "place",
+          "climb",
+          "tile",
+          "state"
+        ],
+        "kb": [
+          "build_standard"
+        ],
+        "kbAnchors": [
+          "平台",
+          "绳",
+          "梯子"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "B06",
+      "phase": 2,
+      "category": "build",
+      "task": "把门、椅子、桌子摆到位置上，让房屋判定通过",
+      "needs": {
+        "commands": [
+          "place",
+          "homeroom",
+          "housediag"
+        ],
+        "kb": [
+          "build_standard",
+          "npc_town"
+        ],
+        "kbAnchors": [
+          "门",
+          "椅子",
+          "桌子"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "K01",
+      "phase": 1,
+      "category": "craft",
+      "task": "用木材做工作台、木剑、木镐",
+      "needs": {
+        "commands": [
+          "craft",
+          "recipes",
+          "inventory"
+        ],
+        "kb": [
+          "item_operation"
+        ],
+        "kbAnchors": [
+          "工作台",
+          "木剑",
+          "木镐"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "K02",
+      "phase": 1,
+      "category": "craft",
+      "task": "在工作台旁边做火把、木平台、木墙",
+      "needs": {
+        "commands": [
+          "craft",
+          "recipes",
+          "find"
+        ],
+        "kb": [
+          "item_operation"
+        ],
+        "kbAnchors": [
+          "火把",
+          "木平台",
+          "木墙"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "K03",
+      "phase": 1,
+      "category": "craft",
+      "task": "在熔炉把矿石熔成金属锭",
+      "needs": {
+        "commands": [
+          "craft",
+          "recipes",
+          "inventory"
+        ],
+        "kb": [
+          "item_operation"
+        ],
+        "kbAnchors": [
+          "熔炉",
+          "锭"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "K04",
+      "phase": 2,
+      "category": "craft",
+      "task": "做一张虫网和一根木钓竿，需要哪些前置材料",
+      "needs": {
+        "commands": [
+          "craft",
+          "recipes",
+          "inventory"
+        ],
+        "kb": [
+          "loot_source",
+          "item_operation"
+        ],
+        "kbAnchors": [
+          "虫网",
+          "钓竿",
+          "蛛网"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "K05",
+      "phase": 2,
+      "category": "craft",
+      "task": "整理背包，把多余材料存进箱子",
+      "needs": {
+        "commands": [
+          "chest",
+          "inventory",
+          "drop"
+        ],
+        "kb": [
+          "item_operation"
+        ],
+        "kbAnchors": [
+          "箱子",
+          "存放"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "K06",
+      "phase": 2,
+      "category": "craft",
+      "task": "把一组 99 个的方块拆成两半，丢掉不要的垃圾",
+      "needs": {
+        "commands": [
+          "drop",
+          "inventory"
+        ],
+        "kb": [
+          "item_operation"
+        ],
+        "missingCommands": [
+          "splitstack"
+        ],
+        "kbAnchors": [
+          "拆分",
+          "丢弃"
+        ],
+        "kbMissing": [
+          "item_operation 没有堆叠拆分规则"
+        ]
+      },
+      "note": "原版是按住右键拆分，没有对应命令"
+    },
+    {
+      "id": "K07",
+      "phase": 1,
+      "category": "craft",
+      "task": "查配方判断当前材料能不能做出铁镐",
+      "needs": {
+        "commands": [
+          "recipes",
+          "inventory"
+        ],
+        "kb": [
+          "item_operation"
+        ],
+        "kbAnchors": [
+          "配方",
+          "铁镐"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "N01",
+      "phase": 2,
+      "category": "npc",
+      "task": "等向导入住，跟他对话，问某个物品怎么做",
+      "needs": {
+        "commands": [
+          "npc",
+          "talk",
+          "housing",
+          "homeroom"
+        ],
+        "kb": [
+          "npc_town"
+        ],
+        "kbAnchors": [
+          "向导",
+          "对话",
+          "配方"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "N02",
+      "phase": 2,
+      "category": "npc",
+      "task": "找商人买一把铜镐和两瓶弱效治疗药水",
+      "needs": {
+        "commands": [
+          "shops",
+          "shop",
+          "buy",
+          "npc"
+        ],
+        "kb": [
+          "npc_town",
+          "item_operation"
+        ],
+        "kbAnchors": [
+          "商人",
+          "购买"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "N03",
+      "phase": 2,
+      "category": "npc",
+      "task": "受伤以后找护士回血",
+      "needs": {
+        "commands": [
+          "npc",
+          "heal",
+          "state"
+        ],
+        "kb": [
+          "npc_town"
+        ],
+        "kbAnchors": [
+          "护士",
+          "回血"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "N04",
+      "phase": 3,
+      "category": "npc",
+      "task": "接渔夫的钓鱼任务，钓到指定鱼后交给他",
+      "needs": {
+        "commands": [
+          "npc",
+          "talk"
+        ],
+        "kb": [],
+        "missingCommands": [
+          "quest"
+        ],
+        "unsupported": [
+          "NPC 对话文本"
+        ],
+        "kbAnchors": [
+          "渔夫",
+          "任务"
+        ],
+        "kbMissing": [
+          "npc_town 只写了渔夫怎么出现，没有任务系统：任务进度、任务鱼种类、交付规则"
+        ]
+      },
+      "note": "读不到任务进度与对话文本"
+    },
+    {
+      "id": "N05",
+      "phase": 2,
+      "category": "npc",
+      "task": "跟武器商、防具商买卖装备",
+      "needs": {
+        "commands": [
+          "shops",
+          "shop",
+          "buy",
+          "sell",
+          "npc"
+        ],
+        "kb": [
+          "npc_town",
+          "gear_route"
+        ],
+        "kbAnchors": [
+          "武器商",
+          "防具商",
+          "买卖"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "N06",
+      "phase": 2,
+      "category": "npc",
+      "task": "判断这间房为什么 NPC 不肯住，说清缺哪一条",
+      "needs": {
+        "commands": [
+          "housing",
+          "housediag",
+          "roomcheck",
+          "tile"
+        ],
+        "kb": [
+          "npc_town",
+          "build_standard"
+        ],
+        "kbAnchors": [
+          "房屋",
+          "判定",
+          "入住"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "F01",
+      "phase": 2,
+      "category": "fish",
+      "task": "装备钓竿，在水边抛竿，等浮标沉下去再收线",
+      "needs": {
+        "commands": [
+          "select",
+          "use",
+          "state"
+        ],
+        "kb": [
+          "loot_source"
+        ],
+        "missingCommands": [
+          "castline",
+          "reel"
+        ],
+        "unsupported": [
+          "随机事件与时机窗口",
+          "通用弹幕状态"
+        ],
+        "kbAnchors": [
+          "钓竿",
+          "鱼饵",
+          "咬钩"
+        ],
+        "kbMissing": [
+          "loot_source 只写了\"需要钓竿+鱼饵、产物由群系深度决定\"，缺动作流程与判定：怎么抛竿、咬钩的时机信号、收线、鱼饵每次消耗"
+        ]
+      },
+      "note": "抛竿/等待/收线是时序原语，use 只能点一下，也读不到浮标状态"
+    },
+    {
+      "id": "F02",
+      "phase": 2,
+      "category": "fish",
+      "task": "用虫网抓一只蝴蝶、一条蠕虫、一只青蛙",
+      "needs": {
+        "commands": [
+          "select",
+          "use",
+          "npc",
+          "inventory"
+        ],
+        "kb": [
+          "loot_source"
+        ],
+        "unsupported": [
+          "生物 AI 内部状态"
+        ],
+        "kbAnchors": [
+          "虫网",
+          "小动物"
+        ],
+        "kbMissing": [
+          "loot_source 只提到松露虫，缺捕捉机制：虫网怎么用、哪些生物可捕、成功率"
+        ]
+      },
+      "note": "能列出周围 NPC，但没有\"等它进范围再挥网\"的原语"
+    },
+    {
+      "id": "F03",
+      "phase": 3,
+      "category": "fish",
+      "task": "把抓到的小动物放进笼子里摆好",
+      "needs": {
+        "commands": [
+          "place",
+          "inventory"
+        ],
+        "kb": [
+          "item_operation"
+        ],
+        "kbAnchors": [
+          "笼"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "F04",
+      "phase": 3,
+      "category": "fish",
+      "task": "钓一条任务鱼，交给渔夫完成任务闭环",
+      "needs": {
+        "commands": [
+          "select",
+          "use",
+          "npc",
+          "talk"
+        ],
+        "kb": [],
+        "missingCommands": [
+          "castline",
+          "reel",
+          "quest"
+        ],
+        "unsupported": [
+          "NPC 对话文本",
+          "通用弹幕状态"
+        ],
+        "kbAnchors": [
+          "任务鱼",
+          "渔夫"
+        ],
+        "kbMissing": [
+          "任务鱼与交付规则同上，未入库"
+        ]
+      }
+    },
+    {
+      "id": "W01",
+      "phase": 2,
+      "category": "combat",
+      "task": "近战砍死一只史莱姆和一只僵尸，注意别被贴身",
+      "needs": {
+        "commands": [
+          "attack",
+          "npc",
+          "state",
+          "move"
+        ],
+        "kb": [
+          "combat_math",
+          "actor_behavior"
+        ],
+        "kbAnchors": [
+          "史莱姆",
+          "僵尸",
+          "近战"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "W02",
+      "phase": 2,
+      "category": "combat",
+      "task": "用弓射下一只飞在天上的恶魔眼",
+      "needs": {
+        "commands": [
+          "select",
+          "shoot",
+          "attack",
+          "npc"
+        ],
+        "kb": [
+          "combat_math"
+        ],
+        "kbAnchors": [
+          "弓",
+          "射箭",
+          "飞行"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "W03",
+      "phase": 2,
+      "category": "combat",
+      "task": "血少了先后撤回血，不要在低血量硬打",
+      "needs": {
+        "commands": [
+          "state",
+          "move",
+          "guard",
+          "attack"
+        ],
+        "kb": [
+          "combat_math",
+          "safety_limit"
+        ],
+        "kbAnchors": [
+          "后撤",
+          "低血量"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "W04",
+      "phase": 2,
+      "category": "combat",
+      "task": "去腐化之地清掉噬魂怪和腐化史莱姆",
+      "needs": {
+        "commands": [
+          "travel",
+          "find",
+          "attack",
+          "npc"
+        ],
+        "kb": [
+          "world_biome",
+          "combat_math"
+        ],
+        "kbAnchors": [
+          "腐化",
+          "噬魂怪"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "W05",
+      "phase": 2,
+      "category": "combat",
+      "task": "集齐晶状体做召唤物，在恶魔祭坛召唤并打死克苏鲁之眼",
+      "needs": {
+        "commands": [
+          "craft",
+          "select",
+          "use",
+          "attack",
+          "boss",
+          "npc"
+        ],
+        "kb": [
+          "progression_boss"
+        ],
+        "kbAnchors": [
+          "克苏鲁之眼",
+          "晶状体",
+          "祭坛"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "W06",
+      "phase": 2,
+      "category": "combat",
+      "task": "BOSS 打完后把掉落物都捡回来",
+      "needs": {
+        "commands": [
+          "grab",
+          "inventory",
+          "boss"
+        ],
+        "kb": [
+          "progression_boss"
+        ],
+        "kbAnchors": [
+          "掉落",
+          "战利品"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "E01",
+      "phase": 3,
+      "category": "event",
+      "task": "血月来了，在家门口顶住整夜刷怪",
+      "needs": {
+        "commands": [
+          "event",
+          "guard",
+          "attack",
+          "state"
+        ],
+        "kb": [],
+        "missingCommands": [
+          "startevent"
+        ],
+        "unsupported": [
+          "随机事件与时机窗口"
+        ],
+        "kbAnchors": [
+          "血月",
+          "刷怪"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "E02",
+      "phase": 3,
+      "category": "event",
+      "task": "手动开一次日食、南瓜月、霜月，各打一轮",
+      "needs": {
+        "commands": [
+          "event",
+          "attack",
+          "guard"
+        ],
+        "kb": [],
+        "missingCommands": [
+          "startevent"
+        ],
+        "kbAnchors": [
+          "日食",
+          "南瓜月",
+          "霜月"
+        ],
+        "kbMissing": []
+      },
+      "note": "event 只能读状态，没有触发的口子"
+    },
+    {
+      "id": "E03",
+      "phase": 3,
+      "category": "event",
+      "task": "把一件武器丢进微光池，看它变成什么，再验证能不能换回来",
+      "needs": {
+        "commands": [
+          "drop",
+          "find",
+          "inventory",
+          "tile"
+        ],
+        "kb": [
+          "item_operation",
+          "loot_source"
+        ],
+        "kbAnchors": [
+          "微光",
+          "转化"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "E04",
+      "phase": 3,
+      "category": "event",
+      "task": "击败血肉墙，进困难模式，确认新矿石和新怪出现",
+      "needs": {
+        "commands": [
+          "boss",
+          "attack",
+          "select",
+          "use",
+          "find"
+        ],
+        "kb": [
+          "progression_boss",
+          "world_biome"
+        ],
+        "kbAnchors": [
+          "血肉墙",
+          "困难模式",
+          "新三矿"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "E05",
+      "phase": 3,
+      "category": "event",
+      "task": "哥布林入侵或海盗入侵时守住基地",
+      "needs": {
+        "commands": [
+          "event",
+          "guard",
+          "attack",
+          "npc"
+        ],
+        "kb": [],
+        "missingCommands": [
+          "startevent"
+        ],
+        "unsupported": [
+          "随机事件与时机窗口"
+        ],
+        "kbAnchors": [
+          "入侵",
+          "哥布林",
+          "海盗"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "Q01",
+      "phase": 2,
+      "category": "gear",
+      "task": "把武器、护甲、配饰分别装备到对应栏位",
+      "needs": {
+        "commands": [
+          "equip",
+          "accessory",
+          "inventory"
+        ],
+        "kb": [
+          "gear_route"
+        ],
+        "kbAnchors": [
+          "护甲",
+          "配饰",
+          "栏位"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "Q02",
+      "phase": 2,
+      "category": "gear",
+      "task": "喝一瓶敏捷药水和一瓶治疗药水，确认 buff 出现并计时",
+      "needs": {
+        "commands": [
+          "select",
+          "use",
+          "state"
+        ],
+        "kb": [
+          "gear_route"
+        ],
+        "kbAnchors": [
+          "药水",
+          "buff",
+          "增益"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "Q03",
+      "phase": 2,
+      "category": "gear",
+      "task": "近战和远程来回切换打同一只怪",
+      "needs": {
+        "commands": [
+          "select",
+          "use",
+          "shoot",
+          "attack"
+        ],
+        "kb": [
+          "combat_math"
+        ],
+        "kbAnchors": [
+          "武器切换"
+        ],
+        "kbMissing": []
+      }
+    },
+    {
+      "id": "Q04",
+      "phase": 2,
+      "category": "gear",
+      "task": "用钩爪把自己拉过一道 8 格宽的沟",
+      "needs": {
+        "commands": [
+          "hook",
+          "unhook",
+          "state",
+          "move"
+        ],
+        "kb": [
+          "actor_behavior"
+        ],
+        "kbAnchors": [
+          "钩爪",
+          "抓钩"
+        ],
+        "kbMissing": []
+      }
+    }
+  ]
+}
