@@ -42,9 +42,12 @@ namespace DshTerrariaBridge
                 case "find": return FindTile(p);
                 case "duplicate": return Duplicate(p);
                 case "fill": return FillArea(p);
+                case "roomcheck": return RoomCheckCmd(p);
+
                 case "housing": return Housing(p);
                 case "needs": return RoomDiagnostics(p);
                 case "homeroom": return HomeRoom(p);
+                case "housediag": return HouseDiag(p);
                 case "items": return DroppedItems(p);
                 case "grab": return GrabLoot(p);
                 case "save": return SaveWorld(p);
@@ -80,7 +83,17 @@ namespace DshTerrariaBridge
                 case "guard": return GuardCmd(p);
                 case "follow": return FollowCmd(p);
                 case "idle": return IdleCmd(p);
-                case "players": return PlayersCmd();
+                case "chatpoll":
+                return Json.Ok(BridgeSystem.ChatPoll(Json.Int(p, "since", 0), Math.Clamp(Json.Int(p, "max", 20), 1, 100)));
+
+            case "chatpost":
+            {
+                string msg = Json.Str(p, "text", null);
+                if (string.IsNullOrWhiteSpace(msg)) return Json.Error("需要 text");
+                return Json.Ok(BridgeSystem.ChatPost(msg));
+            }
+
+            case "players": return PlayersCmd();
                 case "stop":
                     BridgeSystem.GuardUntil = 0;
                     BridgeSystem.StopPath("cancelled");
@@ -1327,6 +1340,83 @@ namespace DshTerrariaBridge
             return Json.Ok(new { x, y, found, worldFields = fields, npc = npcFields });
         }
 
+
+        /// <summary>
+        /// 让游戏自己判一次房屋，并把"缺什么"报出来。
+        /// 正确链路（原版房屋 UI 用的就是这两步）：
+        ///   WorldGen.StartRoomCheck(x, y)  → 洪水填充，返回房间是否成立
+        ///   WorldGen.RoomNeeds(npcType)    → 这个房间满不满足某个 NPC 的需求，失败时写 roomCheckFailureReason
+        /// 之前写的是 StartRoomCheck + CheckRoom(0,1)，CheckRoom 的入参是瓦片坐标，
+        /// 等于去判 (0,1) 那一格，所以永远报 None —— 白猜了很久。
+        /// </summary>
+        private static string RoomCheckCmd(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
+            if (x < 0 || y < 0) return Json.Error("roomcheck 需要 x,y（房间内任意一格）");
+            int npcType = Json.Int(p, "npc", NPCID.Merchant);
+            string mode = Json.Str(p, "mode", "all") ?? "all";
+
+            var steps = new List<object>();
+            void Snap(string label)
+            {
+                var r = WorldGen.roomCheckFailureReason;
+                steps.Add(new
+                {
+                    step = label,
+                    reason = r.ToString(),
+                    reasonValue = (int)r,
+                    tiles = WorldGen.numRoomTiles,
+                    box = new[] { WorldGen.roomX1, WorldGen.roomX2, WorldGen.roomY1, WorldGen.roomY2 },
+                    ceilings = WorldGen.roomCeilingsCount,
+                });
+            }
+
+            WorldGen.roomCheckFailureReason = 0;
+            bool found = false, needs = false;
+            string ex = null;
+            try
+            {
+                if (mode == "score")
+                {
+                    // 房屋 UI 打分走的是 ScoreRoom：它会自己做洪水填充并写 roomCheckFailureReason。
+                    WorldGen.ScoreRoom(x, y);
+                    Snap("afterScore");
+                    needs = WorldGen.RoomNeeds(npcType);
+                    Snap("afterNeeds");
+                    found = WorldGen.roomCheckFailureReason == 0 && WorldGen.numRoomTiles > 0;
+                }
+                else
+                {
+                    // CheckRoom 才是真正做洪水填充的那个；StartRoomCheck 只做初始化。
+                    WorldGen.StartRoomCheck(x, y);
+                    Snap("afterStart");
+                    WorldGen.CheckRoom(x, y);
+                    Snap("afterCheck");
+                    found = WorldGen.numRoomTiles > 0 && WorldGen.roomCheckFailureReason == 0;
+                    needs = WorldGen.RoomNeeds(npcType);
+                    Snap("afterNeeds");
+                }
+            }
+            catch (Exception e) { ex = e.GetType().Name + ": " + e.Message; }
+
+            var reason = WorldGen.roomCheckFailureReason;
+            return Json.Ok(new
+            {
+                x,
+                y,
+                npcType,
+                mode,
+                found,
+                needs,
+                ok = found && needs,
+                reason = reason.ToString(),
+                reasonValue = (int)reason,
+                ex,
+                steps,
+            });
+        }
+
         private static string Housing(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
@@ -1375,9 +1465,12 @@ namespace DshTerrariaBridge
             if (n == null || !n.active || !n.townNPC) return Json.Error($"NPC {who} 不是活跃的城镇 NPC");
             bool wasHomeless = n.homeless;
             int oldX = n.homeTileX, oldY = n.homeTileY;
-            bool roomFound = WorldGen.StartRoomCheck(x, y);
-            if (!roomFound) return Json.Error($"({x},{y}) 不是一个房间，没法让人搬进去");
+            // 不再用 StartRoomCheck 当门闸：它只做初始化，永远返回 false（会把合法房间也拦下）。
+            // moveRoom 是房屋 UI 里"点房间把人送过去"的那个函数，房间不合法时它自己就什么都不改，
+            // 所以直接调用 + 看 NPC 的 homeless/home 有没有变，才是唯一可信的判定。
+            WorldGen.roomCheckFailureReason = 0;
             WorldGen.moveRoom(x, y, who);
+            var reason = WorldGen.roomCheckFailureReason;
             return Json.Ok(new
             {
                 who,
@@ -1385,9 +1478,128 @@ namespace DshTerrariaBridge
                 wasHomeless,
                 homeless = n.homeless,
                 moved = wasHomeless != n.homeless,
-                roomFound,
+                reason = reason.ToString(),
+                reasonValue = (int)reason,
+                tiles = WorldGen.numRoomTiles,
                 oldHome = new { x = oldX, y = oldY },
                 home = new { x = n.homeTileX, y = n.homeTileY },
+            });
+        }
+
+        /// <summary>
+        /// 自己的房屋判定：不依赖 WorldGen 那套全局静态计数器。
+        /// 实测那些计数器在同一帧里反复调用会给出自相矛盾的 box（连合法房间也报
+        /// HoleInWallIsTooBig，且 box 总是往西/北漏到固定坐标），没法当判据。
+        /// 这里一次独立洪水填充 + 逐条核对原版规则，返回"缺什么"。
+        /// </summary>
+        private static string HouseDiag(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            int sx = Json.Int(p, "x", -1), sy = Json.Int(p, "y", -1);
+            if (sx < 1 || sy < 1) return Json.Error("housediag 需要 x,y（房间内任意一格）");
+
+            int wX = Main.maxTilesX, hY = Main.maxTilesY;
+            var seen = new HashSet<int>();
+            var stack = new Stack<Point>();
+            int minX = sx, hiX = sx, minY = sy, hiY = sy;
+            bool leak = false;
+
+            void Push(int x, int y)
+            {
+                if (x < 1 || y < 1 || x >= wX - 1 || y >= hY - 1) { leak = true; return; }
+                if (!WorldGen.SolidTile(x, y, false)) stack.Push(new Point(x, y));
+            }
+
+            stack.Push(new Point(sx, sy));
+            while (stack.Count > 0)
+            {
+                Point c = stack.Pop();
+                int key = c.Y * wX + c.X;
+                if (!seen.Add(key)) continue;
+                if (seen.Count > 9000) { leak = true; break; }
+                if (c.X < minX) minX = c.X;
+                if (c.X > hiX) hiX = c.X;
+                if (c.Y < minY) minY = c.Y;
+                if (c.Y > hiY) hiY = c.Y;
+                Push(c.X - 1, c.Y); Push(c.X + 1, c.Y); Push(c.X, c.Y - 1); Push(c.X, c.Y + 1);
+            }
+
+            int walled = 0;
+            foreach (int key in seen)
+            {
+                int x = key % wX, y = key / wX;
+                if (Main.tile[x, y].WallType > 0) walled++;
+            }
+
+            // 边界实心比例：地板 / 天花板 / 两侧墙
+            int floorSolid = 0, ceilSolid = 0, leftSolid = 0, rightSolid = 0;
+            int spanX = hiX - minX + 1, spanY = hiY - minY + 1;
+            for (int x = minX; x <= hiX; x++)
+            {
+                if (WorldGen.SolidTile(x, hiY + 1, false)) floorSolid++;
+                if (WorldGen.SolidTile(x, minY - 1, false)) ceilSolid++;
+            }
+            for (int y = minY; y <= hiY; y++)
+            {
+                if (WorldGen.SolidTile(minX - 1, y, false)) leftSolid++;
+                if (WorldGen.SolidTile(hiX + 1, y, false)) rightSolid++;
+            }
+
+            int light = 0, comfort = 0, flat = 0, doors = 0;
+            for (int x = minX - 2; x <= hiX + 2; x++)
+            {
+                for (int y = minY - 2; y <= hiY + 2; y++)
+                {
+                    Tile t = Main.tile[x, y];
+                    if (!t.HasTile) continue;
+                    int ty = t.TileType;
+                    // 用方块 id 字面量：tModLoader 1.4.4 的 TileID 里没有 Candle/Candelabra/
+                    // Chandelier 这些成员（编译期就报 CS0117），字面量不会随 API 改名而失效。
+                    if (ty == 4 || ty == 149 || ty == 33 || ty == 49 || ty == 42)
+                        light++;          // 火把 / 营火 / 蜡烛 / 水蜡烛 / 提灯
+                    else if (ty == 15 || ty == 87 || ty == 90)
+                        comfort++;        // 椅子 / 王座 / 长椅
+                    else if (ty == 14 || ty == 18 || ty == 88 || ty == 469)
+                        flat++;           // 桌子 / 工作台 / 梳妆台
+                    else if (ty == 10 || ty == 11)
+                        doors++;          // 关着的门 / 开着的门
+                }
+            }
+
+            double floorR = spanX > 0 ? (double)floorSolid / spanX : 0;
+            double ceilR = spanX > 0 ? (double)ceilSolid / spanX : 0;
+            double leftR = spanY > 0 ? (double)leftSolid / spanY : 0;
+            double rightR = spanY > 0 ? (double)rightSolid / spanY : 0;
+
+            var missing = new List<string>();
+            if (leak) missing.Add("房间没封住（洪水跑到边界外/超过 9000 格）");
+            if (seen.Count < 60) missing.Add($"空间太小：{seen.Count} < 60");
+            if (seen.Count > 7500) missing.Add($"空间太大：{seen.Count} > 7500");
+            if (walled < seen.Count) missing.Add($"背墙不全：{walled}/{seen.Count} 格有墙");
+            if (floorR < 0.9) missing.Add($"地板不连续：{floorSolid}/{spanX}");
+            if (ceilR < 0.9) missing.Add($"天花板不连续：{ceilSolid}/{spanX}");
+            if (leftR < 0.9) missing.Add($"左墙不连续：{leftSolid}/{spanY}");
+            if (rightR < 0.9) missing.Add($"右墙不连续：{rightSolid}/{spanY}");
+            if (light == 0) missing.Add("缺光源");
+            if (comfort == 0) missing.Add("缺椅子");
+            if (flat == 0) missing.Add("缺桌子/工作台");
+
+            return Json.Ok(new
+            {
+                x = sx,
+                y = sy,
+                tiles = seen.Count,
+                box = new[] { minX, hiX, minY, hiY },
+                span = new { x = spanX, y = spanY },
+                enclosed = !leak,
+                walled,
+                floorRatio = Math.Round(floorR, 2),
+                ceilRatio = Math.Round(ceilR, 2),
+                leftRatio = Math.Round(leftR, 2),
+                rightRatio = Math.Round(rightR, 2),
+                light, comfort, flat, doors,
+                missing,
+                valid = missing.Count == 0,
             });
         }
 

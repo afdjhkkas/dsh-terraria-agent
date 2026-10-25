@@ -265,8 +265,76 @@ namespace DshTerrariaBridge
 
         public override void PostUpdateEverything()
         {
+            InstallChatHook();
             TickTravel();
             DrainPending();
+        }
+
+
+        /* ── 聊天收件箱：把你在游戏聊天框里敲的话交给 agent ─────────────
+         * 原理：挂 Main.DoUpdate_HandleChat（按回车真正发消息的那一步）的前置，
+         *       把 Main.chatText 抄一份进收件箱。只读复制，不改游戏行为。
+         * 不用按键注入、不抢焦点、不碰用户桌面。
+         */
+        private static readonly object ChatLock = new object();
+        private static readonly List<string> ChatInbox = new List<string>();
+        private static readonly List<string> ChatSent = new List<string>();
+        internal static bool ChatHookInstalled;
+        internal static string ChatHookError = "";
+        private static bool ChatHookTried;
+
+        internal static void InstallChatHook()
+        {
+            if (ChatHookTried) return;
+            ChatHookTried = true;
+            try
+            {
+                var mi = typeof(Main).GetMethod("DoUpdate_HandleChat",
+                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+                if (mi == null) { ChatHookError = "找不到 Main.DoUpdate_HandleChat"; return; }
+                // 发消息那一下：Main.chatRelease 为真且输入框有内容
+                Terraria.ModLoader.MonoModHooks.Add(mi, (Action<Action>)(orig =>
+                {
+                    try
+                    {
+                        if (Main.chatRelease && !string.IsNullOrWhiteSpace(Main.chatText))
+                        {
+                            string text = Main.chatText.Trim();
+                            lock (ChatLock) ChatInbox.Add(text);
+                        }
+                    }
+                    catch { }
+                    orig();
+                }));
+                ChatHookInstalled = true;
+            }
+            catch (Exception ex) { ChatHookError = ex.GetType().Name + ": " + ex.Message; }
+        }
+
+        internal static object ChatPoll(int since, int max)
+        {
+            lock (ChatLock)
+            {
+                if (since < 0) since = 0;
+                if (since > ChatInbox.Count) since = ChatInbox.Count;
+                int take = Math.Min(max, ChatInbox.Count - since);
+                var lines = ChatInbox.GetRange(since, take);
+                return new
+                {
+                    hooked = ChatHookInstalled,
+                    hookError = ChatHookError.Length > 0 ? ChatHookError : null,
+                    next = since + take,
+                    pending = ChatInbox.Count - (since + take),
+                    lines = lines.ToArray(),
+                };
+            }
+        }
+
+        internal static object ChatPost(string text)
+        {
+            lock (ChatLock) ChatSent.Add(text);
+            Main.NewText(text, new Microsoft.Xna.Framework.Color(120, 220, 255));
+            return new { posted = text, hooked = ChatHookInstalled };
         }
 
         /* ── 寻路（A*）＋ 逐格执行 ────────────────────────────────────────

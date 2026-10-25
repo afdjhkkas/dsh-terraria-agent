@@ -619,5 +619,63 @@ export function apply(ctx, rawConfig = {}) {
     },
   })
 
+  // ── 聊天收件箱 ───────────────────────────────────────────────────────────────
+  // 你在游戏聊天框里敲的话会进 mod 的收件箱；这两个工具把它交给模型 / 把回答贴回游戏。
+  let chatCursor = 0
+
+  register({
+    name: 'terraria_chat_wait',
+    description: 'Block until a NEW line arrives in the Terraria chat box (i.e. something the player typed), or until timeoutMs. '
+      + 'Returns {lines, next, timedOut}. The cursor is kept between calls, so consecutive calls only return fresh lines. '
+      + 'Use this to receive instructions typed in-game; answer with terraria_chat_post so the player sees it in game.',
+    parameters: {
+      timeoutMs: integer('How long to wait in milliseconds (default 60000, capped at 120000).'),
+      since: integer('Override the internal cursor. Omit to continue where the last call stopped.'),
+    },
+    async run(args, exec) {
+      const timeout = Math.min(Math.max(Number(args.timeoutMs ?? 60000), 0), 120000)
+      let cursor = args.since === undefined ? chatCursor : Math.max(0, Number(args.since))
+      const deadline = Date.now() + timeout
+      const collected = []
+      let last = null
+      for (;;) {
+        last = await request('chatpoll', { since: cursor, max: 20 }, exec)
+        const data = last?.data ?? last
+        if (data?.hooked === false) {
+          throw new Error(`chat hook is not installed: ${data.hookError || 'unknown reason'}`)
+        }
+        const lines = Array.isArray(data?.lines) ? data.lines : []
+        if (lines.length) {
+          collected.push(...lines)
+          cursor = Number(data.next ?? cursor + lines.length)
+          chatCursor = cursor
+          break
+        }
+        if (Date.now() >= deadline) {
+          chatCursor = cursor
+          break
+        }
+        await new Promise((r) => setTimeout(r, 400))
+      }
+      return displayResult({
+        ok: true,
+        data: { lines: collected, next: cursor, timedOut: collected.length === 0 },
+      })
+    },
+  })
+
+  register({
+    name: 'terraria_chat_post',
+    description: 'Post a line into the local Terraria chat box so the player reads it in game (Main.NewText, client only). '
+      + 'Keep it short — the game chat wraps quickly. Long text is truncated at 400 characters per line.',
+    parameters: { text: string('Line to show in game chat (required).', { required: true }) },
+    async run(args, exec) {
+      const value = String(args.text ?? '').trim()
+      if (!value) throw new Error('text is required and must not be blank.')
+      const result = await request('chatpost', { text: value.slice(0, 400) }, exec)
+      return displayResult(result)
+    },
+  })
+
   return () => client.close()
 }
