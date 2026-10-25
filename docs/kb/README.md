@@ -16,6 +16,10 @@
 
 生成物：[_generated-commands.md](_generated-commands.md)（68 个 mod 命令 + 25 个插件工具，`node scripts/kb-sync.mjs` 生成，**不要手改**）。
 
+另有一份 **已知的未知**：[_unknowns.md](_unknowns.md) —— 40 条"我们还没搞清楚的事"，
+按 P0/P1/P2 分级，每条带测法。它不属于六个标签，用来回答"你还有什么不知道"，
+以及决定下一轮进游戏先干什么。
+
 ## 路由逻辑
 
 ```
