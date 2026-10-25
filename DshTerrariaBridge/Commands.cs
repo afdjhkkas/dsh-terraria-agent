@@ -592,15 +592,23 @@ namespace DshTerrariaBridge
         {
             if (!InWorld(out string err)) return Json.Error(err);
             if (!HasPlayer(out string perr)) return Json.Error(perr);
-            int radius = Math.Clamp(Json.Int(p, "r", 6), 1, 60);
+            int radius = Math.Clamp(Json.Int(p, "r", 8), 1, 60);
             Player pl = P;
             var got = new List<object>();
             int seen = 0;
+            // 诊断用：世界里有几个活着的掉落物、离我最近的是谁、多远。picked=0 时
+            // 光看 picked 分不清"没掉出来""掉下去了""压根没进 Main.item"。
+            int actives = 0;
+            string nearestName = null;
+            float nearestDist = -1f;
             for (int i = 0; i < Main.maxItems; i++)
             {
                 Item it = Main.item[i];
                 if (it == null || !it.active || it.stack <= 0 || it.type <= 0) continue;
-                if (Vector2.Distance(it.Center, pl.Center) > radius * 16f) continue;
+                actives++;
+                float d = Vector2.Distance(it.Center, pl.Center) / 16f;
+                if (nearestDist < 0f || d < nearestDist) { nearestDist = d; nearestName = it.Name; }
+                if (d > radius) continue;
                 seen++;
                 string name = it.Name;
                 int type = it.type;
@@ -618,6 +626,10 @@ namespace DshTerrariaBridge
             {
                 picked = got.Count,
                 seen,
+                radius,
+                actives,
+                nearest = nearestName,
+                nearestDist = nearestDist < 0 ? (float?)null : (float)Math.Round(nearestDist, 1),
                 items = got,
                 diag = new { pl.whoAmI, Main.myPlayer, Main.netMode },
             });
@@ -732,12 +744,44 @@ namespace DshTerrariaBridge
             Item it = pl.inventory[slot];
             if (it == null || it.type <= 0) return Json.Error("这个格子是空的");
             int n = Math.Clamp(Json.Int(p, "count", it.stack), 1, it.stack);
+            string attemptsErr = null;
             Item dropped = it.Clone();
-            dropped.stack = n;
-            Item.NewItem(new EntitySource_DropAsItem(pl), pl.Center, Vector2.Zero, dropped.type, n);
-            it.stack -= n;
-            if (it.stack <= 0) { pl.inventory[slot] = new Item(); pl.inventory[slot].SetDefaults(0); }
-            return Json.Ok(new { dropped = dropped.Name, count = n });
+            int orig = it.stack;
+            // 原版"丢东西"= 选中该格再 DropSelectedItem()。它会整堆丢出去，所以先把 stack
+            // 临时改成 n，丢完再把剩下的放回去；成功与否用背包账目核对，不看返回值。
+            if (orig > n) it.stack = n;
+            int savedSel = pl.selectedItem;
+            int idx = -1;
+            try
+            {
+                pl.selectedItem = slot;
+                pl.DropSelectedItem();
+            }
+            catch (Exception e) { attemptsErr = e.Message; }
+            pl.selectedItem = savedSel;
+            int left = pl.inventory[slot] != null && pl.inventory[slot].type == dropped.type ? pl.inventory[slot].stack : 0;
+            bool took = left <= 0;
+            for (int i = 0; i < Main.maxItems; i++)
+            {
+                Item mi = Main.item[i];
+                if (mi != null && mi.active && mi.type == dropped.type && Vector2.Distance(mi.Center, pl.Center) < 6f * 16f)
+                { idx = i; break; }
+            }
+            if (!took && attemptsErr == null)
+            {
+                // 没丢出去：把临时改小的 stack 还原
+                if (orig > n) { it.stack = orig; pl.inventory[slot] = it; }
+                return Json.Ok(new { dropped = 0, failed = true, item = dropped.Name, asked = n, err = attemptsErr,
+                    note = "DropSelectedItem 没有把物品丢出去，库存未变" });
+            }
+            if (orig > n)
+            {
+                Item rest = dropped.Clone();
+                rest.stack = orig - n;
+                pl.inventory[slot] = rest;
+            }
+            return Json.Ok(new { dropped = dropped.Name, count = n, idx, onGround = idx >= 0,
+                left = pl.inventory[slot].stack, verify = "grab 能捡回来才算真的落地" });
         }
 
         private static string HealSelf(JsonElement p)
@@ -1173,22 +1217,54 @@ namespace DshTerrariaBridge
         private static string SaveWorld(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
-            try
+            // Host&Play 里存盘会 NRE，而 NRE 的那一行决定怎么绕：先按无参重载试，失败就把
+            // 真正的堆栈带回来（只报 Message 的话永远查不到是哪一行）。
+            var attempts = new List<object>();
+            // Host&Play 的客户端是从服务器拿世界、不读文件，所以 Main.ActiveWorldFileData 是 null；
+            // SaveFileFormatHeader 要写它的 gameMode/版本信息，一碰就 NRE。先补一个元数据对象。
+            bool madeMeta = false;
+            if (Main.ActiveWorldFileData == null)
             {
-                // SaveWorld(bool) 在 Host&Play 里会 NRE（实测：Object reference not set…），
-                // 无参重载走的那条路径不需要 ActiveWorldFileData，是同一个写入器。
-                WorldFile.SaveWorld();
-                return Json.Ok(new
+                try
                 {
-                    saved = true,
-                    world = Main.worldName,
-                    spawn = new { x = Main.spawnTileX, y = Main.spawnTileY },
-                });
+                    Main.ActiveWorldFileData = WorldFile.CreateMetadata(Main.worldPathName, false, WorldGen._lastSeed);
+                    madeMeta = Main.ActiveWorldFileData != null;
+                }
+                catch (Exception e)
+                {
+                    attempts.Add(new { step = "CreateMetadata", error = e.GetType().Name, message = e.Message });
+                }
             }
-            catch (Exception e)
+            var tries = new (string Name, Action Run)[]
             {
-                return Json.Error("存档失败：" + e.Message);
+                ("SaveWorld()", () => WorldFile.SaveWorld()),
+                ("SaveWorld(false,false)", () => WorldFile.SaveWorld(false, false)),
+            };
+            foreach (var t in tries)
+            {
+                try
+                {
+                    t.Run();
+                    return Json.Ok(new
+                    {
+                        saved = true,
+                        via = t.Name,
+                        madeMeta,
+                        attempts,
+                        world = Main.worldName,
+                        spawn = new { x = Main.spawnTileX, y = Main.spawnTileY },
+                    });
+                }
+                catch (Exception e)
+                {
+                    string st = e.StackTrace ?? "";
+                    var frames = st.Split('\n').Select(s => s.Trim()).Where(s => s.Length > 0).Take(6).ToArray();
+                    attempts.Add(new { via = t.Name, error = e.GetType().Name, message = e.Message, frames });
+                }
             }
+            return Json.Ok(new { saved = false, madeMeta, attempts,
+                hasWorldFileData = Main.ActiveWorldFileData != null,
+                worldPath = Main.worldPathName });
         }
 
         /// <summary>
@@ -1526,7 +1602,15 @@ namespace DshTerrariaBridge
                         return Json.Ok(new { action = "unequip", from = a, to = i, item = it.Name });
                     }
                 }
-                return Json.Error("没有可卸的饰品，或者背包满了");
+                var equipped = new List<object>();
+                for (int a = 3; a <= 9; a++)
+                {
+                    Item it = pl.armor[a];
+                    if (it != null && it.type > 0) equipped.Add(new { slot = a, name = it.Name });
+                }
+                return Json.Ok(new { action = "unequip", changed = 0, equipped, note = equipped.Count == 0
+                    ? "饰品栏是空的，没有可卸的"
+                    : "有饰品但背包已满，先 drop/chest 腾出格子" });
             }
 
             int from = Json.Int(p, "from", -1);

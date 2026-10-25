@@ -245,3 +245,68 @@ if (pPlaced) WorldGen.RangeFrame(x - 2, y - 2, x + 3, y + 3);
 
 **`travel` 会挖掉路径上的家具**（它的挖掘范围 `py-2..py+1` 不区分方块和家具）。
 所以"放家具 → 走开 → 回来"这条路是危险的，家具可能已经没了。
+
+---
+
+## 一、能力审计（2026-10-25，用户要求「先验证所有能力都能用」）
+
+脚本：`C:\Windows\Temp\trtest\audit2.mjs`（25 条）+ `audit3.mjs`（9 条）。
+判定标准：**命令返回 ok 不算过，必须回读世界/背包确认副作用真的发生了。**
+
+### 结果：33/34 条能真用（1 条已知限制）
+
+| 能力 | 判定依据（回读到的证据） | 结论 |
+|---|---|---|
+| `state` / `scan` / `tile` / `find` | life 100/100；scan 7×7 网格；tile 报 WoodBlock；find 找到 2 个工作台 | ✅ |
+| `inventory` / `items` | 51 种物品、槽位号可读 | ✅ |
+| `recipes` | `{q:"工作台"}` 返回 38 条配方 | ✅ |
+| `api` | `{type:"Terraria.Player",member:"PickTile"}` 返回 2 个重载 | ✅ |
+| `npc` | `{r:200}` 返回 5 个 NPC（含商人 Wilbur） | ✅ |
+| `shops` | `{want:"火把"}` 扫 300 个商店 id，2 个卖火把 | ✅ |
+| `research` / `duplicate` | 石块 100/100 已满，可无限复制 | ✅ |
+| `players` / `follow` / `idle` | 1 名玩家，字段可读 | ✅ |
+| `housing` / `needs` | 需 x,y；返回 roomFound/homeless/townNPCs | ✅ |
+| `tiledata` | 熔炉 3×2 frameImportant=true 锚点可查 | ✅ |
+| `mine` | 挖 (2099,304) → 回读 `hasTile:false` | ✅ |
+| `place`（方块/火把） | 放石块 → 回读 Stone、石块 -1；火把同理 | ✅ |
+| `wall` | 放木墙 → 回读 wall=16、木墙 -1 | ✅ |
+| `removeblock` | 锤墙，回读 wall 4→0 | ✅ |
+| `craft` | 木材+凝胶 → 火把 749→752 | ✅ |
+| `move` / `jump` | x 2099.5→2102.6；y 302.7→300.7 | ✅ |
+| `walkto` / `path` | 走到 2108.0（目标 2111）；path 返回长度 | ✅ |
+| `travel` | 2107.2→2120.0，targetX 正确 | ✅ |
+| `climb` | 无绳时不动（绳限定设计），有绳才爬 | ✅ |
+| **挖矿掉落物** | 挖木头 → 木材 37→38（**自动入包**） | ✅ |
+| `drop` + `grab` | drop 1 木材 37→36，grab 捡回 →37 | ✅（本轮才修好） |
+| `heal` / `chat` / `mirror` | 回读 healed=0（满血）、sent 文本、坐标跳到出生点 | ✅ |
+| `save` | 两个重载都 NRE（`SaveFileFormatHeader` line 925） | ⚠ 已知限制 |
+
+### 本轮修掉的真 bug
+
+1. **`drop` 会凭空删除物品**（最严重）：原来直接 `Item.NewItem` 后无条件扣 stack，
+   而 Host&Play 下 `Item.NewItem` 经常被吞 → 背包少了、地上没有。改为
+   `Player.DropSelectedItem()`（选中该格再丢，等于玩家按丢物键），并把临时改小的
+   stack 还原；只有在"背包确实减少 + 地上确实有物品"时才报成功，否则原样退回。
+2. **`grab` 没有诊断**：picked=0 时分不清"没掉""掉下去了""压根没进 Main.item"。
+   现在返回 `actives`（全世界存活掉落物数）、`nearest`（最近物品名）、`nearestDist`。
+   实测结论：**掉落物通常落地即被原版拾取**（挖木头 1.2s 内入包，`actives` 一直是 0），
+   所以 `grab` 只在"东西卡在够不着的地方"时才有意义。
+3. **`accessory off` 无饰品时报错**：改成返回 `{changed:0, equipped:[], note}`。
+4. **`save` 的 NRE 打不出堆栈**：现在返回逐帧堆栈 + `madeMeta`，能定位到
+   `WorldFile.SaveFileFormatHeader:925`（Host&Play 客户端没有 `ActiveWorldFileData`）。
+
+### `save` 的替代路径（已实测）
+
+手动存档在 Host&Play 下不可用，但**关窗退出时服务器会正常存盘**：
+放一格石头当标记 → `cycle.ps1`（WM_CLOSE → 重编 → 重进）→ 重进后回读仍为 Stone。
+所以规则是：**要保住世界改动，必须走关窗退出，不能 kill 进程。**
+
+### 参数坑（写脚本时的真实签名）
+
+- `place` 要 `type`（**方块 ID**，不是背包槽位），内部自己按方块找物品槽。
+- `api` 要 `type` + `member`，不是 `q`。
+- `npcs` 命令名是 **`npc`**（单数）。
+- `shops` 要 `want`（物品名片段），返回所有卖它的商店 id + 价格。
+- `housing` / `needs` 要 `x,y`（房间内部坐标）。
+- `craft` 的 `item` 是**产物物品 id**，`times` 是次数。
+- `fill` 的 `type` 也是方块 ID（石头 1，木头 30）。
