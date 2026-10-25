@@ -12,9 +12,10 @@ import { extractCommands, extractTools, braceDelta } from '../scripts/kb-sync.mj
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-test('六个标签都有库文件，且文件真实存在', async () => {
+test('七个标签都有库文件，且文件真实存在', async () => {
   assert.deepEqual(Object.keys(LIBRARIES).sort(), [
     'actor_behavior',
+    'atomic_action',
     'build_standard',
     'game_rule',
     'item_operation',
@@ -145,6 +146,10 @@ const REQUIRED_SECTIONS = {
   'item-operation.md': ['物品分类与功能边界', '物品使用硬性约束', '背包与切换逻辑', '交互站位规则'],
   'build-standard.md': ['通用建造规范', 'NPC 房屋通用建造规范', '各类平台建造规范', '方块搭配通用规范', '地形改造规范'],
   'actor-behavior.md': ['移动规则', '战斗行为规则', '拾取规则', 'NPC 交互规则', '增益与召唤规则'],
+  'atomic-action.md': [
+    '动作执行基本链条', '动作判定条件', '动作先后顺序',
+    '失败原因分类', '重试策略', '操作限制', '批量操作规范',
+  ],
   'task-correct.md': ['模糊指令处理规则', '歧义处理规则', '任务中断规则', '修改迭代规则', '无法完成时怎么回'],
   'safety-limit.md': ['禁止行为清单', '操作范围限制', '自检修正规则'],
 }
@@ -158,7 +163,7 @@ test('每个库保留规格要求的子分类小节', async () => {
   }
 })
 
-test('六个库不含单局测试数据（坐标/世界名/单局措辞/计时数值）', () => {
+test('七个库不含单局测试数据（坐标/世界名/单局措辞/计时数值）', () => {
   const out = execFileSync(process.execPath, [join(ROOT, 'scripts', 'kb-lint.mjs')], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -166,7 +171,7 @@ test('六个库不含单局测试数据（坐标/世界名/单局措辞/计时�
   assert.match(out, /^ok:/m)
 })
 
-test('README 列出了六个标签且与 LIBRARIES 一致', async () => {
+test('README 列出了七个标签且与 LIBRARIES 一致', async () => {
   const readme = await readFile(join(KB_DIR, 'README.md'), 'utf8')
   for (const tag of Object.keys(LIBRARIES)) {
     assert.ok(readme.includes(tag), `README 没提到标签 ${tag}`)

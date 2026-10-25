@@ -104,9 +104,9 @@ PreItemCheck 钩子（游戏主线程，不需要前台、不动用户光标）
 
 1. **永远先读** `docs/kb/safety-limit.md`（禁令 / 范围 / 边界 / 确认），不参与判定。
 2. 把玩家这句话判成标签（可审计的关键词规则在 `src/kb-router.js`）：
-   `game_rule` / `item_operation` / `build_standard` / `actor_behavior` / `task_correct`。
+   `game_rule` / `item_operation` / `build_standard` / `actor_behavior` / `atomic_action` / `task_correct`。
 3. **只读命中的那几个库**，不把无关资料塞进上下文；多标签按
-   `safety_limit → game_rule → build_standard → actor_behavior → item_operation → task_correct` 叠加。
+   `safety_limit → game_rule → build_standard → actor_behavior → atomic_action → item_operation → task_correct` 叠加。
 4. 玩家带纠正语气（"不是 / 别 / 又 / 错了"）时 `task_correct` 排在安全库之后第一位，
    按它 §4 的流程把纠正**落成规则或代码**，不能当场改一次就算完。
 
@@ -114,15 +114,24 @@ PreItemCheck 钩子（游戏主线程，不需要前台、不动用户光标）
 
 > **这条描述换一张世界种子还成立吗？**
 
-不成立的就不是"知识"，是单局数据，**不许进 `docs/kb/`**：
-固定坐标、单次实测数值、"这次放下去了/上次没放下"这类偶然现象、
-某一次任务用的固定长宽、临时调试参数。
+**允许进库的"不是本局特有"的东西**（容易被我误删，列在这里）：
+
+- 物品 / 物块 / 墙 / 弹幕 / buff 的**数字 ID 与枚举名**：那是游戏程序里的常量，
+  换任何世界都指向同一个对象（`ItemID` / `TileID` 空间）
+- 引擎常量：硬度分级、光照值、堆叠上限、作用距离与射程、燃料与弹药对应关系、
+  方块可否悬空、家具占地与锚点、合成配方——凡是"代码里写死"的都属于全游戏通用规则
+- 由这些常量推出的判定（"某类物品只能做某类事"、"这个形状需要几格空间"）
+
+**不许进库的**（这才是本局数据）：
+本世界坐标与地形、某处矿脉/水层/宝箱位置、"这次放下去了上次没放下"这类偶然现象、
+某一次任务用的固定长宽、**我们自己工具的参数**（默认时长、重试次数、批量上限——
+那是工具接口的性质，不是游戏规则）。
 
 这些东西放：`docs/terraria-mechanics.md`（本世界地形/矿脉/坐标与时间曲线）、
 `docs/debug/unknowns.md`（本世界还没搞清的事）、任务记录与提交信息。
 
 机器校验：`npm run kb:lint`（`npm test` 里也挂了一条），
-一旦在六个库里出现坐标、`x=`/`y=`、世界名、"本档/本次/实测"、毫秒或 tick 数值就报错。
+一旦在七个库里出现坐标、`x=`/`y=`、世界名、"本档/本次/实测"、毫秒或 tick 数值就报错。
 这条界由用户 m05304 指定：**知识库只放所有世界都生效的通用机制**。
 
 命令/工具参数表是**生成物**：`docs/kb/_generated-commands.md`

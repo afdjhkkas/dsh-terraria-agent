@@ -5,7 +5,7 @@
  *  - 收到指令 → 先判标签 → 只检索命中标签下的内容，不混无关资料；
  *  - safety_limit 永远加载，不参与判定；
  *  - 六个库只收"换张地图也成立"的通用机制；命令/参数/报错这类接口文档
- *    在 docs/kb/_generated-commands.md 里，由代码生成，不进六个库；
+ *    在 docs/kb/_generated-commands.md 里，由代码生成，不进七个库；
  *  - 判定必须可解释（返回命中的证据词），不能是黑盒。
  */
 
@@ -22,6 +22,7 @@ export const LIBRARIES = {
   game_rule: 'game-rule.md',
   build_standard: 'build-standard.md',
   actor_behavior: 'actor-behavior.md',
+  atomic_action: 'atomic-action.md',
   item_operation: 'item-operation.md',
   task_correct: 'task-correct.md',
 }
@@ -52,6 +53,12 @@ const KEYWORDS = {
     '走', '跑', '跳', '挖', '砍', '打', '攻击', '射', '放', '捡', '拾取', '喝',
     '说话', '对话', '买', '卖', '商店', '爬', '移动', '撤退', '躲',
   ],
+  atomic_action: [
+    '原子动作', '动作', '操作步骤', '先后顺序', '先做什么', '执行', '判定', '算不算成功',
+    '重试', '失败原因', '为什么放不', '为什么挖不', '放不上', '挖不动', '没反应',
+    '批量', '逐格', '一格一格', '锚点', '支撑', '选中', '切换物品', '卡住', '回读',
+    '放歪', '掉不下来', '捡不到', '静默失败',
+  ],
   task_correct: [
     '不是', '别', '不要', '错了', '又', '听不懂', '我说过', '上次', '纠正', '重新',
     '模糊', '什么意思', '你是傻', '废话', '没做完', '不对',
@@ -64,6 +71,7 @@ const SCORE_WEAK = 1 // 泛用动词（"打""走""建"这种，容易误判）
 const STRONG = new Set([
   ...KEYWORDS.game_rule,
   ...KEYWORDS.task_correct,
+  ...KEYWORDS.atomic_action,
   '镐', '斧', '锤', '物品', '道具', '工具', '装备', '武器', '弓', '箭', '弹药',
   '药水', '抓钩', '钩爪', '翅膀', '坐骑', '背包', '分类', '怎么用', '用法', '能干什么',
 ])
