@@ -37,6 +37,7 @@ namespace DshTerrariaBridge
                 case "walkto": return WalkTo(p);
                 case "path": return PathTo(p);
                 case "research": return Research(p);
+                case "find": return FindTile(p);
                 case "duplicate": return Duplicate(p);
                 case "fill": return FillArea(p);
                 case "housing": return Housing(p);
@@ -1293,6 +1294,40 @@ namespace DshTerrariaBridge
         /// 旅行模式的"研究"：把背包里的物品献祭给创造模式追踪器（这是模式自带机制）。
         /// 只献祭真实存在的物品，达到需求数就解锁无限复制。
         /// </summary>
+        /// <summary>
+        /// 在世界数据里直接搜方块（不移动、不挖），用来找腐化/猩红/祭坛这类"知道存在但不知道在哪"的东西。
+        /// 限定 x/y 范围和最大结果数，避免一次扫全图。
+        /// </summary>
+        private static string FindTile(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            int type = Json.Int(p, "type", -1);
+            if (type <= 0) return Json.Error("find 需要 type");
+            int x1 = Json.Int(p, "x1", 0);
+            int x2 = Json.Int(p, "x2", Main.maxTilesX - 1);
+            int y1 = Json.Int(p, "y1", 0);
+            int y2 = Json.Int(p, "y2", Main.maxTilesY - 1);
+            int max = Json.Int(p, "max", 20);
+            x1 = Math.Max(4, x1); y1 = Math.Max(4, y1);
+            x2 = Math.Min(Main.maxTilesX - 5, x2); y2 = Math.Min(Main.maxTilesY - 5, y2);
+
+            var found = new List<object>();
+            int total = 0;
+            for (int x = x1; x <= x2 && found.Count < max; x++)
+            {
+                for (int y = y1; y <= y2; y++)
+                {
+                    Tile t = Main.tile[x, y];
+                    if (t != null && t.HasTile && t.TileType == type)
+                    {
+                        total++;
+                        if (found.Count < max) found.Add(new { x, y });
+                    }
+                }
+            }
+            return Json.Ok(new { type, total, found, scanned = new { x1, x2, y1, y2 } });
+        }
+
         private static string Research(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
