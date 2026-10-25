@@ -97,3 +97,27 @@ PreItemCheck 钩子（游戏主线程，不需要前台、不动用户光标）
 - 每次提交前跑 `npm test`。
 - 改了 mod 代码要重新打包才知道是否真的能用；"编译通过"不等于"能用"。
 - 一条规则被违反过，就把违反方式写进本文件对应的行里，不要只写"要真实操作"这种空话。
+
+## 7. 知识库路由（每次收到指令先走这里）
+
+知识库在 `docs/kb/`，入口 `docs/kb/README.md`。流程固定：
+
+1. **永远先读** `docs/kb/safety-limit.md`（禁令 / 范围 / 边界 / 确认），不参与判定。
+2. 把玩家这句话判成标签（可审计的关键词规则在 `src/kb-router.js`）：
+   `game_rule` / `tool_command` / `build_plan` / `actor_interact` / `chat_correct`。
+3. **只读命中的那几个库**，不把无关资料塞进上下文；多标签按
+   `safety_limit → game_rule → build_plan → actor_interact → tool_command → chat_correct` 叠加。
+4. 玩家带纠正语气（"不是 / 别 / 又 / 错了"）时 `chat_correct` 优先级最高，
+   按它 §4 的流程把纠正**落成规则或代码**，不能当场改一次就算完。
+
+命令/工具参数表是**生成物**：`docs/kb/_generated-commands.md`
+（由 `node scripts/kb-sync.mjs` 从 `Commands.cs` / `index.js` 生成，不要手改）。
+改了命令就重新生成；`npm test` 里有一条测试会在生成物过期时直接变红。
+
+想让 agent 自己取上下文时：
+
+```js
+import { buildContext } from './src/kb-router.js'
+const { tags, docs } = await buildContext('把家完善一下')
+// tags: ['safety_limit', 'build_plan']  docs: 对应文件全文
+```
