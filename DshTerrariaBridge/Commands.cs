@@ -1517,7 +1517,9 @@ namespace DshTerrariaBridge
                 // Player mode: take out a pickaxe/axe, aim at the tile and swing. The game
                 // decides whether it breaks, drops items and consumes tool durability.
                 if (!HasPlayer(out string perr)) return Json.Error(perr);
-                string started = BeginPlayerMine(x, y, Math.Clamp(Json.Int(p, "ms", 900), 100, 4000), Json.Bool(p, "os", false), !Json.Bool(p, "job", false));
+                // 默认 1300ms：丛林草/冰雪/石头在铁镐下要 1.2~1.3 秒，默认 900 会让"看起来挖了其实没掉"
+                // 反复踩过三次坑（100ms、800ms 都白挖），所以把默认值调到够用，下限提到 300。
+                string started = BeginPlayerMine(x, y, Math.Clamp(Json.Int(p, "ms", 1300), 300, 4000), Json.Bool(p, "os", false), !Json.Bool(p, "job", false));
                 if (started != null && started.StartsWith("{")) return started;
                 if (started != null) return Json.Error(started);
                 return Json.Error("empty player-mode response");
