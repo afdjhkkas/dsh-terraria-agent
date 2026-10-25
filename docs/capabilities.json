@@ -110,7 +110,7 @@
         "ms"
       ],
       "returns": [
-        "swinging",
+        "used",
         "netSlot",
         "at"
       ],
@@ -125,7 +125,7 @@
         "ms"
       ],
       "returns": [
-        "cast",
+        "used",
         "poleSlot",
         "at"
       ],
@@ -553,6 +553,21 @@
       "summary": ""
     },
     {
+      "name": "liquidop",
+      "kind": "act",
+      "params": [
+        "x",
+        "y",
+        "ms"
+      ],
+      "returns": [
+        "bucketSlot",
+        "item",
+        "at"
+      ],
+      "summary": ""
+    },
+    {
       "name": "map",
       "kind": "read",
       "params": [
@@ -759,8 +774,9 @@
         "ms"
       ],
       "returns": [
-        "reeled",
-        "poleSlot"
+        "used",
+        "poleSlot",
+        "hint"
       ],
       "summary": ""
     },

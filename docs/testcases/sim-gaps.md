@@ -175,3 +175,28 @@
 **这批的诚实边界**：全部只做到"编译通过 + 用例声明已更新"，一次游戏都没进。
 按用户定的四阶段，真正的验证在阶段③逐条实测；届时重点验三件事：
 `tile` 的液体类型与游戏画面一致、`bobber` 的咬钩信号可判、`capture` 真能抓到东西。
+
+### 阶段②第一批的实机验证结果（真机跑过，逐条留证）
+
+| 补的东西 | 实测 | 证据 |
+|---|---|---|
+| `state.world` 事件字段 | ✅ | `bloodMoon=false eclipse=false pumpkinMoon=false snowMoon=false invasionType=0 invasionSize=0 anglerQuest=22 night=true`（当时确实天黑了） |
+| `map` | ✅ | `mapWidth=8401 mapHeight=2401 revealedPercent=1 explored={1552,80,4144,1152}`，与已探索区域相符 |
+| `tile` 液体字段 | ✅ 字段在（干格） | `liquid=0 liquidType=0 liquidName=""`；**有液体的格子还没取样到** |
+| `scan` 加列 | ⚠️ 结构对、无样本 | `stride=5`、`fields=[type,wall,liquid,liqType,shape]`，但基地 ±40 格内 `liquid>0` 的格子为 0 |
+| `npc` 小动物字段 | ✅ | 恶魔眼 `critter=false catchItem=0`（夜里 40 格内没有小动物） |
+| `splitstack` | ✅ | 蛛网 48 号格 94 → 拆 40 到 58 号格，回来读是 `x54` + `x40` |
+| `castline` + `bobber` | ✅ | 对着地面抛竿后 `bobber` 读到 `count=1, tile=[2116.2,301.83], inLiquid=false` |
+| `reel` | ✅ | 收线后 `bobber` 从 `count=1` 变 `count=0` |
+| `startevent` | ⚠️ 只验了错路 | 传 `nonsense` 得到"只支持 xxx"的明确拒绝；**真开事件没做**（会改变局面，等阶段③按用例来） |
+| `capture` | ❌ 无法验 | 虫网（物品 1991）**没有配方**，背包里也没有；夜里基地 40 格内没有小动物 |
+| `liquidop` | ❌ 无法验 | 空桶要 2 个铁锭，背包只有 1 个；没有水桶也没有水 |
+| `state.buffs[].timeSec` | ❌ 无法验 | 唯一药水是虫洞药水，没有队友时用了不留 buff |
+
+**这一轮的教训（已写进第一一七节）**：
+1. 我先前用 `craft {item:199}` 想造虫网，199 不是虫网（真正的虫网是 1991），而且 1991 压根没有配方。
+   **找 ID 必须查 `docs/kb/_generated-ids.md`，不能拿数字猜。**
+2. `castline` 第一版返回 `cast:true`——但"用了钓竿"和"抛出浮标"是两件事。已把返回改成
+   `used:true` 并写明"要用 `bobber` 读才算抛出"。这就是规则 2（不许把命令生效当成操作发生）。
+3. 基地太挤：`travel right` 走了 40 秒只前进 5 格，`move` 也几乎不动（被自己砌的房子挡着）。
+   想验证液体得先离开基地，这本身就说明"基地被自己堵死了"是个待收拾的问题。

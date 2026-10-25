@@ -47,7 +47,7 @@
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
 | `mount` | `activeAfter` `held` `action` `active` `type` `flight` `items` |
 
-## 二、动作能力（52 个命令）
+## 二、动作能力（53 个命令）
 
 | 命令 | 参数 | 干什么 |
 |---|---|---|
@@ -76,6 +76,7 @@
 | `idle` | — | — |
 | `jump` | `ms` | — |
 | `left` | — | — |
+| `liquidop` | `x` `y` `ms` | — |
 | `martian` | — | — |
 | `mine` | `x` `y` `ms` | — |
 | `minion` | `slot` | — |

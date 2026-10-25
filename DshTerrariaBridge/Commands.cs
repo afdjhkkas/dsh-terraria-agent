@@ -69,6 +69,7 @@ namespace DshTerrariaBridge
                 case "reel": return Reel(p);
                 case "bobber": return Bobbers();
                 case "capture": return Capture(p);
+                case "liquidop": return LiquidOp(p);
                 case "drop": return DropItem(p);
                 case "heal": return HealSelf(p);
                 case "boss": return BossStatus(p);
@@ -3220,7 +3221,7 @@ namespace DshTerrariaBridge
             int x = Json.Int(p, "x", int.MinValue), y = Json.Int(p, "y", int.MinValue);
             if (x == int.MinValue || y == int.MinValue) return Json.Error("castline 需要 x,y（水面那一格）");
             BridgeSystem.BeginItemUse(slot, x, y, Json.Int(p, "ms", 150));
-            return Json.Ok(new { cast = true, poleSlot = slot, at = new[] { x, y }, hint = "抛出去了；用 bobber 读浮标，用 reel 收线" });
+            return Json.Ok(new { used = true, poleSlot = slot, at = new[] { x, y }, hint = "这只说明钓竿被用了一次，不等于抛出浮标；立刻用 bobber 读，count>0 才真的抛出去了" });
         }
 
         /// <summary>
@@ -3234,7 +3235,7 @@ namespace DshTerrariaBridge
             int slot = FindFishingPole(P);
             if (slot < 0) return Json.Error("背包里没有钓竿");
             BridgeSystem.BeginItemUse(slot, Player.tileTargetX, Player.tileTargetY, Json.Int(p, "ms", 150));
-            return Json.Ok(new { reeled = true, poleSlot = slot });
+            return Json.Ok(new { used = true, poleSlot = slot, hint = "收线是否生效用 bobber 读：count 变 0 才是收回去了" });
         }
 
         /// <summary>
@@ -3289,7 +3290,60 @@ namespace DshTerrariaBridge
             }
             if (x == int.MinValue || y == int.MinValue) return Json.Error("capture 需要 who 或 x,y");
             BridgeSystem.BeginItemUse(slot, x, y, Json.Int(p, "ms", 300));
-            return Json.Ok(new { swinging = true, netSlot = slot, at = new[] { x, y }, hint = "挥完用 inventory 看有没有抓到" });
+            return Json.Ok(new { used = true, netSlot = slot, at = new[] { x, y }, hint = "这只说明挥了一次网，不等于抓到；用 npc 看目标还在不在、用 inventory 看有没有多出物品" });
+        }
+
+
+        /* ── 桶：舀液体 / 倒液体 ───────────────────────────────────── */
+
+        private static readonly int[] FilledBuckets =
+        {
+            ItemID.WaterBucket, ItemID.LavaBucket, ItemID.HoneyBucket,
+            ItemID.BottomlessBucket, ItemID.BottomlessLavaBucket,
+            ItemID.BottomlessHoneyBucket, ItemID.BottomlessShimmerBucket,
+        };
+
+        /// <summary>
+        /// 液体操作：手里有空桶就舀目标格的液体，手里有装满的桶就往空处倒。
+        /// 判定全部交给原版（桶自己的 ItemCheck 决定舀/倒，以及舀的是什么）。
+        /// </summary>
+        private static string LiquidOp(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int x = Json.Int(p, "x", int.MinValue), y = Json.Int(p, "y", int.MinValue);
+            if (x == int.MinValue || y == int.MinValue) return Json.Error("liquidop 需要 x,y（要舀/要倒的那一格）");
+            if (!InBounds(x, y)) return Json.Error("坐标超出世界范围");
+
+            int empty = -1, filled = -1;
+            for (int i = 0; i < pl.inventory.Length; i++)
+            {
+                Item it = pl.inventory[i];
+                if (it == null || it.type <= 0) continue;
+                if (empty < 0 && it.type == ItemID.EmptyBucket) empty = i;
+                if (filled < 0 && Array.IndexOf(FilledBuckets, it.type) >= 0) filled = i;
+            }
+
+            Tile t = Main.tile[x, y];
+            bool hasLiquid = t.LiquidAmount > 0;
+            string mode;
+            int slot;
+            if (hasLiquid && empty >= 0) { slot = empty; mode = "fill"; }
+            else if (!hasLiquid && filled >= 0) { slot = filled; mode = "pour"; }
+            else if (hasLiquid && empty < 0 && filled >= 0) return Json.Error("这格有液体，但背包里没有空桶（只有装满的桶）");
+            else if (!hasLiquid && empty >= 0 && filled < 0) return Json.Error("这格是空的，但背包里没有装满液体的桶");
+            else return Json.Error("背包里既没有空桶也没有满桶");
+
+            BridgeSystem.BeginItemUse(slot, x, y, Json.Int(p, "ms", 400));
+            return Json.Ok(new
+            {
+                mode,
+                bucketSlot = slot,
+                item = pl.inventory[slot]?.Name,
+                at = new[] { x, y },
+                hint = "动完用 tile 回读 liquid/liquidType 看变化",
+            });
         }
 
         private static string Chat(JsonElement p)
