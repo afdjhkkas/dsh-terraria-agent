@@ -265,7 +265,6 @@ namespace DshTerrariaBridge
 
         public override void PostUpdateEverything()
         {
-            TickMining();
             TickTravel();
             DrainPending();
         }
@@ -719,174 +718,10 @@ namespace DshTerrariaBridge
             return Math.Abs(cx - tx) <= tiles && Math.Abs(cy - ty) <= tiles;
         }
 
-        /* ── 真实输入注入 ────────────────────────────────────────────────
-         * Terraria 每帧用物理鼠标状态覆盖玩家的控制标记，所以在 ModPlayer 钩子里写
-         * controlUseItem / Main.mouseLeft 会被冲掉（实测 itemAnimation 恒为 0）。
-         * 唯一可靠的办法就是走操作系统那条路：把光标移到目标格，按下、等、松开。
-         * 这也正是"像玩家一样操作"：游戏自己的挖掘/放置/消耗/掉落逻辑全部生效。
-         * 注入必须在后台线程做——命令本身跑在主线程，睡在那里会卡住整个游戏。
+        /* 只走"后台合成输入"这一条路：从 PreItemCheck 里按下使用标记，由原版 ItemCheck
+         * 执行挥动/放置/挖矿。早先那套 SetCursorPos+mouse_event 的 OS 级注入已删除——
+         * 它会移动用户的真实光标、抢焦点，违反"不要直接控制我的电脑"这条规则。
          */
-        [StructLayout(LayoutKind.Sequential)] private struct MOUSEPOS { public int X, Y; }
-
-        [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
-        [DllImport("user32.dll")] private static extern bool GetCursorPos(out MOUSEPOS p);
-        [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, IntPtr extra);
-        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
-        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
-        [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hWnd, ref MOUSEPOS p);
-        [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int cmd);
-        [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr hWnd);
-        [DllImport("user32.dll")] private static extern void keybd_event(byte vk, byte scan, uint flags, IntPtr extra);
-        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr pid);
-        [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
-        [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
-        [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
-        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassNameW(IntPtr hWnd, StringBuilder text, int count);
-        [DllImport("user32.dll")] private static extern int GetWindowThreadProcessId(IntPtr hWnd, out int pid);
-        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-        /// <summary>
-        /// The visible FNA window of THIS process. Main.instance.Window.Handle is not the
-        /// window Windows reports as foreground, so comparing against it always failed.
-        /// </summary>
-        private static IntPtr FindOwnWindow()
-        {
-            int myPid = System.Diagnostics.Process.GetCurrentProcess().Id;
-            IntPtr found = IntPtr.Zero;
-            EnumWindows((IntPtr h, IntPtr l) =>
-            {
-                if (!IsWindowVisible(h)) return true;
-                var name = new StringBuilder(256);
-                GetClassNameW(h, name, 256);
-                if (name.ToString() != "SDL_app") return true;
-                GetWindowThreadProcessId(h, out int pid);
-                if (pid != myPid) return true;
-                found = h;
-                return false;
-            }, IntPtr.Zero);
-            return found;
-        }
-
-        /// <summary>Is the foreground window ours? Compare process ids, not handles.</summary>
-        private static bool OwnProcessIsForeground()
-        {
-            IntPtr foreground = GetForegroundWindow();
-            if (foreground == IntPtr.Zero) return false;
-            GetWindowThreadProcessId(foreground, out int pid);
-            return pid == System.Diagnostics.Process.GetCurrentProcess().Id;
-        }
-
-        private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
-        private const uint MOUSEEVENTF_LEFTUP = 0x0004;
-        private const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
-        private const uint MOUSEEVENTF_RIGHTUP = 0x0010;
-
-
-        /// <summary>
-        /// Windows only lets the foreground process take focus, so a background thread's
-        /// SetForegroundWindow is refused. Two documented ways round it: send an input event
-        /// first (that grants the sender foreground rights), and AttachThreadInput to the
-        /// current foreground thread. Try both, then verify - we never click without focus.
-        /// </summary>
-        private static bool WaitForForeground(IntPtr hwnd, int timeoutMs)
-        {
-            int start = Environment.TickCount;
-            while (Environment.TickCount - start < timeoutMs)
-            {
-                if (OwnProcessIsForeground()) return true;
-                Thread.Sleep(20);
-            }
-            return OwnProcessIsForeground();
-        }
-
-        private static bool TryFocusGame(IntPtr hwnd)
-        {
-            if (OwnProcessIsForeground()) return true;
-
-            ShowWindow(hwnd, 9);                       // un-minimise
-            Thread.Sleep(40);
-
-            // 1) tap Alt so this process owns the last input event, then ask for the window
-            keybd_event(0x12, 0, 0, IntPtr.Zero);
-            Thread.Sleep(15);
-            keybd_event(0x12, 0, 2, IntPtr.Zero);
-            Thread.Sleep(40);
-            BringWindowToTop(hwnd);
-            SetForegroundWindow(hwnd);
-            if (WaitForForeground(hwnd, 300)) return true;
-
-            // 2) attach to the current foreground thread and try again
-            IntPtr foreground = GetForegroundWindow();
-            uint foregroundThread = GetWindowThreadProcessId(foreground, IntPtr.Zero);
-            uint myThread = GetCurrentThreadId();
-            bool attached = foregroundThread != 0 && AttachThreadInput(myThread, foregroundThread, true);
-            try
-            {
-                BringWindowToTop(hwnd);
-                SetForegroundWindow(hwnd);
-            }
-            finally
-            {
-                if (attached) AttachThreadInput(myThread, foregroundThread, false);
-            }
-            return WaitForForeground(hwnd, 400);
-        }
-
-        /// <summary>OS-level click on a tile, mirroring what a human does with the mouse.</summary>
-        internal static void InjectClick(int tileX, int tileY, bool right, int ms)
-        {
-            try
-            {
-                IntPtr hwnd = FindOwnWindow();
-                if (hwnd == IntPtr.Zero) hwnd = Main.instance.Window.Handle;
-                TryFocusGame(hwnd);
-                // Safety: if the game still is not the foreground window, do NOT click.
-                // The cursor would land on whatever window is actually there (the user's
-                // editor, the chat...) and we would be clicking their work.
-                if (!OwnProcessIsForeground())
-                {
-                    LastClickError = "游戏没有拿到前台，为避免误点你正在用的窗口，这次操作已取消";
-                    modRef?.Logger.Warn("[dsh] injection skipped: game is not the foreground window");
-                    return;
-                }
-
-                MOUSEPOS target = new()
-                {
-                    X = (int)(tileX * 16f + 8f - Main.screenPosition.X),
-                    Y = (int)(tileY * 16f + 8f - Main.screenPosition.Y),
-                };
-                ClientToScreen(hwnd, ref target);
-                GetCursorPos(out MOUSEPOS previous);
-                SetCursorPos(target.X, target.Y);
-                Thread.Sleep(70);                    // let the game see the cursor on the tile
-                mouse_event(right ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_LEFTDOWN, 0, 0, 0, IntPtr.Zero);
-                Thread.Sleep(Math.Max(30, ms));
-                mouse_event(right ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_LEFTUP, 0, 0, 0, IntPtr.Zero);
-                Thread.Sleep(40);
-                SetCursorPos(previous.X, previous.Y); // put the user's cursor back
-                LastClickTick = Main.GameUpdateCount;
-                LastClickOk = true;
-            }
-            catch (Exception e)
-            {
-                LastClickError = e.Message;
-                modRef?.Logger.Warn($"[dsh] input injection failed: {e.Message}");
-            }
-        }
-
-        /// <summary>Fire the injection on a background thread so the game thread never blocks.</summary>
-        internal static void InjectClickAsync(int tileX, int tileY, bool right, int ms)
-        {
-            LastClickOk = false;
-            LastClickError = null;
-            var t = new Thread(() => InjectClick(tileX, tileY, right, ms)) { IsBackground = true };
-            t.Start();
-        }
-
-        internal static volatile bool LastClickOk;
-        internal static volatile string LastClickError;
-        internal static ulong LastClickTick;
 
         /// <summary>
         /// Point the cursor at the armed tile and pretend the mouse button is held. Called
@@ -923,56 +758,7 @@ namespace DshTerrariaBridge
             }
         }
 
-        /* ── 直接挖掘任务 ────────────────────────────────────────────────
-         * 不用按键、不抢焦点：每帧在主线程调用原版挥镐时用的 Player.PickTile
-         * （它有耐久/硬度/掉落逻辑），按物品 useTime 控制节奏，并播放挥动动画。
-         * 这样玩家在同一窗口里打怪、AI 在后台挖矿，互不抢输入。
-         */
-        internal struct MiningJob
-        {
-            public bool Active;
-            public int X, Y, Slot, Hits;
-            public ulong NextHit, Deadline;
-        }
 
-        internal static MiningJob Mine;
-
-        internal static void StartMining(int x, int y, int slot, int ms)
-        {
-            Mine = new MiningJob
-            {
-                Active = true,
-                X = x,
-                Y = y,
-                Slot = slot,
-                Hits = 0,
-                NextHit = Now,
-                Deadline = Now + Ticks(ms),
-            };
-        }
-
-        internal static void StopMining() { Mine.Active = false; EndItemUse(); }
-
-        private static void TickMining()
-        {
-            if (!Mine.Active) return;
-            Tile t = Main.tile[Mine.X, Mine.Y];
-            if (!t.HasTile || Now > Mine.Deadline) { Mine.Active = false; EndItemUse(); return; }
-            if (Now < Mine.NextHit) return;
-
-            Player p = Main.LocalPlayer;
-            if (p == null || !p.active || p.dead) { Mine.Active = false; EndItemUse(); return; }
-            Item tool = p.inventory[Mine.Slot];
-            if (tool == null || tool.type <= 0) { Mine.Active = false; EndItemUse(); return; }
-
-            // 真实挥动：选中工具、准星压到目标格、按住使用。
-            // 挖矿走原版 PickTile（含镐力/硬度/耐久/掉落），砍树和锤墙也走同一套 ItemCheck，
-            // 不再用 WorldGen.KillTile 直接删格子。
-            BeginItemUse(Mine.Slot, Mine.X, Mine.Y, 140);
-            p.direction = Mine.X * 16f >= p.Center.X ? 1 : -1;
-            Mine.Hits++;
-            Mine.NextHit = Now + (ulong)Math.Max(6, (int)(tool.useTime * 0.6f));
-        }
 
         /* ── 直线旅行任务 ────────────────────────────────────────────────
          * 把脚本层验证过无数次的“挖-铺-走”循环搬进游戏内：每帧自己挖掉前方挡路格、

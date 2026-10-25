@@ -71,7 +71,6 @@ namespace DshTerrariaBridge
                 case "stop":
                     BridgeSystem.StopPath("cancelled");
                     BridgeSystem.StopWalk("cancelled");
-                    BridgeSystem.StopMining();
                     BridgeSystem.ClearControls();
                     return Json.Ok(new { stopped = true });
                 case "teleport": return Teleport(p);
@@ -265,9 +264,6 @@ namespace DshTerrariaBridge
                 data["input"] = new
                 {
                     hasFocus = Main.hasFocus,
-                    lastClickOk = BridgeSystem.LastClickOk,
-                    lastClickError = BridgeSystem.LastClickError,
-                    lastClickTick = BridgeSystem.LastClickTick,
                     aim = BridgeSystem.AimTileX >= 0 ? new[] { BridgeSystem.AimTileX, BridgeSystem.AimTileY } : null,
                     target = new[] { Player.tileTargetX, Player.tileTargetY },
                     preItemCalls = BridgeSystem.PreItemCalls,
@@ -496,7 +492,7 @@ namespace DshTerrariaBridge
             return -1;
         }
 
-        private static string StartSwing(int slot, int x, int y, int ms, bool right, bool os)
+        private static string StartSwing(int slot, int x, int y, int ms, bool right)
         {
             Player pl = P;
             pl.selectedItem = slot;
@@ -505,18 +501,10 @@ namespace DshTerrariaBridge
             ulong until = BridgeSystem.Now + BridgeSystem.Ticks(ms);
             BridgeSystem.AimUntil = until + 40;
 
-            if (os)
-            {
-                // Real mouse: visible cursor, and it needs the game to be foreground.
-                BridgeSystem.InjectClickAsync(x, y, right, ms);
-            }
-            else
-            {
-                // Synthetic input, applied from PreItemCheck: no focus needed, the user's
-                // cursor is untouched, so the agent can act while the player plays.
-                if (right) { BridgeSystem.UseTileUntil = until; BridgeSystem.UseTileJustStarted = true; }
-                else { BridgeSystem.UseUntil = until; BridgeSystem.UseJustStarted = true; }
-            }
+            // 合成输入，从 PreItemCheck 里按下使用标记：不抢焦点、不动用户的光标，
+            // 由原版 ItemCheck 自己挥动/放置/挖矿。这是唯一一条输入通路。
+            if (right) { BridgeSystem.UseTileUntil = until; BridgeSystem.UseTileJustStarted = true; }
+            else { BridgeSystem.UseUntil = until; BridgeSystem.UseJustStarted = true; }
 
             Item held = pl.inventory[slot];
             return Json.Ok(new
@@ -530,15 +518,12 @@ namespace DshTerrariaBridge
                 ms,
                 untilTick = until,
                 onScreen,
-                os,
-                hint = os
-                    ? "真实鼠标注入：光标已移过去并按住；需要游戏在前台。"
-                    : "合成输入：不需要前台，也不会动你的鼠标；等一下用 tile / inventory 确认结果。",
+                hint = "合成输入：不需要前台，也不会动你的鼠标；等一下用 tile / inventory 确认结果。",
             });
         }
 
         /// <summary>Arm a swing with whatever tool the tile needs.</summary>
-        private static string BeginPlayerMine(int x, int y, int ms, bool os, bool useInput)
+        private static string BeginPlayerMine(int x, int y, int ms)
         {
             Player pl = P;
             if (pl.dead) return "玩家已死亡，请先复活";
@@ -551,27 +536,9 @@ namespace DshTerrariaBridge
             int slot = needsAxe ? FindAxe(pl) : FindPickaxe(pl);
             if (slot < 0) return needsAxe ? "背包里没有斧头，砍树需要斧头" : "背包里没有镐子，挖方块需要镐子";
 
-            // Default: synthetic control flags injected from PreItemCheck, so the game's own
-            // ItemCheck runs - real swing animation and real drops, with no focus stealing.
-            //  - os:true   real mouse (visible cursor, needs the game in the foreground)
-            //  - job:true  the Player.PickTile job (works even when ItemCheck cannot run)
-            if (os || useInput) return StartSwing(slot, x, y, ms, false, os);
-
-            // Focus-free mining: the job calls Player.PickTile (what a swing calls internally)
-            // on the main thread each swing interval, with the tool selected and swinging.
-            BridgeSystem.StartMining(x, y, slot, ms + 400);
-            Item tool = pl.inventory[slot];
-            return Json.Ok(new
-            {
-                mode = "player",
-                x,
-                y,
-                slot,
-                held = new { type = tool.type, name = tool.Name, pick = tool.pick, axe = tool.axe },
-                ms,
-                direct = true,
-                hint = "已开始挥动（不需要前台）；等一下用 tile 确认是不是挖掉了。",
-            });
+            // 唯一通路：合成控制标记 → 原版 ItemCheck 自己挥动。没有 PickTile 捷径，
+            // 也不碰操作系统输入（不动用户光标、不抢焦点）。
+            return StartSwing(slot, x, y, ms, false);
         }
 
         /// <summary>
@@ -1556,7 +1523,7 @@ namespace DshTerrariaBridge
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             // 默认 1300ms：丛林草/冰雪/石头在铁镐下要 1.2~1.3 秒，默认 900 会让"看起来挖了其实没掉"
             // 反复踩过三次坑（100ms、800ms 都白挖），所以把默认值调到够用，下限提到 300。
-            string started = BeginPlayerMine(x, y, Math.Clamp(Json.Int(p, "ms", 1300), 300, 4000), Json.Bool(p, "os", false), !Json.Bool(p, "job", false));
+            string started = BeginPlayerMine(x, y, Math.Clamp(Json.Int(p, "ms", 1300), 300, 4000));
             if (started != null && started.StartsWith("{")) return started;
             if (started != null) return Json.Error(started);
             return Json.Error("empty player-mode response");
@@ -1673,7 +1640,7 @@ namespace DshTerrariaBridge
             }
             int ms = Math.Clamp(Json.Int(p, "ms", 320), 100, 2000);
             // Walls are placed (and hammered away) with the LEFT button in vanilla.
-            return StartSwing(slot, x, y, ms, false, Json.Bool(p, "os", false));
+            return StartSwing(slot, x, y, ms, false);
         }
 
         private static string Teleport(JsonElement p)
