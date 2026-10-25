@@ -259,7 +259,7 @@ node scripts/testcases.mjs --dry --baseline docs/testcases/baseline.json   # 回
 
 <!-- caps:begin 本节由 scripts/kb-caps.mjs 生成，不要手改 -->
 
-**只读（36）**：api blood bloodmoon bobber boss chatpoll eclipse event find frost frostmoon help housediag housing idmap inventory items map needs npc path ping players pumpkin pumpkinmoon recipes research roomcheck scan shop shopdebug shops snowmoon state tile tiledata
+**只读（37）**：api blood bloodmoon bobber boss chatpoll eclipse event find frost frostmoon help housediag housing idmap inventory items map needs npc path ping players pumpkin pumpkinmoon quest recipes research roomcheck scan shop shopdebug shops snowmoon state tile tiledata
 
 **动作（51）**：accessory attack buy capture castline chat chatpost climb craft down drop duplicate equip fill fly follow goblin grab guard heal homeroom hook idle jump left liquidop martian mine minion mirror move pirate place reel removeblock right save select sell shoot snowman splitstack startevent stop talk travel unhook up use walkto wall
 
@@ -269,7 +269,7 @@ node scripts/testcases.mjs --dry --baseline docs/testcases/baseline.json   # 回
 - 通用弹幕状态
 - 生物 AI 内部状态
 - 随机事件与时机窗口
-- NPC 对话文本
+- NPC 对话选项与任务进度
 - 容器以外的容器
 - 画面语义
 - 音效与事件字幕

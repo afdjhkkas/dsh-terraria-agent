@@ -169,8 +169,9 @@
 | **C5** | 新命令 `startevent`：血月/日食/南瓜月/霜月/四种入侵（**仅测试用**） | E01 E02 E05 | 编译通过，实机未验 |
 | **C6** | 新命令 `splitstack`：把一叠拆一半到空格 | K06 | 编译通过，实机未验 |
 
-仍缺（第二批）：`quest`（C3）、`containerTake/Put`（C7）、`talkOption`（C8）、`liquidOp`（C9），
-以及三块知识（钓竿与鱼饵取得链、容器存取规则、祭坛与血肉墙召唤链）。
+第二批（C3 `quest`）已补并在真机验过（见下）；`liquidop` 已补但被道具卡住；
+`containerTake/Put` 其实第一批就有（`chest {action:"take"|"put"}`），当时是我没查清单就当成缺口；
+仍缺：`talkOption`（对话选项文案读不到、也点不了）、三块知识（钓竿与鱼饵取得链、容器存取规则、祭坛与血肉墙召唤链）。
 
 **这批的诚实边界**：全部只做到"编译通过 + 用例声明已更新"，一次游戏都没进。
 按用户定的四阶段，真正的验证在阶段③逐条实测；届时重点验三件事：
@@ -200,3 +201,18 @@
    `used:true` 并写明"要用 `bobber` 读才算抛出"。这就是规则 2（不许把命令生效当成操作发生）。
 3. 基地太挤：`travel right` 走了 40 秒只前进 5 格，`move` 也几乎不动（被自己砌的房子挡着）。
    想验证液体得先离开基地，这本身就说明"基地被自己堵死了"是个待收拾的问题。
+
+### 阶段②第二批的实机验证结果
+
+| 补的东西 | 实测 | 证据 |
+|---|---|---|
+| `quest` | ✅ | `{"quests":[{"npc":"Angler","kind":"daily_fish","index":22,"itemId":2472,"itemName":"向导巫毒鱼","finishedToday":false,"questsFinished":0}],"anglerPresent":false}` |
+| `talk` 的 `chatText` / `cornerItem` / `isAngler` | ⚠️ 已装上，**没验到** | 编译通过、`cycle.ps1` 打包部署成功；但基地 80 格内没有任何城镇 NPC（`npc` 只回一只僵尸），渔夫也不在（`anglerPresent:false`），所以这几行还没被读到过 |
+| `chest` 的 `take` / `put` | ✅（本来就有） | 第一批就实现了，这轮复查发现"缺 C7"是我漏查清单 |
+
+**这一轮学到的**：
+1. `quest` 的口径是"引擎里真实存在的任务字段"，不是"我猜某个 NPC 有任务"。
+   `api` 查了两遍才确认：`Player` 上只有 `anglerQuestsFinished`，当前任务在 `Main.anglerQuest`，
+   要的鱼在 `Main.anglerQuestItemNetIDs[Main.anglerQuest]`。先查再写，比先写再猜省一轮部署。
+2. 我把不到场的 NPC 当成"命令坏了"过一次；这次先读 `anglerPresent` 再判，
+   分清"没有对象"和"命令失效"是两种失败。

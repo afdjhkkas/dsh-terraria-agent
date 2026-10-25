@@ -755,6 +755,16 @@
       "summary": ""
     },
     {
+      "name": "quest",
+      "kind": "read",
+      "params": [],
+      "returns": [
+        "anglerPresent",
+        "note"
+      ],
+      "summary": ""
+    },
+    {
       "name": "recipes",
       "kind": "read",
       "params": [
@@ -1039,7 +1049,9 @@
         "distance",
         "talkNPC",
         "npcShop",
-        "hasShop"
+        "hasShop",
+        "cornerItem",
+        "isAngler"
       ],
       "summary": ""
     },
@@ -1171,8 +1183,8 @@
       "detail": "没有任何\"等到某件事发生再动手\"的原语。现有命令都是「发一个动作 → 到点返回」，不支持「等随机时长 → 在窗口内做第二动作」（钓鱼、抓虫、躲冲撞都属于这一类）。"
     },
     {
-      "what": "NPC 对话文本",
-      "detail": "可以买东西、看商店清单，但读不到对话内容与任务进度。"
+      "what": "NPC 对话选项与任务进度",
+      "detail": "`talk` 能读到当前这一句正文（`chatText`）和右上角展示的物品（`cornerItem`），`quest` 能读到渔夫的每日任务（要哪条鱼、今天交没交）；但对话**选项按钮的文案读不到**（那是绘制时才算出来的），其他 NPC 也没有可读的任务字段。"
     },
     {
       "what": "容器以外的容器",

@@ -62,6 +62,7 @@ namespace DshTerrariaBridge
                 case "buy": return ShopBuy(p);
                 case "sell": return ShopSell(p);
                 case "chest": return ChestCmd(p);
+                case "quest": return Quest(p);
                 case "startevent": return StartEvent(p);
                 case "map": return MapInfo(p);
                 case "splitstack": return SplitStack(p);
@@ -799,6 +800,51 @@ namespace DshTerrariaBridge
             return Json.Error("action 只能是 list / take / put");
         }
 
+        /// <summary>
+        /// 城镇 NPC 的任务/目标。游戏里唯一有"每日任务"的是渔夫：
+        /// Main.anglerQuest 是当前任务索引，Main.anglerQuestItemNetIDs[索引] 是这一条要的鱼。
+        /// 引擎里没有通用的"任务列表"字段，所以这里只报真实存在的那些，不编。
+        /// </summary>
+        private static string Quest(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+
+            int idx = Main.anglerQuest;
+            int itemId = 0;
+            if (Main.anglerQuestItemNetIDs != null && idx >= 0 && idx < Main.anglerQuestItemNetIDs.Length)
+                itemId = Main.anglerQuestItemNetIDs[idx];
+            string fishName = null;
+            if (itemId > 0 && ContentSamples.ItemsByType.TryGetValue(itemId, out Item sample) && sample != null)
+                fishName = sample.Name;
+
+            bool anglerHere = false;
+            for (int i = 0; i < Main.npc.Length; i++)
+            {
+                NPC n = Main.npc[i];
+                if (n != null && n.active && n.type == NPCID.Angler) { anglerHere = true; break; }
+            }
+
+            var quests = new List<object>();
+            quests.Add(new
+            {
+                npc = "Angler", kind = "daily_fish",
+                index = idx, itemId, itemName = fishName,
+                finishedToday = Main.anglerQuestFinished,
+                questsFinished = pl.anglerQuestsFinished,
+            });
+
+            return Json.Ok(new
+            {
+                quests,
+                anglerPresent = anglerHere,
+                // 对话正文：只有正在对话时才有内容（talk 之后读）
+                chatText = Main.npcChatText,
+                note = "游戏只暴露渔夫每日任务；其他 NPC 没有可读的任务字段",
+            });
+        }
+
         /* ── 丢东西 / 喝药 / Boss 与事件状态 / 穿护甲 ────────────────── */
 
         private static string DropItem(JsonElement p)
@@ -962,6 +1008,11 @@ namespace DshTerrariaBridge
                 npc = npc.FullName, type = npc.type, distance = (int)(d / 16f),
                 talkNPC = pl.talkNPC, npcShop = Main.npcShop,
                 hasShop = Main.npcShop > 0,
+                // 对话正文：SetTalkNPC 之后游戏自己把这一句填进 Main.npcChatText，
+                // 这是唯一能读到的"NPC 说了什么"（选项按钮的文案是绘制时算的，读不到）。
+                chatText = Main.npcChatText,
+                cornerItem = Main.npcChatCornerItem,
+                isAngler = npc.type == NPCID.Angler,
             });
         }
 

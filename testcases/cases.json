@@ -759,11 +759,9 @@
           "talk"
         ],
         "kb": [],
-        "missingCommands": [
-          "quest"
-        ],
+        "missingCommands": [],
         "unsupported": [
-          "NPC 对话文本"
+          "NPC 对话选项与任务进度"
         ],
         "kbAnchors": [
           "渔夫",
@@ -773,7 +771,7 @@
           "npc_town 只写了渔夫怎么出现，没有任务系统：任务进度、任务鱼种类、交付规则"
         ]
       },
-      "note": "读不到任务进度与对话文本"
+      "note": "quest 能读到要哪条鱼、今天交没交；交付要靠对话选项，读不到也点不了"
     },
     {
       "id": "N05",
@@ -920,11 +918,9 @@
           "use"
         ],
         "kb": [],
-        "missingCommands": [
-          "quest"
-        ],
+        "missingCommands": [],
         "unsupported": [
-          "NPC 对话文本"
+          "NPC 对话选项与任务进度"
         ],
         "kbAnchors": [
           "任务鱼",
