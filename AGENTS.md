@@ -1,5 +1,34 @@
 # 硬规则（违反任何一条，这次改动就是作废的）
 
+## 0. 每次动手前先读这一条（用户要求：每次工作都要读一遍）
+
+> **用指令在后台控制角色，而不是直接控制我的电脑，也不是用指令改变世界。**
+> ——用户原话，2026-10-25。三件事必须同时成立：
+
+| 要求 | 正确 | 错误（犯过） |
+|---|---|---|
+| 怎么下指令 | 走 mod 的桥（TCP 47777）在游戏内部执行 | 用 `tr_mouse` / `tr_key` 点菜单、切快捷栏、走路 |
+| 谁在动 | 角色（键盘级别的操作被游戏自己解释成挥镐/走路/放方块） | 用户的鼠标光标被搬来搬去、游戏窗口被抢到前台 |
+| 世界怎么变 | 原版 `ItemCheck` 结算（挥动动画、耗耐久、掉物品） | `WorldGen.*` / `tile.type=` / `Player.PickTile` 直接改世界 |
+
+**禁止的操作系统级输入**（都属于"直接控制我的电脑"）：
+`SetCursorPos`、`mouse_event`、`keybd_event`、`SendInput`、`SetForegroundWindow`、
+`AttachThreadInput`、`ShowWindow` 抢焦点、以及任何点击用户桌面/其他窗口的自动化。
+这些代码已从仓库删除（提交 `c4106eb`）；不要再加回来，也不要改用插件工具绕过去。
+
+**唯一的输入通路**（已实现，包在 `BridgeSystem.BeginItemUse(slot, tileX, tileY, ms)` 里）：
+
+```
+PreItemCheck 钩子（游戏主线程，不需要前台、不动用户光标）
+    → pl.selectedItem = 槽位
+    → Main.mouseX/Y + Player.tileTargetX/Y = 目标格
+    → p.controlUseItem = true / p.controlUseTile = true（放方块）
+    → 原版 ItemCheck 自己挥动、判定硬度、扣耐久、掉物品
+```
+
+走路/跳跃同理：写 `controlLeft/controlRight/controlJump`，由游戏物理推动角色。
+**截图只看不控**（printwindow 抓窗口像素），不属于操作系统输入。
+
 > **总原则（用户原话，必须严格遵守）：控制角色完成任务，而不是通过指令改变世界。**
 > 违反这条，整个项目就没有意义。任何"让世界变成我想要的样子"的写法都是错的；
 > 唯一正确的写法是"让角色做出一个玩家也会做的动作，然后由游戏自己改变世界"。
