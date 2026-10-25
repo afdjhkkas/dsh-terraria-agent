@@ -104,11 +104,26 @@ PreItemCheck 钩子（游戏主线程，不需要前台、不动用户光标）
 
 1. **永远先读** `docs/kb/safety-limit.md`（禁令 / 范围 / 边界 / 确认），不参与判定。
 2. 把玩家这句话判成标签（可审计的关键词规则在 `src/kb-router.js`）：
-   `game_rule` / `tool_command` / `build_plan` / `actor_interact` / `chat_correct`。
+   `game_rule` / `item_operation` / `build_standard` / `actor_behavior` / `task_correct`。
 3. **只读命中的那几个库**，不把无关资料塞进上下文；多标签按
-   `safety_limit → game_rule → build_plan → actor_interact → tool_command → chat_correct` 叠加。
-4. 玩家带纠正语气（"不是 / 别 / 又 / 错了"）时 `chat_correct` 优先级最高，
+   `safety_limit → game_rule → build_standard → actor_behavior → item_operation → task_correct` 叠加。
+4. 玩家带纠正语气（"不是 / 别 / 又 / 错了"）时 `task_correct` 排在安全库之后第一位，
    按它 §4 的流程把纠正**落成规则或代码**，不能当场改一次就算完。
+
+### 入库校验（往知识库写任何东西之前必答）
+
+> **这条描述换一张世界种子还成立吗？**
+
+不成立的就不是"知识"，是单局数据，**不许进 `docs/kb/`**：
+固定坐标、单次实测数值、"这次放下去了/上次没放下"这类偶然现象、
+某一次任务用的固定长宽、临时调试参数。
+
+这些东西放：`docs/terraria-mechanics.md`（本世界地形/矿脉/坐标与时间曲线）、
+`docs/debug/unknowns.md`（本世界还没搞清的事）、任务记录与提交信息。
+
+机器校验：`npm run kb:lint`（`npm test` 里也挂了一条），
+一旦在六个库里出现坐标、`x=`/`y=`、世界名、"本档/本次/实测"、毫秒或 tick 数值就报错。
+这条界由用户 m05304 指定：**知识库只放所有世界都生效的通用机制**。
 
 命令/工具参数表是**生成物**：`docs/kb/_generated-commands.md`
 （由 `node scripts/kb-sync.mjs` 从 `Commands.cs` / `index.js` 生成，不要手改）。
@@ -119,5 +134,5 @@ PreItemCheck 钩子（游戏主线程，不需要前台、不动用户光标）
 ```js
 import { buildContext } from './src/kb-router.js'
 const { tags, docs } = await buildContext('把家完善一下')
-// tags: ['safety_limit', 'build_plan']  docs: 对应文件全文
+// tags: ['safety_limit', 'build_standard']  docs: 对应文件全文
 ```

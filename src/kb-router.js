@@ -4,6 +4,8 @@
  * 设计约束（来自用户要求）：
  *  - 收到指令 → 先判标签 → 只检索命中标签下的内容，不混无关资料；
  *  - safety_limit 永远加载，不参与判定；
+ *  - 六个库只收"换张地图也成立"的通用机制；命令/参数/报错这类接口文档
+ *    在 docs/kb/_generated-commands.md 里，由代码生成，不进六个库；
  *  - 判定必须可解释（返回命中的证据词），不能是黑盒。
  */
 
@@ -18,10 +20,10 @@ export const KB_DIR = join(HERE, '..', 'docs', 'kb')
 export const LIBRARIES = {
   safety_limit: 'safety-limit.md',
   game_rule: 'game-rule.md',
-  build_plan: 'build-plan.md',
-  actor_interact: 'actor-interact.md',
-  tool_command: 'tool-command.md',
-  chat_correct: 'chat-correct.md',
+  build_standard: 'build-standard.md',
+  actor_behavior: 'actor-behavior.md',
+  item_operation: 'item-operation.md',
+  task_correct: 'task-correct.md',
 }
 
 /** 永远加载，不参与判定。 */
@@ -37,31 +39,33 @@ const KEYWORDS = {
     '刷怪', '刷新', '生成', '扩散', '腐化', '猩红', '神圣', '房屋', '房间', '入住',
     '掉落', '概率', '硬度', '属性', '液体', '溺水', '岩浆', '昼夜', '事件', 'boss',
   ],
-  tool_command: [
-    '命令', '指令', '工具', '参数', '坐标', '报错', '错误', '调用', '接口', 'api',
-    'scan', 'tile', 'state', 'inventory', 'recipes', 'tiledata', 'find', 'bridge',
-    '怎么填', '哪个工具', '语法',
+  item_operation: [
+    '镐', '斧', '锤', '物品', '东西', '道具', '工具', '装备', '武器', '弓', '箭',
+    '弹药', '药水', '抓钩', '钩爪', '翅膀', '坐骑', '召唤', '背包', '切换', '手持',
+    '分类', '怎么用', '用法', '能干什么', '合成材料',
   ],
-  build_plan: [
+  build_standard: [
     '建', '造', '盖', '搭', '房', '屋', '装修', '完善', '平台', '农场', '刷怪场',
-    '竖井', '隧道', '通道', '桥', '楼梯', '布局', '墙', '屋顶', '地板', '改造',
+    '竖井', '隧道', '通道', '桥', '楼梯', '布局', '墙', '屋顶', '地板', '改造', '地形',
   ],
-  actor_interact: [
+  actor_behavior: [
     '走', '跑', '跳', '挖', '砍', '打', '攻击', '射', '放', '捡', '拾取', '喝',
-    '药', '说话', '对话', '买', '卖', '商店', '召唤', '坐骑', '飞行', '爬',
+    '说话', '对话', '买', '卖', '商店', '爬', '移动', '撤退', '躲',
   ],
-  chat_correct: [
+  task_correct: [
     '不是', '别', '不要', '错了', '又', '听不懂', '我说过', '上次', '纠正', '重新',
-    '模糊', '什么意思', '你是傻', '废话',
+    '模糊', '什么意思', '你是傻', '废话', '没做完', '不对',
   ],
 }
 
 const SCORE_STRONG = 3 // 明确的技术词
-const SCORE_WEAK = 1 // 泛用动词（"打""走"这种，容易误判）
+const SCORE_WEAK = 1 // 泛用动词（"打""走""建"这种，容易误判）
 
 const STRONG = new Set([
-  ...KEYWORDS.game_rule.slice(0, 10), ...KEYWORDS.tool_command,
-  ...KEYWORDS.chat_correct,
+  ...KEYWORDS.game_rule,
+  ...KEYWORDS.task_correct,
+  '镐', '斧', '锤', '物品', '道具', '工具', '装备', '武器', '弓', '箭', '弹药',
+  '药水', '抓钩', '钩爪', '翅膀', '坐骑', '背包', '分类', '怎么用', '用法', '能干什么',
 ])
 
 /**
@@ -80,11 +84,15 @@ export function route(text) {
       ;(hits[tag] ??= []).push(w)
     }
   }
-  // 有"纠正"语气时，纠正优先于其他一切（用户纠错必须被当成最高优先级）
-  const tags = Object.keys(scores)
-    .sort((a, b) => scores[b] - scores[a] || order(a) - order(b))
-    .filter((tag, i) => i === 0 || scores[tag] >= scores[Object.keys(scores).sort((a, b) => scores[b] - scores[a])[0]] * 0.5)
-  const ordered = ALWAYS.concat(tags.filter((x) => !ALWAYS.includes(x)))
+  const ranked = Object.keys(scores).sort((a, b) => scores[b] - scores[a] || order(a) - order(b))
+  // 保留与最高分同档次（≥50%）的标签；玩家纠错时 task_correct 一定进前列
+  const top = ranked.length ? scores[ranked[0]] : 0
+  const tags = ranked.filter((tag) => scores[tag] >= top * 0.5)
+  // 有纠正语气时，纠正优先于其他一切（用户纠错必须被当成最高优先级）
+  const corrected = tags.includes('task_correct')
+    ? ['task_correct', ...tags.filter((x) => x !== 'task_correct')]
+    : tags
+  const ordered = ALWAYS.concat(corrected.filter((x) => !ALWAYS.includes(x)))
   return { tags: ordered, scores, hits }
 }
 

@@ -45,7 +45,8 @@
     "test": "node --test",
     "pack:check": "npm pack --dry-run",
     "install:mod": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\install-mod.ps1",
-    "smoke": "node scripts/live-smoke.mjs"
+    "smoke": "node scripts/live-smoke.mjs",
+    "kb:lint": "node scripts/kb-lint.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": "*"

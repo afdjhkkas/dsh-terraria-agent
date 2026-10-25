@@ -14,12 +14,12 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 test('六个标签都有库文件，且文件真实存在', async () => {
   assert.deepEqual(Object.keys(LIBRARIES).sort(), [
-    'actor_interact',
-    'build_plan',
-    'chat_correct',
+    'actor_behavior',
+    'build_standard',
     'game_rule',
+    'item_operation',
     'safety_limit',
-    'tool_command',
+    'task_correct',
   ])
   const docs = await load(Object.keys(LIBRARIES))
   for (const d of docs) {
@@ -37,10 +37,10 @@ test('safety_limit 永远在最前面，且不参与关键词判定', () => {
   assert.deepEqual(ALWAYS, ['safety_limit'])
 })
 
-test('造东西的话命中 build_plan', () => {
+test('造东西的话命中 build_standard', () => {
   for (const text of ['把家完善一下', '帮我盖个房子', '搭个战斗平台', '挖一条竖井']) {
     const { tags } = route(text)
-    assert.ok(tags.includes('build_plan'), `"${text}" 没命中 build_plan: ${tags}`)
+    assert.ok(tags.includes('build_standard'), `"${text}" 没命中 build_standard: ${tags}`)
   }
 })
 
@@ -51,24 +51,26 @@ test('问机制的话命中 game_rule', () => {
   }
 })
 
-test('问命令/参数的话命中 tool_command', () => {
-  for (const text of ['mine 命令参数怎么填', '这个报错什么意思', '哪个工具能查方块属性']) {
+test('问物品用法的话命中 item_operation', () => {
+  for (const text of ['镐能不能放方块', '抓钩怎么用', '药水有冷却吗', '锤子能改什么']) {
     const { tags } = route(text)
-    assert.ok(tags.includes('tool_command'), `"${text}" 没命中 tool_command: ${tags}`)
+    assert.ok(tags.includes('item_operation'), `"${text}" 没命中 item_operation: ${tags}`)
   }
 })
 
-test('纠正语气命中 chat_correct', () => {
+test('纠正语气命中 task_correct，且排在安全库之后第一位', () => {
   for (const text of ['你错了', '不是这样,别在出生点挖', '你又挖穿了']) {
     const { tags } = route(text)
-    assert.ok(tags.includes('chat_correct'), `"${text}" 没命中 chat_correct: ${tags}`)
+    assert.ok(tags.includes('task_correct'), `"${text}" 没命中 task_correct: ${tags}`)
+    assert.equal(tags[0], 'safety_limit')
+    assert.equal(tags[1], 'task_correct', `"${text}" 纠错没有被优先: ${tags}`)
   }
 })
 
-test('普通过日子的话（走路/打怪）命中 actor_interact', () => {
+test('普通过日子的话（走路/打怪）命中 actor_behavior', () => {
   for (const text of ['走过去打那只史莱姆', '把地上的东西捡起来']) {
     const { tags } = route(text)
-    assert.ok(tags.includes('actor_interact'), `"${text}" 没命中 actor_interact: ${tags}`)
+    assert.ok(tags.includes('actor_behavior'), `"${text}" 没命中 actor_behavior: ${tags}`)
   }
 })
 
@@ -81,8 +83,8 @@ test('判定结果可解释：返回命中的词', () => {
 test('load 只读命中的库，不读别的', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'kb-'))
   for (const f of Object.values(LIBRARIES)) await writeFile(join(dir, f), `# ${f}\n内容内容内容`)
-  const docs = await load(['safety_limit', 'build_plan'], { dir })
-  assert.deepEqual(docs.map((d) => d.tag), ['safety_limit', 'build_plan'])
+  const docs = await load(['safety_limit', 'build_standard'], { dir })
+  assert.deepEqual(docs.map((d) => d.tag), ['safety_limit', 'build_standard'])
 })
 
 test('未知标签直接报错，不静默吞掉', async () => {
@@ -92,7 +94,7 @@ test('未知标签直接报错，不静默吞掉', async () => {
 test('buildContext：一句话拿到安全库 + 命中库', async () => {
   const ctx = await buildContext('把家完善一下')
   assert.equal(ctx.tags[0], 'safety_limit')
-  assert.ok(ctx.tags.includes('build_plan'))
+  assert.ok(ctx.tags.includes('build_standard'))
   assert.ok(ctx.docs.length === ctx.tags.length)
   assert.ok(ctx.docs.every((d) => d.text.length > 100))
 })
@@ -139,37 +141,29 @@ test('KB_DIR 指向 docs/kb', () => {
 // 用户 m05144 的硬规格：4 大主库 + 2 辅助库，每个库必须带指定子分类小节。
 // 这条测试的作用：改库时不许把结构删掉（删了子分类 = 知识库退化成随笔）。
 const REQUIRED_SECTIONS = {
-  'game-rule.md': [
-    '世界机制',
-    '方块与物块属性',
-    'NPC 入住',
-    '怪物刷新',
-    '环境生物',
-    '扩散',
-    '地形生成',
-    '判定标准',
-  ],
-  'tool-command.md': ['通路', '命令', '坐标体系', '参数', '错误说明', '权限黑名单', '部署'],
-  'build-plan.md': [
-    '基础建筑标准模板',
-    '功能性建筑规范',
-    '方块搭配',
-    '结构布局',
-    '安全建造约束',
-    '特殊环境',
-  ],
-  'actor-interact.md': ['角色移动', '战斗行为', '拾取', 'NPC 交互', '召唤物', '药水'],
-  'chat-correct.md': ['模糊', '失败话术', '歧义', '纠错', '无法完成'],
-  'safety-limit.md': ['高危操作禁令', '范围限制', '自动操作边界', '风险操作确认'],
+  'game-rule.md': ['房屋判定规则', 'NPC 入住与生成规则', '怪物刷新规则', '物块与地形规则', '环境扩散规则', '世界全局机制'],
+  'item-operation.md': ['物品分类与功能边界', '物品使用硬性约束', '背包与切换逻辑', '交互站位规则'],
+  'build-standard.md': ['通用建造规范', 'NPC 房屋通用建造规范', '各类平台建造规范', '方块搭配通用规范', '地形改造规范'],
+  'actor-behavior.md': ['移动规则', '战斗行为规则', '拾取规则', 'NPC 交互规则', '增益与召唤规则'],
+  'task-correct.md': ['模糊指令处理规则', '歧义处理规则', '任务中断规则', '修改迭代规则', '无法完成时怎么回'],
+  'safety-limit.md': ['禁止行为清单', '操作范围限制', '自检修正规则'],
 }
 
-test('每个库保留 m05144 规定的子分类小节', async () => {
+test('每个库保留规格要求的子分类小节', async () => {
   for (const [file, sections] of Object.entries(REQUIRED_SECTIONS)) {
     const text = await readFile(join(KB_DIR, file), 'utf8')
     for (const s of sections) {
       assert.match(text, new RegExp(`^#{1,3}.*${s}`, 'm'), `${file} 缺少「${s}」小节`)
     }
   }
+})
+
+test('六个库不含单局测试数据（坐标/世界名/单局措辞/计时数值）', () => {
+  const out = execFileSync(process.execPath, [join(ROOT, 'scripts', 'kb-lint.mjs')], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  assert.match(out, /^ok:/m)
 })
 
 test('README 列出了六个标签且与 LIBRARIES 一致', async () => {
