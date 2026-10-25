@@ -14,6 +14,17 @@
 **最终目标与不变量**（[`GOAL.md`](GOAL.md)）。具体的世界/角色/模式由运行环境决定，
 本项目不假设也不写死；AI 运行时的进度由它自己记在 `docs/playthrough.md`。
 
+**能力现状**看 [`docs/capabilities.md`](docs/capabilities.md)：每条能力都写了「命令 → 参数 →
+回读证据 → 踩过的坑」，并标清 ✅ 可用 / ⚠️ 有明确限制 / ❌ 已知不可用 / 🚧 未验证。
+那份手册是能力的唯一权威清单，本文只讲安装、协议与常用工具。
+
+## 素材与版权
+
+本仓库**不包含任何游戏素材**（无 png/音频/字体等二进制资源），也**不复制第三方文本**：
+`docs/` 下的内容是运行时实测记录（坐标、方块 id、耗时、失败原因）与本项目自己的总结。
+Terraria 及其素材版权归 Re-Logic 所有；模拟器/工具链（tModLoader、.NET）遵循各自许可。
+引用外部资料时只写结论并标注来源，不搬运原文。
+
 ## 工作前提
 
 - 桥接监听 `127.0.0.1:47777`（`cordis.patch.yml` 里的 `config` 可改 host/port/timeoutMs，
@@ -62,6 +73,22 @@
 移动命令。动作失控、切屏暂停或需要立即清除保持状态时调用 `terraria_stop`。
 
 ## 工具目录
+
+插件注册 24 个专用工具，覆盖最常用的动作；桥本身有 60 条命令，剩下的能力通过
+`terraria_bridge({command, params})` 调用（参数与限制见 [`docs/capabilities.md`](docs/capabilities.md)）。
+
+### 万能入口
+
+#### `terraria_bridge({command, params?})`
+
+按名字调用桥上的任意命令，`params` 传 JSON 对象文本（例如 `{"x":120,"y":45,"ms":600}`）。
+用它跑没有专用工具的能力：`shoot`（射箭）、`guard`（自动防守，默认已开）、`hook`/`unhook`（抓钩）、
+`select`、`minion`（召唤）、`fly`、`mount`、`mirror`（魔镜回城）、`climb`（爬绳）、`walkto`、`path`、
+`travel`、`find`（按 tile id 找方块）、`drop`/`grab`、`research`/`duplicate`、`talk`/`shop`/`buy`/`sell`、
+`homeroom`、`housing`/`needs`、`boss`/`event`/`players`、`api`（反射查 API 签名）、`recipes`、`tiledata`、`help`。
+
+参数名以 `docs/capabilities.md` 为准：例如 `find` 用 `{type,x1,x2,y1,y2}`，`craft` 用 `{item,times}`
+（`item` 是物品 id），`shoot` 用 `{x,y,ms}`，`guard` 用 `{r,ms}` 或 `{off:true}`。
 
 ### 状态和观察
 
@@ -306,6 +333,10 @@ terraria_observe({})
   **不是幂等的**，看到这条错误先调用 `state`/`inventory`/`tile` 核对实际后果，再决定要不要重试。
 
 ## 已知限制
+
+逐条带证据的清单在 [`docs/capabilities.md`](docs/capabilities.md) §8，这里只留最容易踩的三条：
+`save` 在联机开服模式下不可用（tModLoader 客户端没有本地世界元数据）；水里悬空放不上方块；
+`path` 在空腔竖井里会原地跳。
 
 - **移动是桥直接改速度**：`terraria_move` 每帧把水平速度推向目标方向，所以没有击退、冲刺
   （克苏鲁之盾等）、坐骑速度、传送带、冰面惯性这些原版手感；碰撞和重力仍由游戏解算，

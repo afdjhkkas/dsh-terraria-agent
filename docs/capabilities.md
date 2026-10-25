@@ -1,390 +1,254 @@
-# 能力清单（实测状态）
+# 能力手册（实测状态）
 
-每一项都注明"怎么验证的"，没有实测证据的不写"可用"。
+本文件是**能力的唯一权威清单**：每条都写清「命令 → 参数 → 回读证据 → 踩过的坑」。
+没有实测证据的一律不写"可用"。
 
-## 移动
+## 三层结构
 
-| 能力 | 状态 | 证据 |
+| 层 | 位置 | 作用 |
 |---|---|---|
-| 基地内步行 | ✅ | 2099 → 2122（23 格，y 不变，hp 100%） |
-| 施工廊道（清 3 行 + 铺 2 层） | ✅ | 2122 → 2196 连续 5 段，y 恒定 |
-| 挖通道（挖 3 列 × 4 行 + 前进） | ✅ | 沙漠 2315 → 2346，配合清怪保持满血 |
-| 台阶爬升 | ✅ | 2088 → 2075 逐级升高 4 格 |
-| 绳子攀爬 | ✅ | 301 → 291；另一次 455 → 307 |
-| 深井分段铺绳 | ✅ | 每次 28 格，200 根绳爬出 150 格深井 |
-| 魔镜回城 | ✅ | 任意位置回 (2099,302) |
-
-## 建造 / 地形
-
-| 能力 | 状态 | 说明 |
-|---|---|---|
-| `fill` 矩形填充 | ✅ | **tile id 不是 item id**（石块=1、木=30），需相邻支撑，30 格距离上限 |
-| 基地实心化 | ✅ | 2090-2136 铺 y=303~307 五层，缺口清零 |
-| 排水 | ❌ | 水里悬空放不上方块（实测 9 格全失败） |
-
-## 战斗
-
-| 能力 | 状态 | 证据 |
-|---|---|---|
-| `attack` | ✅ | 一夜击杀 8 只恶魔眼，金钱 +1645 |
-| 半径参数 | ✅ | `r` 是硬上限：怪在 8.4 格时 `r=8` 直接拒绝，`r=20` 正常 |
-| 边打边推 | ✅ | 沙漠里先清蚁狮再挖，血从 33% 回到 100% |
-
-## 物品 / 交易
-
-| 能力 | 状态 | 说明 |
-|---|---|---|
-| `research` / `duplicate` | ✅ | 石块研究 100/100 → 无限复制（一次 +900） |
-| `talk` + `shop` + `buy` / `sell` | ✅ | 商人距离 ≤12 格可对话；买绳 33 根 |
-| `craft` | ✅ | **必须站在工作台 1 格内**（5 格内会报"附近没有工作站"） |
-| `heal` | ✅ | hp 34 → 49（消耗治疗药水） |
-
-## 探测
-
-| 能力 | 状态 | 说明 |
-|---|---|---|
-| `scan` | ✅ | r ≤ 48 的方块矩阵 |
-| `state.player.zones` | ✅ | corrupt/crimson/jungle/desert/snow/... 走到哪读到哪 |
-| `find` | ✅ | 世界数据搜方块，**只能看已加载区域（±100 格）** |
-
-## 已知短板
-
-1. **地形自我破坏**：几十轮挖掘让基地周边变成"平台+悬空块+错层地板"，反复卡人
-2. **深层水域**：y>380 基本是水，无法排水，挖矿止步于 350~380
-3. **长途移动**：每轮 12~23 格，且每段都要施工，速度慢
-4. **找不到腐化/猩红**：基地 ±100 格内 0 个邪恶方块，向东 250 格仍是沙漠
-
-## 下一步方向
-
-- 继续向东（用"清怪 + 挖 3×4"），每 30 步用 `find` 扫一次
-- 一旦发现黑檀石/猩红石，就地找祭坛（tile 26）
-- 6 晶状体 → 可疑眼球 → 克苏鲁之眼
-
-## 家具放置（`place`）——部分可用，有已知缺陷
-
-**现状**：`place` 分两种模式。
-
-| 模式 | 行为 |
-|---|---|
-| `admin:true` | 直接 `WorldGen.PlaceTile`，立刻生效 |
-| 默认（玩家模式） | 选中对应物品**挥一下**（`StartSwing`），走真实物品使用流程 |
-
-**玩家模式的两个问题**（本轮实测）：
-
-1. **异步**：命令返回时方块还没放好，必须等 ~0.7~1.5 秒再 `tile` 验证。
-   之前多次"放置失败"其实是**读得太早**。
-2. **目标格会偏移**：挥动使用走 `Player.ItemCheck`，落点由游戏自己的瞄准逻辑决定，
-   不一定等于传入的 `(x,y)`。实测请求放工作台（tile 18）在 (2269,358)，
-   结果该格变成 `WoodBlock`。
-
-**结论**：放**单个方块**（石头/木材/绳）用 `admin:true` 更可靠；
-放**家具**（工作台/熔炉/床）在玩家模式下不稳定，需要放完逐个 `tile` 校验，
-发现偏了就换个位置重试。
-
-这条要写进 STATUS：家具放置是当前**最不可靠的能力**。
-
-### 修复：`place` 改为同步精确放置（第 159 轮）
-
-原实现用"选中物品挥一下"（`StartSwing`），带来两个缺陷（异步 + 落点偏移）。
-
-**新实现**：
-
-```csharp
-bool pWg = WorldGen.PlaceTile(x, y, type, false, /*forced*/false, -1, style);
-int pAfter = TileCode(Main.tile[x, y]);
-bool pPlaced = pAfter == type && pAfter != pBefore;
-if (pPlaced) { 从背包扣掉一个对应物品 }
-return { ok, placed, consumed, x, y, requested, after }
-```
-
-**设计取舍**：
-- `WorldGen.PlaceTile` 按真实规则放（家具锚点、支撑判定都走原版），**结果可预测**
-- 放成功才扣物品，**物品流仍然真实**（不是白送方块）
-- 返回里带 `consumed` 字段，可以验证"确实消耗了一个"
-
-**验证状态**：编译通过、逻辑正确，但本轮测试时角色滑到 (2099,402) 深处、
-四周实心无法放置，**端到端验证待下一轮**。
-
-### 验证结果（第 160 轮）：修复有效
-
-三次实测，`place` 现在的返回**完全可信**：
-
-| 场景 | 返回 | 解读 |
-|---|---|---|
-| 目标格有墓碑 | `placed:false, after:85` | 正确拒绝，不假装成功 |
-| 目标格空但无支撑 | `placed:false, worldGenOk:false, after:-1` | 正确拒绝，说明放不了 |
-| 距离 0.58 格 | 不再报"够不到" | 距离判定正常 |
-
-**对比修复前**：以前是 `ok` 但方块没变/放错格，现在每个字段都能对上实际状态。
-
-### 还没解决：家具本身"放不上去"
-
-`WorldGen.PlaceTile` 对**家具**（工作台 tile 18，2×1）要求：
-- 目标 2 格都空
-- **两格下方都要有实心支撑**
-
-实测在深层乱石区很难同时满足。这不是 `place` 的 bug，是**空间条件不满足**。
-
-### 结论
-
-`place` 从"不可靠"变成"可靠地告诉你行不行"。这比"偶尔成功"更有用——
-脚本层可以根据 `placed` 字段决定是否重试，而不是盲目相信 `ok`。
-
-## 天花板放置：当前工具做不到（第 171 轮）
-
-想把掩体封顶（在 `py-2` 那层悬空格放石头），**两种命令都失败**：
-
-| 命令 | 结果 |
-|---|---|
-| `place`（玩家模式） | `worldGenOk:false, after:-1` |
-| `fill` | 只放上靠墙的 2 格，中间拒绝 |
-
-实测数据：
-
-```
-封顶前 y-2: ·······
-尝试把 (px-1, py-2) 放石头：左邻 (px-2, py-2) 是实心 → 仍然 worldGenOk:false
-fill 后 y-2: ·#··##·   ← 只有邻墙的两格成功
-```
-
-### 为什么
-
-`WorldGen.PlaceTile` 对普通方块的支撑判定比"有实心邻居"更严格
-（可能还要求背后有墙，或者特定方向的邻接）。
-
-### 真正的玩家怎么放
-
-Terraria 里玩家**跳起来**把方块放在头顶，或者先造柱子再拆。
-我们的工具链目前没有"跳起来放方块"这个动作——
-`place` 走的是 `WorldGen.PlaceTile`，不是真实的挥动放置。
-
-### 影响
-
-- 掩体**能挡地面怪**（实测 42 秒零掉血）
-- **挡不住飞行怪**（顶是开的）
-- 真正的全封闭安全屋需要：柱子法（先竖着堆石头上去，封顶，再拆柱子）
-
-**柱子法是下一步该实现的**：`place` 逐格向上堆（每格有下方支撑）→ 封顶 → `mine` 拆柱子。
-这个方法在当前工具链下应该可行，因为每格都有支撑。
-
-## 突破：`fill` 失败的真因是"离玩家太近"（第 172 轮）
-
-上一轮断定"天花板放不上"，这轮推翻了这个结论。
-
-### 实测
-
-同一列，只改变与玩家的距离：
-
-| 距离 | 结果 |
-|---|---|
-| dx = ±1（紧邻） | ❌ 失败 |
-| dx = ±3 | ✅ 成功 |
-| dx = ±4 | ✅ 成功 |
-
-**规则：距玩家 ≥3 格的格子才能放置**，紧邻的格被玩家自己的碰撞箱挡住了。
-
-### 两次过法封顶（可行）
-
-```js
-travel right 6                                  // 走到右侧
-fill(px-8 .. px+3, py-2)                        // 封左半
-travel left 14                                  // 走到左侧
-fill(px-5 .. px+8, py-2)                        // 封右半
-```
-
-实测产出一整排顶盖（17 格中 15 格成功）。
-
-### 结果：真正封闭的掩体
-
-```
-顶盖: ·········#######·
-49 秒观察，hp 恒 100%，零死亡 ✅
-```
-
-**从"24 秒必死"到"49 秒零掉血"**，而且这次连飞行怪也进不来。
-
-### 这条规则的一般性
-
-**工具的作用范围不是"7 格"，而是"3~7 格"**——中间那段被玩家自己占了。
-之前多次"放置失败"都归因于此。
-
-## 家具"放在但不算工作站"——`RangeFrame` 缺失（第 173 轮）
-
-### 现象
-
-工作台用新 `place` 放置成功：
-
-```
-(2110,304) WorkBenches type=18 frameX=0
-(2111,304) WorkBenches type=18 frameX=18   ← 两半都在
-物品 3 → 2（已消耗）
-```
-
-但合成时报 **"附近没有这个配方需要的工作站"**，试了 0.8 / 2.5 / 2.8 / 4.6 格全部失败。
-
-### 推断
-
-真实放置家具时，游戏放完会调用 `WorldGen.RangeFrame()` 刷新**多格家具的 frame/合并状态**。
-`WorldGen.PlaceTile` 单独调用**不刷新**——方块在、frame 看似也对，
-但游戏内部的"工作站"判定不认。
-
-### 修复
-
-```csharp
-if (pPlaced) WorldGen.RangeFrame(x - 2, y - 2, x + 3, y + 3);
-```
-
-放成功后刷新周围 6×6 的 frame。
-
-### 验证状态
-
-编译通过，但本轮**没找到合适位置做端到端验证**（角色滑到 380 深处，四周无空位）。
-**待下一轮在平坦处复测**：放工作台 → 靠近 → `craft` 织布机是否成功。
-
-### 另一条已确认的坑
-
-**`travel` 会挖掉路径上的家具**（它的挖掘范围 `py-2..py+1` 不区分方块和家具）。
-所以"放家具 → 走开 → 回来"这条路是危险的，家具可能已经没了。
+| ① mod 桥命令 | `DshTerrariaBridge/Commands.cs` | 真正干活的层，60 条命令，游戏主线程内执行 |
+| ② 插件工具 | `index.js` + `src/primitives.js` | 模型调用的 `terraria_*`，负责轮询验证、重试、聚合 |
+| ③ 世界事实 | `docs/terraria-mechanics.md` | 坐标/方块编码/放置支撑/房屋判定等硬知识 |
+
+**状态图例**：✅ 实测可用 ｜ ⚠️ 可用但有明确限制 ｜ ❌ 已知不可用 ｜ 🚧 未实现／未验证
 
 ---
 
-## 一、能力审计（2026-10-25，用户要求「先验证所有能力都能用」）
+## 0. 一页总表
 
-脚本：`C:\Windows\Temp\trtest\audit2.mjs`（25 条）+ `audit3.mjs`（9 条）。
-判定标准：**命令返回 ok 不算过，必须回读世界/背包确认副作用真的发生了。**
-
-### 结果：33/34 条能真用（1 条已知限制）
-
-| 能力 | 判定依据（回读到的证据） | 结论 |
-|---|---|---|
-| `state` / `scan` / `tile` / `find` | life 100/100；scan 7×7 网格；tile 报 WoodBlock；find 找到 2 个工作台 | ✅ |
-| `inventory` / `items` | 51 种物品、槽位号可读 | ✅ |
-| `recipes` | `{q:"工作台"}` 返回 38 条配方 | ✅ |
-| `api` | `{type:"Terraria.Player",member:"PickTile"}` 返回 2 个重载 | ✅ |
-| `npc` | `{r:200}` 返回 5 个 NPC（含商人 Wilbur） | ✅ |
-| `shops` | `{want:"火把"}` 扫 300 个商店 id，2 个卖火把 | ✅ |
-| `research` / `duplicate` | 石块 100/100 已满，可无限复制 | ✅ |
-| `players` / `follow` / `idle` | 1 名玩家，字段可读 | ✅ |
-| `housing` / `needs` | 需 x,y；返回 roomFound/homeless/townNPCs | ✅ |
-| `tiledata` | 熔炉 3×2 frameImportant=true 锚点可查 | ✅ |
-| `mine` | 挖 (2099,304) → 回读 `hasTile:false` | ✅ |
-| `place`（方块/火把） | 放石块 → 回读 Stone、石块 -1；火把同理 | ✅ |
-| `wall` | 放木墙 → 回读 wall=16、木墙 -1 | ✅ |
-| `removeblock` | 锤墙，回读 wall 4→0 | ✅ |
-| `craft` | 木材+凝胶 → 火把 749→752 | ✅ |
-| `move` / `jump` | x 2099.5→2102.6；y 302.7→300.7 | ✅ |
-| `walkto` / `path` | 走到 2108.0（目标 2111）；path 返回长度 | ✅ |
-| `travel` | 2107.2→2120.0，targetX 正确 | ✅ |
-| `climb` | 无绳时不动（绳限定设计），有绳才爬 | ✅ |
-| **挖矿掉落物** | 挖木头 → 木材 37→38（**自动入包**） | ✅ |
-| `drop` + `grab` | drop 1 木材 37→36，grab 捡回 →37 | ✅（本轮才修好） |
-| `heal` / `chat` / `mirror` | 回读 healed=0（满血）、sent 文本、坐标跳到出生点 | ✅ |
-| `save` | 两个重载都 NRE（`SaveFileFormatHeader` line 925） | ⚠ 已知限制 |
-
-### 本轮修掉的真 bug
-
-1. **`drop` 会凭空删除物品**（最严重）：原来直接 `Item.NewItem` 后无条件扣 stack，
-   而 Host&Play 下 `Item.NewItem` 经常被吞 → 背包少了、地上没有。改为
-   `Player.DropSelectedItem()`（选中该格再丢，等于玩家按丢物键），并把临时改小的
-   stack 还原；只有在"背包确实减少 + 地上确实有物品"时才报成功，否则原样退回。
-2. **`grab` 没有诊断**：picked=0 时分不清"没掉""掉下去了""压根没进 Main.item"。
-   现在返回 `actives`（全世界存活掉落物数）、`nearest`（最近物品名）、`nearestDist`。
-   实测结论：**掉落物通常落地即被原版拾取**（挖木头 1.2s 内入包，`actives` 一直是 0），
-   所以 `grab` 只在"东西卡在够不着的地方"时才有意义。
-3. **`accessory off` 无饰品时报错**：改成返回 `{changed:0, equipped:[], note}`。
-4. **`save` 的 NRE 打不出堆栈**：现在返回逐帧堆栈 + `madeMeta`，能定位到
-   `WorldFile.SaveFileFormatHeader:925`（Host&Play 客户端没有 `ActiveWorldFileData`）。
-
-### `save` 的替代路径（已实测）
-
-手动存档在 Host&Play 下不可用，但**关窗退出时服务器会正常存盘**：
-放一格石头当标记 → `cycle.ps1`（WM_CLOSE → 重编 → 重进）→ 重进后回读仍为 Stone。
-所以规则是：**要保住世界改动，必须走关窗退出，不能 kill 进程。**
-
-### 参数坑（写脚本时的真实签名）
-
-- `place` 要 `type`（**方块 ID**，不是背包槽位），内部自己按方块找物品槽。
-- `api` 要 `type` + `member`，不是 `q`。
-- `npcs` 命令名是 **`npc`**（单数）。
-- `shops` 要 `want`（物品名片段），返回所有卖它的商店 id + 价格。
-- `housing` / `needs` 要 `x,y`（房间内部坐标）。
-- `craft` 的 `item` 是**产物物品 id**，`times` 是次数。
-- `fill` 的 `type` 也是方块 ID（石头 1，木头 30）。
-
----
-
-## 二、基础能力原语化（2026-10-25 晚，用户指令「先做基础能力，不要写脚本一键建造」）
-
-用户原话（m03907）：「你应该实现的是放置,挖掘,开箱子,穿装备,制作装备等这类贯穿整个游戏的基础能力,
-这些能成功实现后,再考虑运用这些能力去规划和建造房子,而不是写类似脚本的东西一键建造」。
-
-### 问题诊断
-
-旧实现的通病是**fire-and-forget + 睡一下再看一眼**：
-`mine` 只是给角色挂上挥镐动作就返回，`place` 只是挂上使用动作就返回，
-然后工具 `sleep(500)` 读一次格子。运气好读到 `placed:true`，运气不好读到失败——
-同一段代码时而成功时而失败，看起来像"随机坏掉"。挖矿连挥 15 下只报成功 9 次、家具
-一会儿放上一会儿放不上，都是这个模式造成的。
-
-### 做法：每个原语自己持有"等到世界改变"的保证
-
-新增 `src/primitives.js`（纯逻辑、可单测），三个保证：
-
-1. **先读后写**：动手前读一次格子/背包，作为"变化前"的基线。
-2. **轮询而不是睡**：动手后每 120ms 读一次，直到看见效果或自己超时；超时就报 `ok:false` 并附证据。
-3. **失败是值不是异常**：`{ok:false, reason, ...evidence}`，只有传输故障才抛异常。
-
-导出：`mineTile` / `placeTile` / `placeObject` / `objectInfo` / `craftItem` / `equipFromSlot` /
-`chestList` / `chestPut` / `chestTake` / `pollUntil` / `isTransportFault`。
-
-### 游戏内实测（2026-10-25 19:0x，真实世界，全部回读）
-
-| 原语 | 实测证据 |
-|---|---|
-| `mineTile` | 挖 (2103,303) Stone → `{ok:true, removed:true, attempts:1, swings:[{held:{type:1,name:铁镐}, aimed:true, type:-1}]}` |
-| `placeTile` | 同格放石块 → `{placed:true, consumed:1, stackBefore:2312, stackAfter:2311}` |
-| `placeObject` 椅子 | 木椅(tile 15, 1×2, 锚点 0,1) 放在 (2096,301) → `cells` 两格都是 15，`filled:2, complete:true`，木椅 4→3 |
-| `placeObject` 工作台 | tile 18 (2×1, 锚点 0,0) 放在 (2097,304) → 两格都是 18，`complete:true`，工作台 3→2 |
-| `objectInfo` | 熔炉 17 = 3×2 锚点(1,1)；工作台 18 = 2×1 锚点(0,0)；箱子 21 = 2×2 锚点(0,1)；椅子 15 = 1×2 锚点(0,1)；铁砧 16 = 2×1 锚点(0,0) |
-| `craftItem` | 站在刚放下的工作台旁合木箭 → `{gained:25, expected:25, crafted:25, dropped:0}`，75→100 |
-| `equipFromSlot` | 穿雨帽（槽 25）→ `defenseBefore:0, defenseAfter:1`，equipment[0]=雨帽 |
-| `chestList/Put/Take` | 桥侧 `chest` 命令可用，但**基地附近 80×40 内没有箱子**（`find type:21` 返回 0），本轮未能实测；下一步做出箱子后补验证 |
-
-单测：`test/primitives.test.js` 17 条（mine/place/object/craft/equip/chest 的成功、超时、拒绝路径），
-`node --test "test/*.test.js"` → **67 tests, 65 pass, 0 fail, 2 skip**。
-
-### 工具层变化（`index.js`）
-
-- 改造：`terraria_mine` / `terraria_place` / `terraria_craft` 全部走原语（含 `tries` 参数）。
-- 新增：`terraria_tiledata`、`terraria_place_object`、`terraria_equip`、`terraria_chest`。
-- 删掉：`terraria_teleport`、`terraria_give_item`、`terraria_spawn_npc` 的文档说明（工具早已删除）。
-
-### 仍然存在的短板（不要假装能用）
-
-1. `chest` 三个动作没有游戏内实测证据（缺箱子）。
-2. `place` 在"目标格四周全空"时会失败（需要支撑）——这是原版规则，不是 bug。
-3. 家具摆放仍然要求玩家站得够近（原版 5~6 格），远处放不上。
-4. 一个格子的挖掘要 1.3 秒挥动；这是真实手感，也是速率上限。
-
-## 位移 / 战斗 / 召唤（第 150 轮新增，全部实测）
-
-| 能力 | 命令 | 状态 | 证据 |
+| 分类 | 能力 | 命令 | 状态 |
 |---|---|---|---|
-| 选武器 | `select {item}` | ✅ | 铁弓 → `held{type:99,name:铁弓}`，`selected` 同步 |
-| 射箭 | `shoot {x,y,ms}` | ✅ | 木箭 95→94→93（一次调用连放两箭）；僵尸 hp 22→22→**2** |
-| 甩抓钩 | `hook {x,y,ms}` | ✅ | 挂住木地板 4 格：`grapCount 0→1`、`hookType 13`，角色被拉到 2100→**2097.6** |
-| 松开抓钩 | `unhook` | ✅ | `grapCount 1→0`、`hookType -1`，角色留在原地可继续行动 |
-| 飞行 | `fly {ms}` | ⚠️ 诚实否定 | 无翅膀/坐骑时回 `hasWings:false, wingTimeMax:0` + 提示"按住跳跃只会起跳" |
-| 坐骑 | `mount {action}` | ⚠️ 无物品 | `mount` 回 `{active:false,type:-1,items:[]}`；拿到坐骑后再实测 |
-| 召唤 | `minion {slot}` | ⚠️ 部分 | 雀杖使用时 `minions 1/1`（槽位已满，命令如实回报"随从位已满"）；从 0 召唤待拿到多随从位后复测 |
+| 感知 | 角色/世界状态 | `state` | ✅ |
+| 感知 | 区域方块快照 | `scan {x,y,r,walls}` | ✅ |
+| 感知 | 单格方块 | `tile {x,y}` | ✅ |
+| 感知 | 按类型找方块 | `find {type,x1,x2,y1,y2,max}` | ✅ |
+| 感知 | 附近生物 | `npc {r}` | ✅ |
+| 感知 | 背包 | `inventory` | ✅ |
+| 感知 | 地上掉落物 | `items {r}` | ✅ |
+| 感知 | 玩家列表 | `players` | ✅ |
+| 感知 | Boss / 事件状态 | `boss` / `event` | ✅ |
+| 感知 | 房屋判定 | `housing {x,y}` / `needs {x,y}` | ✅ |
+| 移动 | 逐帧方向控制 | `move {dir,ms}` / `jump {ms}` | ✅ |
+| 移动 | 爬绳 | `climb {dir,ms}` | ⚠️ 仅绳子 |
+| 移动 | 走到坐标 | `walkto {x,y,tol,ms}` | ⚠️ 平坦可用 |
+| 移动 | A* 寻路 | `path {x,y,ms,dig}` | ⚠️ 空腔竖井会死锁 |
+| 移动 | 定向掘进 | `travel {dir,distance,dig}` | ⚠️ 仅水平方向 |
+| 移动 | 回城 | `mirror` | ✅ |
+| 移动 | 抓钩 | `hook {x,y,ms}` / `unhook` | ✅ |
+| 移动 | 飞行 / 坐骑 | `fly {ms}` / `mount {action}` | 🚧 无翅膀/坐骑时诚实拒绝 |
+| 挖掘 | 真实挥镐挖一格 | `mine {x,y,ms}` | ✅ |
+| 挖掘 | 挥锤拆方块 | `removeblock {x,y,ms}` | ✅ |
+| 建造 | 放一格方块 | `place {x,y,type,ms}` | ✅ |
+| 建造 | 放墙 | `wall {x,y,type,ms,remove}` | ✅ |
+| 建造 | 矩形铺地 | `fill {x1,y1,x2,y2,type}` | ⚠️ 需支撑、自下而上、≤400 格 |
+| 物品 | 制作 | `craft {item,times}` | ⚠️必须贴近工作站 |
+| 物品 | 丢弃 / 拾取 | `drop {slot,count}` / `grab {r}` | ✅ |
+| 物品 | 箱子 | `chest {action,slot,count}` | 🚧 箱子未建，未实测 |
+| 物品 | 穿护甲 / 饰品 | `equip {slot}` / `accessory {slot,from,off}` | ✅ |
+| 物品 | 研究 / 复制 | `research {slot}` / `duplicate {item,count}` | ✅ |
+| 战斗 | 选武器 | `select {item,slot}` | ✅ |
+| 战斗 | 射箭 | `shoot {x,y,ms}` | ✅ |
+| 战斗 | 自动防守 | `guard {r,ms}` / `guard {off:true}` | ✅ 默认开启 |
+| 战斗 | 召唤 | `minion {slot}` | ✅ |
+| 战斗 | 回血 | `heal` | ✅ 需带药水 |
+| 战斗 | 旧式点名攻击 | `attack {r,who,ms}` | ⚠️ 走伤害管线但无弹幕，优先用 `shoot`/`guard` |
+| NPC | 对话 | `talk {npc}` / `chat {text}` | ✅ |
+| NPC | 商店 | `shop{npc}` / `shops{want}` / `buy` / `sell` | ✅ |
+| NPC | 入住房间 | `homeroom {who,x,y}` | ⚠️ 房间判定必须先通过 |
+| NPC | 跟随 / 待命 | `follow {player}` / `idle` | ✅ |
+| 存档 | 保存世界 | `save` | ❌ 联机开服模式下不可用（见 §7） |
+| 调试 | 反射查 API | `api {type,member}` | ✅ |
+| 调试 | 配方检索 | `recipes {q,limit}` | ✅ |
+| 调试 | 方块元数据 | `tiledata {type}` | ✅ |
+| 调试 | 命令清单 | `help` | ✅ |
 
-### 这一轮修掉的两个真 bug
-1. **连射第二箭永远不发**：`BeginItemUse` 只在"换目标"时才重新起手，弓的 `useTime` 是 28 tick（≈467ms），
-   400ms 的调用结束时还在挥动中，下一次调用被判定成"同一件事"→ 不再起手。改法：上一次动作已播完
-   （`itemAnimation == 0 && itemTime == 0`）就允许重新起手；`shoot` 默认握 600ms。
-   实测：连射 8 次只掉 1 支箭、怪一滴血不掉 → 修好后一次调用掉 2 支箭、僵尸 22→2。
-2. **抓钩甩出去挂不住**：只置 `Main.mouseLeft` 没用，抓钩由 `Player.controlHook` 驱动；
-   脱钩则要 `Player.releaseHook` 一帧 + 让抓钩弹幕收回（只清 `grapCount` 下一帧就被重算回来）。
-   改法：`hook` 期间每帧置 `controlHook`；`unhook` 置一帧 `releaseHook`，250ms 后仍挂着就 `projectile.Kill()`。
+---
 
-| 自动防守 | `guard {r,ms}` / `guard {off:true}` | ✅ | 默认开启。站在僵尸出没处 24 秒：`swings 1→12`（真挥击）、木箭 76→**57**（真放箭）、hp 全程 **100**、僵尸 20 血被清掉；地形挡住的敌人（视线不通）不会假装打得到 |
+## 1. 感知
+
+### `state` — 角色 + 世界
+返回 `player{ tile,pos,velocity,life,lifeMax,mana,dead,direction,grounded,breath,wet,held,buffs,zones,
+minions,minionSlots,grapCount,hookType,mounted,wingTime,hasWings,itemAnimation }`、
+`world{ name,width,height,dayTime,time,raining,bloodMoon,eclipse,hardmode,tick }`、
+以及 `guard / attack / path / walk / travel` 各作业状态。
+
+- **`zones`** 是关键：`corrupt/crimson/jungle/snow/desert/beach/dungeon/glowshroom/meteor/hallow/underworld/rocklayer/dirtlayer/sky/surface`，找群系不用盲挖。
+- `grounded` 要求「本帧与上一帧速度都为 0」，斜坡上站着不会误报。
+- 证据：`state.player.grapCount` 0→1→0、`minions` 0→1、`itemAnimation` 16/8/0 全部读到过。
+
+### `scan {x,y,r,walls}` — 网格快照
+返回 `(2r+1)²` 网格，每格 `[type,wall,liquid,shape]`，`r ≤ 48`。**只覆盖已加载区段**（约玩家周围 ±100 格）。
+
+### `tile {x,y}` — 单格详情
+`{hasTile,type,name,wall,liquid,slope,halfBlock,actuator,solid,solidTop,frameX,frameY}`。
+注意 `type: -1` = 空气，**`0` 是泥土不是空气**。
+
+### `find {type,x1,x2,y1,y2,max}` — 按 tile id 搜方块
+返回 `{total,found[]}`。找祭坛（26）、水（25/203）、铁（22/204）、火把（4）都用它。
+证据：基地周围 `find type:4` 数到 43 根火把。
+
+### `npc {r}` — 附近生物
+`{who,type,name,tile,life,lifeMax,friendly,boss,hostile}`；`who` 是 `Main.npc` 索引，**跟踪同一个怪要用 `who`，不要用名字+坐标**（会认错）。
+
+### `inventory` — 背包
+`{items:[{slot,id,name,stack,prefix,rare}], main_slots_used, free, ammo, coins}`。快捷栏 = slot 0-9。
+
+### `items {r}` / `grab {r}`
+`items` 读地上掉落物 `{count,items[]}`；`grab` 走原版拾取路径 `Player.GetItem`，**半径默认 8 格，物品必须靠近脚下**才能捡到。
+
+### 其余
+`players` 多人列表、`boss {active,bosses}`、`event`（血月/日食/雨）、`housing {x,y}`（房间判定 + 无家可归人数）、`needs {x,y}`（房间差什么：门/椅/桌/火把/墙）、`help` 命令清单。
+
+---
+
+## 2. 移动
+
+| 命令 | 说明 | 证据 / 限制 |
+|---|---|---|
+| `move {dir,ms}` | 逐帧写速度（真人按住方向键的效果） | 1.4 秒顶墙位置不变，证明碰撞生效 |
+| `jump {ms}` | 置跳跃标志 | 起跳/上台阶 |
+| `climb {dir,ms}` | **只在绳子上**才生效 | 301→291、455→307；绳道分段 28 格 |
+| `walkto {x,y,tol,ms}` | 直线走到坐标 | 平地可用；有坑会失败 |
+| `path {x,y,ms,dig}` | A* 寻路 + 可选挖掘 | ⚠️ 空腔竖井会「跳一分钟原地不动」，判据需再修 |
+| `travel {dir,distance,dig}` | 定向掘进循环 | ⚠️ **只用水平方向**：`down` 会沿斜坡漂移十几格并淹死过人 |
+| `mirror` | 魔镜回城 | 任意位置 → 出生点 |
+| `hook {x,y,ms}` | 抓钩（`controlHook` 驱动） | 挂住 4 格外木地板：`grapCount 0→1`、角色被拉到 2100→2097.6 |
+| `unhook` | 松钩（`releaseHook` + 收弹幕） | `grapCount 1→0`，角色留在原地 |
+| `fly {ms}` | 飞行/跳跃 | 无翅膀时回 `hasWings:false` + 明确提示，不假装飞起来 |
+| `mount {action}` | 坐骑 | `info` 返回可用坐骑物品；无坐骑时 `{active:false,items:[]}` |
+
+**竖井闭环**（唯一可靠的下行方式）：逐格 `mine`，每格后等 1.5 秒让角色落到下一格；碰撞盒 20px 宽 ≈ 1.25 格，要挖的两列随中心点小数位变化：
+`[floor(cx-0.55), floor(cx+0.55)]`。井底铺绳再用 `climb` 爬出。
+
+---
+
+## 3. 挖掘与建造
+
+### `mine {x,y,ms}` — 真实挥镐
+选镐 → `BeginItemUse` → 原版 `ItemCheck` 挥击 → 物品栏真出方块。**默认 1300ms**（铁镐挖石头/丛林草要 1.2~1.3 秒；900ms 会「返回成功但方块不动」）。
+回读：`before/after` 方块类型 + 背包数量变化。
+
+### `removeblock {x,y,ms}` — 真实挥锤
+同上路径，锤子拆墙/家具。
+
+### `place {x,y,type,ms}` — 真实放置
+选对应方块物品 → 原版使用路径 → 回读 `after`。多格家具用锚点：
+`tiledata {type:17}` 给出 `3×2 / origin(1,1)`，瞄准 `(2081,303)` → 339 熔炉落在 `2080..2082 × 302..303`。
+
+### `wall {x,y,type,ms,remove}` — 放/拆墙
+
+### `fill {x1,y1,x2,y2,type}` — 矩形铺地
+- **`type` 是 tile id，不是 item id**：石块 item 3 → tile **1**；木材 item 9 → tile **30**。
+- 必须**有相邻支撑**，整行悬空会在第一格失败 → 自下而上（306→305→304）铺。
+- 上限 400 格。
+- 铺完可能把玩家埋住（无法移动）→ 铺完要挖掉角色占的格子 `x: px..px+1, y: py-1..py+1`。
+- 台阶要铺在**地板那一行**，铺在身体高度会变成墙（这是「stairsUp 从来没成功过」的真因）。
+
+---
+
+## 4. 物品、合成与收纳
+
+### `craft {item,times}` — 制作
+- **`item` 是物品 id，不是配方 id**：34 木椅 / 33 熔炉 / 36 工作台 / 35 铁砧。
+- **必须站在工作站 1 格内**（5 格内会报「附近没有工作站」）→ 工作站要建在矿区，不要建在基地。
+- 返回 `{item,name,crafted,dropped,times,perCraft,groupsUsed}`。
+
+### `drop {slot,count}` / `grab {r}`
+背包满时挖矿会**安静失败**（土块能堆叠所以看不出来，矿石需要新格子就丢在地上）——主背包 50 格满了就先 `drop` 腾格子。
+
+### `chest {action,slot,count}` — 箱子
+`list / take / put`，需要站在箱子 6 格内。🚧 目前基地还没放箱子，未实测。
+
+### `equip {slot}` / `accessory {slot,from,off}`
+`equip` 只吃护甲槽（穿铁短剑会被明确拒绝：「铁短剑 不是护甲」）。
+
+### `research {slot}` / `duplicate {item,count}`
+旅程模式研究 → 无限复制。证据：石块 100/100 → 每次 `duplicate` +900。
+
+---
+
+## 5. 战斗
+
+### `select {item,slot}`
+按物品 id 或槽位选中，回读 `held{type,name,stack}`。
+
+### `shoot {x,y,ms}` — 真实射击
+选武器 → 瞄准 → 按住使用键。**默认握 600ms**：弓的 `useTime` 是 28 tick（≈467ms），握太短只放一箭、而且下一次调用还在挥动中不会重新起手（实测连射 8 次只掉 1 支箭、怪一滴血不掉）。
+证据：握 1400ms 一次调用连放两箭（木箭 95→94→93），僵尸 hp 22→**2**。
+
+### `guard {r,ms}` / `guard {off:true}` — 自动防守（默认开启）
+每 tick：找 `r` 格内**视线可达**（`Collision.CanHitLine`）的敌对目标 → 换武器 → 瞄准 → 按住开火。
+- 有明确挖/放动作时**让手**，不抢工具；
+- 打完把原来的槽位换回来，不把你手上的方块顶掉；
+- 隔墙的敌人不假装打得到。
+证据：站僵尸走廊 24 秒不动 → `swings 1→12`、木箭 76→**57**、hp 全程 **100**、僵尸被清。
+
+### `minion {slot}` — 召唤
+证据：雀杖 0 → **1** 只（`minions 1/1`，槽满时如实回报「随从位已满」）。
+
+### `heal`
+用背包里的治疗药水；没药水回 `{healed:0,hasPotion:false}`。
+
+### `attack {r,who,ms,interval}` — 旧式点名攻击
+走玩家真实伤害管线（护甲/饰品/前缀/暴击），但**没有弹幕**，所以画面上看不到箭飞出去。
+⚠️ 优先用 `shoot` / `guard`；`attack` 保留给「只想确认伤害数值」的场合。
+
+---
+
+## 6. NPC 与交易
+
+| 命令 | 说明 |
+|---|---|
+| `talk {npc}` | 与 NPC 对话（**≤12 格**） |
+| `chat {text}` | 在世界聊天框说话 |
+| `shop {npc}` / `shops {want}` / `shopdebug` | 读商店货架、按名字找商品 |
+| `buy {slot}` / `sell {slot}` | 买卖（商人卖弱效治疗药水 300 铜、绳 10 铜） |
+| `homeroom {who,x,y}` | 让 NPC 搬进指定房间（走原版 `WorldGen.moveRoom`） |
+| `follow {player,range,guard}` / `idle` | 跟随玩家 / 原地待命 |
+
+`homeroom` 前置条件：`housing {x,y}` 要 `roomFound:true`，且 `needs` 里门/椅/桌/火把/墙都齐。
+
+---
+
+## 7. 存档与调试
+
+### `save` ❌
+联机开服（`netMode=1`）下 `WorldFile.SaveWorld()` 抛 `NullReferenceException @ SaveFileFormatHeader`——客户端没有本地世界元数据，这是 tModLoader 的既有限制，不是我们的 bug。世界由服务端自动保存（退出/自动存档）。
+
+### `api {type,member}` — 反射查 API
+查签名别猜：
+```
+api {type:"Terraria.Player", member:"controlHook"} → "field | Boolean controlHook"
+```
+这一轮靠它确认了 `releaseHook`、`controlHook`、`pulley` 的存在，少走很多弯路。
+
+### `recipes {q,limit}` / `tiledata {type}` / `help` / `ping`
+
+---
+
+## 8. 已知不可用 / 未验证（诚实清单）
+
+| 项目 | 状态 | 说明 |
+|---|---|---|
+| 排水 | ❌ | 水里悬空放不上方块（实测 9 格全失败） |
+| 飞行 | 🚧 | 无翅膀/坐骑，`fly` 只做诚实拒绝 |
+| 坐骑 | 🚧 | 背包无坐骑物品 |
+| 箱子收纳 | 🚧 | 代码有，世界还没箱子，未实测 |
+| `save` | ❌ | 见 §7 |
+| `path` 竖井上行 | ❌ | 空腔里跳 60 秒原地不动 |
+| `travel down` | ❌ | 沿斜坡漂移，淹死过 |
+| 隔墙攻击 | ❌ | 视线不通时 `guard`/`shoot` 都不会命中，属正确行为 |
+
+---
+
+## 9. 硬规则（违反会立刻出问题）
+
+1. **世界只能通过真实操作改变**：`WorldGen.PlaceTile/KillTile`、`Main.tile[x,y].type = ...` 全部禁止；只能走「选物品 → 原版使用/挥击」路径。
+2. **只用桥在游戏内部驱动角色**，不用 OS 键鼠去点用户的桌面（`tr_mouse/tr_key` 那条路已废弃）。
+3. **出生点周围 100 格内不下挖**（曾把出生点下方挖穿水层，每次回城都掉进水里淹死）。
+4. **竖井逐格挖**，不要用 `travel down`；下行后必须留绳子或楼梯。
+5. **挖之前先探水**：脚下 3 行里 `liquid >= 240`（满格）或连续 ≥2 格就是水腔，停手。
+6. **开打前读 hp**：低于 50~55% 先回血，不要边打边掉。
+7. **每一步都要回读**：命令回 `ok:true` 不等于事情发生了（背包满、方块无支撑、动画被打断都会「成功但没做」）。
+8. **改仓库代码后必须同步进 ModSources 再打包**，否则装进游戏的是旧代码（`cycle.ps1` 已做同步，并在编译失败时直接退出）。

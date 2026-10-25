@@ -153,6 +153,41 @@ export function apply(ctx, rawConfig = {}) {
     }))
   }
 
+  /* ── 万能入口：mod 桥的所有命令 ──────────────────────────────── */
+
+  // 下面的专用工具只包了一部分常用动作；桥本身有 60 条命令（见 docs/capabilities.md）。
+  // 这个入口让模型能用到全部能力，而不用为每条命令都加一个工具。
+  register({
+    name: 'terraria_bridge',
+    description: 'Call ANY bridge command by name with a raw params object. Use this for capabilities that have no dedicated tool '
+      + '(shoot, guard, hook, unhook, select, minion, fly, mount, mirror, climb, walkto, path, travel, find, drop, grab, '
+      + 'research, duplicate, talk, shop, shops, buy, sell, homeroom, housing, needs, boss, event, players, save, api, '
+      + 'recipes, tiledata, help). The full list with parameters and caveats is docs/capabilities.md. '
+      + `Every command returns the same JSON envelope as the dedicated tools. ${RULES}`,
+    parameters: {
+      command: string('Bridge command name, e.g. "shoot", "guard", "find".', { required: true }),
+      params: string('Parameters for that command as a JSON object, e.g. {"x":120,"y":45,"ms":600}. Omit when it takes none.'),
+    },
+    async run(args, exec) {
+      const command = String(args.command ?? '').trim()
+      if (!command) throw new Error('terraria_bridge needs a command name (see docs/capabilities.md).')
+      const raw = String(args.params ?? '').trim()
+      let params = {}
+      if (raw) {
+        try {
+          params = JSON.parse(raw)
+        } catch (error) {
+          throw new Error(`terraria_bridge could not read params as JSON: ${error.message}. Pass an object like {"x":120,"y":45}.`)
+        }
+        if (params === null || typeof params !== 'object' || Array.isArray(params)) {
+          throw new Error('terraria_bridge params must be a JSON object, e.g. {"r":40}.')
+        }
+      }
+      const result = await request(command, params, exec)
+      return displayResult(result)
+    },
+  })
+
   /* ── 状态 ─────────────────────────────────────────────────────── */
 
   register({
