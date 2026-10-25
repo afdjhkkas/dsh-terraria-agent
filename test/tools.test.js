@@ -52,8 +52,8 @@ test('registers every documented tool with a supported schema', async () => {
     for (const expected of [
       'terraria_status', 'terraria_observe', 'terraria_scan', 'terraria_tile', 'terraria_inventory',
       'terraria_npcs', 'terraria_move', 'terraria_jump', 'terraria_use_item', 'terraria_attack',
-      'terraria_stop', 'terraria_spawn_npc', 'terraria_mine', 'terraria_place', 'terraria_teleport',
-      'terraria_craft', 'terraria_give_item', 'terraria_chat',
+      'terraria_stop', 'terraria_follow', 'terraria_idle', 'terraria_players',
+      'terraria_mine', 'terraria_place', 'terraria_craft', 'terraria_chat',
     ]) assert.ok(names.includes(expected), `missing ${expected}`)
   })
 })
@@ -66,15 +66,22 @@ test('required coordinates are refused instead of defaulting to 0', async () => 
     await assert.rejects(() => exec('terraria_tile', { x: 5 }), /required property "y"/)
     await assert.rejects(() => exec('terraria_mine', { y: 3 }), /required property "x"/)
     await assert.rejects(() => exec('terraria_place', { x: 1, y: 2 }), /required property "type"/)
-    await assert.rejects(() => exec('terraria_teleport', {}), /required property "x"/)
     // None of those may reach the game.
     assert.equal(seen.length, 0, `unexpected requests: ${JSON.stringify(seen)}`)
   })
 })
 
+test('cheat tools are gone: no spawn/teleport/give surface', async () => {
+  await withBridge(({ registered }) => {
+    const names = registered.map(tool => tool.name)
+    for (const banned of ['terraria_spawn_npc', 'terraria_teleport', 'terraria_give_item'])
+      assert.ok(!names.includes(banned), `${banned} must not be registered`)
+  })
+})
+
 test('ids are validated before they reach the game', async () => {
   await withBridge(async ({ exec, seen }) => {
-    await assert.rejects(() => exec('terraria_give_item', { type: 0 }), /type must be between 1/)
+    await assert.rejects(() => exec('terraria_follow', { player: -1 }), /player must be between 0/)
     await assert.rejects(() => exec('terraria_place', { x: 1, y: 2, type: -5 }), /type must be between 0/)
     await assert.rejects(() => exec('terraria_craft', { item: 0 }), /item must be between 1/)
     await assert.rejects(() => exec('terraria_chat', { text: '   ' }), /must not be blank/)

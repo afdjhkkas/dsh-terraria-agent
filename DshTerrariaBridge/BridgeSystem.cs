@@ -602,6 +602,103 @@ namespace DshTerrariaBridge
         /// 移动兜底：control 标志在 Player.Update 里会被真实按键状态覆盖，
         /// 所以除设置标志外，每帧直接把速度推向目标方向（碰撞/重力仍由游戏解算）。
         /// </summary>
+
+        // ==== 跟随 / 待命 / 护卫（和人一起玩的基础） ====
+        // 设计：只写 control 标志 + 速度，碰撞/重力/门/台阶全交给原版解算。
+        // 不做瞬移、不改方块——后随的人走不过去的地方，就等着或者喊人。
+
+        internal static volatile bool FollowActive, FollowGuard;
+        internal static volatile int FollowTargetIdx = -1;
+        internal static volatile float FollowStopTiles = 4.5f;
+        internal static ulong FollowNextThink;
+
+        internal static void ClearFollow()
+        {
+            FollowActive = false;
+            FollowGuard = false;
+            FollowTargetIdx = -1;
+            ClearAttack();
+        }
+
+        internal static Player FindFollowTarget(Player me)
+        {
+            if (FollowTargetIdx >= 0 && FollowTargetIdx < Main.maxPlayers)
+            {
+                Player q = Main.player[FollowTargetIdx];
+                if (q != null && q.active && !q.dead && q.whoAmI != me.whoAmI) return q;
+            }
+            // 没指定就找最近的另一个活着的玩家
+            Player best = null; float bestD = float.MaxValue;
+            for (int i = 0; i < Main.maxPlayers; i++)
+            {
+                Player q = Main.player[i];
+                if (q == null || !q.active || q.dead || q.whoAmI == me.whoAmI) continue;
+                float d = Vector2.DistanceSquared(q.Center, me.Center);
+                if (d < bestD) { bestD = d; best = q; }
+            }
+            return best;
+        }
+
+        /// <summary>找玩家正在打的目标；直接读 NPC.target（原版就是这么记仇恨的）。</summary>
+        internal static int FindPlayerTargetNPC(Player mate, float maxTiles)
+        {
+            float maxD = maxTiles * 16f;
+            int best = -1; float bestD = float.MaxValue;
+            for (int i = 0; i < Main.npc.Length; i++)
+            {
+                NPC n = Main.npc[i];
+                if (n == null || !n.active || n.life <= 0) continue;
+                if (!n.CanBeChasedBy()) continue;
+                if (n.target != mate.whoAmI) continue;
+                float d = Vector2.DistanceSquared(Main.LocalPlayer.Center, n.Center);
+                if (d <= maxD * maxD && d < bestD) { bestD = d; best = i; }
+            }
+            return best;
+        }
+
+        internal static void TickFollow()
+        {
+            Player me = Main.LocalPlayer;
+            if (me == null || !me.active || me.dead) return;
+            Player mate = FindFollowTarget(me);
+            if (mate == null) { ClearFollow(); return; }
+
+            float dx = (mate.Center.X - me.Center.X) / 16f;
+            float dy = (mate.Center.Y - me.Center.Y) / 16f;
+            float adx = Math.Abs(dx);
+
+            // 护卫：血低于 30% 先别打，喝了药再上；否则优先打玩家正在打的目标。
+            bool lowHp = me.statLife < me.statLifeMax * 0.3f;
+            if (FollowGuard)
+            {
+                if (lowHp) { if (AttackUntil > 0) ClearAttack(); }
+                else if (Now >= FollowNextThink)
+                {
+                    FollowNextThink = Now + Ticks(250);
+                    if (AttackUntil == 0)
+                    {
+                        int tgt = FindPlayerTargetNPC(mate, 26f);
+                        if (tgt < 0) tgt = FindNearestHostile(me, 14);
+                        if (tgt >= 0) BeginAttack(tgt, false, 26, 1200, 90);
+                    }
+                }
+            }
+
+            // 位移：远了追，够近就站住（护卫时允许原地输出）
+            if (adx > FollowStopTiles)
+            {
+                float dir = dx > 0 ? 1f : -1f;
+                if (dir > 0) me.controlRight = true; else me.controlLeft = true;
+                me.velocity.X = dir * 2.8f;
+                // 被墙挡住就跳一下
+                if (me.velocity.Y == 0f && Math.Abs(me.oldVelocity.X) < 0.3f) { me.controlJump = true; me.velocity.Y = -7.2f; }
+            }
+            // 队友在高处：爬/跳
+            if (dy < -3.5f && me.velocity.Y == 0f) { me.controlJump = true; me.velocity.Y = -7.5f; }
+            // 队友在下面且离得不远：允许往下跟
+            if (dy > 6f && adx < 2.5f) me.controlDown = true;
+        }
+
         internal static void ApplyMovement()
         {
             Player p = Main.LocalPlayer;
@@ -610,6 +707,7 @@ namespace DshTerrariaBridge
 
             if (PathActive) { TickPath(); return; }
             if (WalkActive) { TickWalk(); return; }
+            if (FollowActive) { TickFollow(); return; }
 
             float dir = 0f;
             if (LeftUntil > now) dir -= 1f;

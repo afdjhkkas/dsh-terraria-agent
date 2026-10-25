@@ -69,6 +69,9 @@ namespace DshTerrariaBridge
                 case "climb": return Climb(p);
                 case "use": return Use(p);
                 case "attack": return Attack(p);
+                case "follow": return FollowCmd(p);
+                case "idle": return IdleCmd(p);
+                case "players": return PlayersCmd();
                 case "stop":
                     BridgeSystem.StopPath("cancelled");
                     BridgeSystem.StopWalk("cancelled");
@@ -80,7 +83,7 @@ namespace DshTerrariaBridge
                 case "npc": return Npcs(p);
                 case "chat": return Chat(p);
                 case "help": return Help();
-                default: return Json.Error($"unknown command: {cmd}（可用 ping/state/scan/tile/mine/place/move/jump/use/attack/spawn_npc/stop/teleport/wall/inventory/craft/give/npc/chat）");
+                default: return Json.Error($"unknown command: {cmd}（可用 ping/state/scan/tile/mine/place/move/jump/use/attack/follow/idle/players/stop/wall/inventory/craft/npc/chat）");
             }
         }
 
@@ -1811,6 +1814,101 @@ namespace DshTerrariaBridge
                 // Evidence that something actually started, instead of just "ok".
                 anim = pl.itemAnimation,
             });
+        }
+
+        // ==== 与人同玩：跟随 / 待命 / 玩家列表 ====
+
+        /// <summary>
+        /// 跟随另一个玩家。只写 control 标志与速度——走路、碰撞、上台阶全由原版解算，
+        /// 不做瞬移、不挖不该挖的方块。
+        /// guard:true 时兼当护卫：优先打队友正在打的目标，血低于 30% 先停手。
+        /// </summary>
+        private static string FollowCmd(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player me = P;
+            if (Json.Bool(p, "off", false))
+            {
+                BridgeSystem.ClearFollow();
+                return Json.Ok(new { follow = false });
+            }
+
+            Player target = null;
+            int who = Json.Int(p, "player", -1);
+            if (who >= 0 && who < Main.maxPlayers)
+            {
+                Player q = Main.player[who];
+                if (q != null && q.active && !q.dead && q.whoAmI != me.whoAmI) target = q;
+            }
+            if (target == null)
+            {
+                float bestD = float.MaxValue;
+                for (int i = 0; i < Main.maxPlayers; i++)
+                {
+                    Player q = Main.player[i];
+                    if (q == null || !q.active || q.dead || q.whoAmI == me.whoAmI) continue;
+                    float d = Vector2.DistanceSquared(q.Center, me.Center);
+                    if (d < bestD) { bestD = d; target = q; }
+                }
+            }
+            if (target == null)
+                return Json.Error("世界里没有其他玩家：跟随只在多人模式有意义（单人请用 walkto）");
+
+            BridgeSystem.FollowTargetIdx = target.whoAmI;
+            BridgeSystem.FollowGuard = Json.Bool(p, "guard", false);
+            BridgeSystem.FollowStopTiles = Math.Clamp(Json.Float(p, "range", 4.5f), 1f, 30f);
+            BridgeSystem.FollowActive = true;
+            BridgeSystem.StopPath("follow");
+            BridgeSystem.StopWalk("follow");
+
+            float dist = Vector2.Distance(me.Center, target.Center) / 16f;
+            return Json.Ok(new
+            {
+                follow = true,
+                target = target.name,
+                targetIndex = target.whoAmI,
+                guard = BridgeSystem.FollowGuard,
+                range = MathF.Round(BridgeSystem.FollowStopTiles, 1),
+                dist = MathF.Round(dist, 1),
+                note = "跟随中：远了会走过去、够近就站住。用 idle 或 follow off 停下。",
+            });
+        }
+
+        /// <summary>待命：清掉所有控制与任务，站着不动（受击仍会还手）。</summary>
+        private static string IdleCmd(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            BridgeSystem.ClearFollow();
+            BridgeSystem.StopPath("idle");
+            BridgeSystem.StopWalk("idle");
+            BridgeSystem.ClearControls();
+            return Json.Ok(new { idle = true, note = "已停止跟随/移动/攻击，站在原地看着" });
+        }
+
+        /// <summary>列出世界里的所有玩家（多人时用来选 follow 目标）。</summary>
+        private static string PlayersCmd()
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            var list = new List<object>();
+            for (int i = 0; i < Main.maxPlayers; i++)
+            {
+                Player q = Main.player[i];
+                if (q == null || !q.active) continue;
+                list.Add(new
+                {
+                    index = q.whoAmI,
+                    name = q.name,
+                    dead = q.dead,
+                    hp = q.statLife,
+                    hpMax = q.statLifeMax2,
+                    tile = new[] { MathF.Round(q.Center.X / 16f, 1), MathF.Round(q.Center.Y / 16f, 1) },
+                    team = q.team,
+                    local = q.whoAmI == Main.myPlayer,
+                    following = BridgeSystem.FollowActive && BridgeSystem.FollowTargetIdx == q.whoAmI,
+                });
+            }
+            return Json.Ok(new { count = list.Count, players = list });
         }
 
         private static string Attack(JsonElement p)

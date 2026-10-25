@@ -341,36 +341,52 @@ export function apply(ctx, rawConfig = {}) {
     command: 'stop',
   })
 
+
+  /* ── 世界写入 ─────────────────────────────────────────────────── */
+
   register({
-    name: 'terraria_spawn_npc',
-    description: 'Spawn an NPC near the player for testing. Creative/admin action - use it to practise combat, not while exploring.',
+    name: 'terraria_follow',
+    description: 'Follow another player: walk while further than range tiles, stand still when close. '
+      + 'guard:true also fights: it prefers the NPC the teammate is attacking and stops attacking below 30% health. '
+      + 'Only control flags and velocity are written - the game still resolves collisions, gravity, stairs and doors. '
+      + 'Only meaningful when another player is in the world. ${RULES}',
     parameters: {
-      type: integer('Terraria NPC type id (default BlueSlime = 1).'),
-      x: integer('World tile X (default five tiles right of the player).'),
-      y: integer('World tile Y (default the player).'),
+      player: integer('Player index to follow (see terraria_players). Defaults to the nearest other player.'),
+      range: integer('Stop distance in tiles, 1..30 (default 4.5, rounded).'),
+      guard: boolean('Also fight: prefer the teammate\'s target, retreat below 30% health.'),
+      off: boolean('Stop following.'),
     },
-    command: 'spawn_npc',
-    mapArgs: ({ type, x, y }) => ({
-      type: type === undefined ? 1 : mustInt(type, 'type', 1, 100000),
-      ...(x === undefined ? {} : { x: mustInt(x, 'x') }),
-      ...(y === undefined ? {} : { y: mustInt(y, 'y') }),
+    command: 'follow',
+    mapArgs: ({ player, range, guard, off }) => ({
+      ...(player === undefined ? {} : { player: mustInt(player, 'player', 0, 254) }),
+      ...(range === undefined ? {} : { range: bounded(range, 1, 30, 4.5) }),
+      ...(guard === undefined ? {} : { guard: Boolean(guard) }),
+      ...(off === undefined ? {} : { off: Boolean(off) }),
     }),
   })
 
-  /* ── 世界写入 ─────────────────────────────────────────────────── */
+  register({
+    name: 'terraria_idle',
+    description: 'Stand still: cancel follow, paths, walks, movement and attack holds. Nothing is erased from the world.',
+    command: 'idle',
+  })
+
+  register({
+    name: 'terraria_players',
+    description: 'List every active player in the world: index, name, dead, hp, tile position, team, and whether it is the local player or the follow target.',
+    command: 'players',
+  })
 
   register({
     name: 'terraria_mine',
     description: 'Mine a tile the way a player does: it selects your pickaxe (or axe for trees), aims at the tile and swings. '
       + 'The game decides whether it breaks, drops the item and wears the tool. Read removed/after to see the result; '
       + 'if removed is false, walk closer or swing longer (ms), or use a better tool. '
-      + 'admin:true skips the tool and edits the world directly - that is cheating, use it only for tests. '
       + `${RULES}`,
     parameters: {
       x: integer('World tile X (required).', { required: true }),
       y: integer('World tile Y (required).', { required: true }),
       ms: integer('How long to swing, 100..4000 (default 900).'),
-      admin: boolean('Cheat: edit the world directly without a tool.'),
     },
     command: 'mine',
     timeout: 15000,
@@ -378,10 +394,6 @@ export function apply(ctx, rawConfig = {}) {
       const x = mustInt(args.x, 'x')
       const y = mustInt(args.y, 'y')
       const ms = bounded(args.ms, 100, 4000, 900)
-      if (args.admin === true) {
-        const direct = await request('mine', { x, y, admin: true }, exec)
-        return JSON.stringify({ ok: true, data: { ...direct.data, mode: 'admin' } })
-      }
       const before = await request('tile', { x, y }, exec)
       const swing = await request('mine', { x, y, ms }, exec)
       await sleep(ms + 320)
@@ -407,14 +419,13 @@ export function apply(ctx, rawConfig = {}) {
     name: 'terraria_place',
     description: 'Place a tile the way a player does: it finds that block in your inventory, selects it, aims and places it - '
       + 'so the stack is actually consumed and you need the block in hand. after is what is really there afterwards '
-      + '(-1 = empty). admin:true edits the world directly without using an item (cheating, tests only). '
+      + '(-1 = empty). '
       + `Tile id 0 is Dirt, not "empty". ${RULES}`,
     parameters: {
       x: integer('World tile X (required).', { required: true }),
       y: integer('World tile Y (required).', { required: true }),
       type: integer('Tile id to place (required; 0 = Dirt, 1 = Stone).', { required: true }),
       style: integer('Tile style, usually 0.'),
-      admin: boolean('Cheat: place without consuming an item.'),
     },
     command: 'place',
     timeout: 15000,
@@ -422,10 +433,6 @@ export function apply(ctx, rawConfig = {}) {
       const x = mustInt(args.x, 'x')
       const y = mustInt(args.y, 'y')
       const type = mustInt(args.type, 'type', 0, 100000)
-      if (args.admin === true) {
-        const direct = await request('place', { x, y, type, style: args.style ?? 0, admin: true }, exec)
-        return JSON.stringify({ ok: true, data: { ...direct.data, mode: 'admin' } })
-      }
       const placeReq = await request('place', { x, y, type, ms: 300 }, exec)
       await sleep(520)
       const after = await request('tile', { x, y }, exec)
@@ -440,14 +447,13 @@ export function apply(ctx, rawConfig = {}) {
     name: 'terraria_wall',
     description: 'Place or remove a background wall like a player: it takes the wall item (or a hammer when removing), aims and uses it. '
       + 'Walls decide whether a room counts as housing and every NPC needs a valid room, so this is what makes "build a house" possible. '
-      + 'The cell must have no block in it. admin:true edits directly (cheating, tests only). '
+      + 'The cell must have no block in it. '
       + `${RULES}`,
     parameters: {
       x: integer('World tile X (required).', { required: true }),
       y: integer('World tile Y (required).', { required: true }),
       type: integer('Wall id to place (default 2 = wood wall).'),
       remove: boolean('Remove the wall (needs a hammer).'),
-      admin: boolean('Cheat: edit the wall directly.'),
     },
     command: 'wall',
     timeout: 12000,
@@ -460,10 +466,8 @@ export function apply(ctx, rawConfig = {}) {
         y,
         ...(args.type === undefined ? {} : { type: mustInt(args.type, 'type', 1, 100000) }),
         ...(remove ? { remove: true } : {}),
-        ...(args.admin === true ? { admin: true } : {}),
       }
       const started = await request('wall', payload, exec)
-      if (args.admin === true) return JSON.stringify({ ok: true, data: { ...started.data, mode: 'admin' } })
       await sleep(560)
       const after = await request('tile', { x, y }, exec)
       const wanted = payload.type ?? 2
@@ -472,19 +476,6 @@ export function apply(ctx, rawConfig = {}) {
       if (!applied) data.hint = remove ? '墙还在：需要锤子，并且要挥动够久' : '墙没放上：确认背包里有这种墙，且这格没有方块'
       return JSON.stringify({ ok: true, data })
     },
-  })
-
-  register({
-    name: 'terraria_teleport',
-    description: 'Teleport to a tile coordinate. Rejects non-finite or out-of-world coordinates, and lifts the player out of solid rock '
-      + '(adjusted = tiles lifted). Teleporting into lava or next to enemies is still possible - observe right after. '
-      + `${RULES}`,
-    parameters: {
-      x: integer('Destination tile X (required).', { required: true }),
-      y: integer('Destination tile Y (required).', { required: true }),
-    },
-    command: 'teleport',
-    mapArgs: ({ x, y }) => ({ x: mustInt(x, 'x'), y: mustInt(y, 'y') }),
   })
 
   register({
@@ -500,18 +491,7 @@ export function apply(ctx, rawConfig = {}) {
     mapArgs: ({ item, times }) => ({ item: mustInt(item, 'item', 1, 100000), times: bounded(times, 1, 20, 1) }),
   })
 
-  register({
-    name: 'terraria_give_item',
-    description: 'Put an item stack into the inventory (added = what fit; dropped = what fell on the floor because the inventory was full). Creative/admin action for testing; prefer terraria_mine / terraria_craft while playing.',
-    parameters: {
-      type: integer('Terraria item type id (required).', { required: true }),
-      stack: integer('Stack size, 1..9999.'),
-    },
-    command: 'give',
-    mapArgs: ({ type, stack }) => ({ type: mustInt(type, 'type', 1, 100000), stack: bounded(stack, 1, 9999, 1) }),
-  })
-
-  register({
+    register({
     name: 'terraria_chat',
     description: 'Print a message in the local client chat (Main.NewText only: it is not broadcast to a server). Truncated at 400 characters.',
     parameters: { text: string('Message to send (required).', { required: true }) },
