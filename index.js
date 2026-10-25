@@ -1,6 +1,7 @@
 import { defineTool } from './src/tool-def.mjs'
 import { createBridgeClient } from './src/bridge-client.js'
 import { createPrimitives } from './src/primitives.js'
+import { planJump, runJumpHold, MAX_SUSTAINED_ATTEMPTS, JUMP_REACH_TILES } from './src/action-loop.js'
 import {
   buildContext, normalizeTags, loadRouterPrompt, loadSelfRoutePrompt,
   parseNeedKnowledge, buildContinuation, TAGS,
@@ -476,10 +477,33 @@ export function apply(ctx, rawConfig = {}) {
     description: 'Jump once from the ground, then report the height change. Airborne it only holds the jump key, so wings '
       + '(hold jump to fly after the jump) still behave as in vanilla. '
       + `One impulse per call - call it again to jump again. ${RULES}`,
-    parameters: { ms: integer('How long to hold jump, 1..2000 (default 150).') },
+    parameters: {
+      ms: integer('How long to hold jump, 1..2000 (default 150).'),
+      dy: integer('Tiles higher than now (optional; decides tap vs long-hold and when to release).'),
+      maxMs: integer('Safety cap for the whole hold, 200..3000 (default 1200).'),
+    },
     command: 'jump',
     timeout: 15000,
     async run(args, exec) {
+      const hold = bounded(args.maxMs, 200, 3000, 1200)
+      const dy = bounded(args.dy, -20, 20, 0)
+      if (args.dy !== undefined) {
+        const plan = planJump({ dy, canJumpBoost: false })
+        const read = async () => {
+          const s = (await request('state', {}, { signal: exec?.signal })).data ?? {}
+          const pl = s.player ?? {}
+          return { y: pl.y, grounded: pl.grounded, hp: pl.hp }
+        }
+        const startPos = await read()
+        const result = await runJumpHold({
+          read,
+          press: step => request('jump', { ms: step }, { signal: exec?.signal }),
+          release: () => request('jump', { ms: 0 }, { signal: exec?.signal }),
+          targetY: startPos.y - Math.max(0, dy),
+          maxMs: hold,
+        })
+        return JSON.stringify({ ok: result.ok, data: { ...result, plan, mode: 'player' } })
+      }
       const ms = bounded(args.ms, 1, 2000, 150)
       const started = await request('jump', { ms }, exec)
       const from = started.data?.from ?? null
@@ -588,14 +612,16 @@ export function apply(ctx, rawConfig = {}) {
 
   register({
     name: 'terraria_mine',
-    description: 'Mine a tile the way a player does: it selects your pickaxe (or axe for trees), aims at the tile and swings. '
-      + 'The game decides whether it breaks, drops the item and wears the tool. Read removed/after to see the result; '
-      + 'if removed is false, walk closer or swing longer (ms), or use a better tool. '
+    description: 'Mine or chop one tile the way a player does: it selects the pickaxe (axe for trees), aims at the tile and '
+      + 'keeps swinging, re-reading the cell after every swing - it stops the moment the cell is gone and never over-swings. '
+      + `After ${MAX_SUSTAINED_ATTEMPTS} swings that change nothing it gives up and reports why (tool too weak / unreachable / `
+      + 'not mineable) instead of pretending it worked. Read removed/after/attempts for evidence. '
       + `${RULES}`,
     parameters: {
       x: integer('World tile X (required).', { required: true }),
       y: integer('World tile Y (required).', { required: true }),
-      ms: integer('How long to swing, 100..4000 (default 900).'),
+      ms: integer('How long one swing holds, 100..4000 (default 1300).'),
+      tries: integer(`Max swings before giving up, 1..${MAX_SUSTAINED_ATTEMPTS} (default ${MAX_SUSTAINED_ATTEMPTS}).`),
     },
     command: 'mine',
     timeout: 25000,
@@ -603,7 +629,7 @@ export function apply(ctx, rawConfig = {}) {
       const x = mustInt(args.x, 'x')
       const y = mustInt(args.y, 'y')
       const ms = bounded(args.ms, 100, 4000, 1300)
-      const result = await primitives.mineTile({ x, y, ms, tries: bounded(args.tries, 1, 6, 3), signal: exec?.signal })
+      const result = await primitives.mineTile({ x, y, ms, tries: bounded(args.tries, 1, MAX_SUSTAINED_ATTEMPTS, MAX_SUSTAINED_ATTEMPTS), signal: exec?.signal })
       return JSON.stringify({ ok: result.ok, data: { ...result, mode: 'player' } })
     },
   })

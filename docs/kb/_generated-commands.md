@@ -117,7 +117,7 @@
 | `terraria_inventory` | Read the inventory, the equipped armor/accessories (so you can tell whether you are armoured or have wings) and the sele |
 | `terraria_jump` | Jump once from the ground, then report the height change. Airborne it only holds the jump key, so wings  |
 | `terraria_kb` | Knowledge base for the Terraria agent.  |
-| `terraria_mine` | Mine a tile the way a player does: it selects your pickaxe (or axe for trees), aims at the tile and swings.  |
+| `terraria_mine` | Mine or chop one tile the way a player does: it selects the pickaxe (axe for trees), aims at the tile and  |
 | `terraria_move` | Hold a movement direction, then report how far the player actually went (from/to/dx/dy).  |
 | `terraria_npcs` | List active NPCs near the player with who/type/name/tile/life/friendly/boss/hostile.  |
 | `terraria_observe` | Read the current world and player: position, health, mana, held item, buffs, weather, time and the live/last attack stat |

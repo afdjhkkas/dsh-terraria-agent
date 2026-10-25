@@ -49,14 +49,16 @@ test('每轮攻击后都回读一次，回调能看见次数', async () => {
   assert.deepEqual(seen, [1, 2])
 })
 
-test('跳跃模式由高差自动决定：平地短按、小台阶短按、高差大长按', () => {
+test('跳跃模式由高差自动决定：单跳以内短按，超过要造台阶，有增益才长按', () => {
   assert.equal(planJump({ dy: 0 }).mode, 'tap')
   assert.equal(planJump({ dy: 1 }).mode, 'tap')
   const high = planJump({ dy: 5 })
-  assert.equal(high.mode, 'hold')
-  assert.equal(high.hold, true)
-  assert.ok(high.ms > 200 && high.ms <= 900)
-  assert.match(high.reason, new RegExp(String(JUMP_REACH_TILES)))
+  assert.equal(high.mode, 'platform')          // 实测单跳仅 1.4 格，按住不会更高
+  assert.equal(high.needsPlatform, true)
+  assert.match(high.reason, /先造台阶/)
+  const boosted = planJump({ dy: 5, canJumpBoost: true })
+  assert.equal(boosted.mode, 'hold')
+  assert.ok(boosted.ms > 200 && boosted.ms <= 900)
 })
 
 test('长按跳到目标高度就松手', async () => {

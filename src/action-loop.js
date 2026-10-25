@@ -23,8 +23,13 @@ export const ACTION_CLASS = {
 /** 连续多少次还挖不动就判异常（用户指定 20）。 */
 export const MAX_SUSTAINED_ATTEMPTS = 20
 
-/** 一次完整跳跃能上升多少格（原版常量：起跳约 2.3 格，跳上 3 格需缓冲） */
-export const JUMP_REACH_TILES = 2.3
+/**
+ * 一次跳跃实测能上升多少格。
+ * 本档真机测过（无跳跃增益配件）：单次脉冲顶点 **1.38 格**，轨迹
+ * `1.38 → 1.23 → 0.48 → 0`；连续按住（10 次续按）顶点同为 1.30~1.38，
+ * 即 **按住更久不会跳更高**（原版没有二段跳/翅膀时，跳跃是单次冲量）。
+ */
+export const JUMP_REACH_TILES = 1.4
 
 const defaultSleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -76,23 +81,29 @@ export async function runMineLoop({ read, swing, maxAttempts = MAX_SUSTAINED_ATT
  * 跳跃模式选择：由寻路给出高差，自动决定长按还是短按。
  * @param {{dy:number, gapTiles?:number}} args dy = 目标格高差（正数=要往上）
  */
-export function planJump({ dy = 0, gapTiles = 0 } = {}) {
+export function planJump({ dy = 0, gapTiles = 0, canJumpBoost = false } = {}) {
   const climb = Math.max(0, Number(dy) || 0)
   if (climb <= 0 && gapTiles <= 0) {
     return { mode: 'tap', ms: 90, hold: false, reason: '平地/下坡，短按即可' }
   }
-  if (climb <= 1.5 && gapTiles <= 1) {
-    return { mode: 'tap', ms: 120, hold: false, reason: `只差 ${climb} 格，小台阶用短按` }
+  if (climb <= JUMP_REACH_TILES && gapTiles <= 1) {
+    return { mode: 'tap', ms: 120, hold: false, reason: `只差 ${climb} 格，在单跳 ${JUMP_REACH_TILES} 格以内，短按` }
   }
-  // 高差越过一次普通跳的高度 → 必须长按，按住直到到高度/落地
-  const ms = Math.min(900, Math.round(220 + climb * 130))
+  // 超过单跳高度：原版“按住更久”不会跳更高（已实测），要么靠跳跃增益类装备，要么先造落脚点
+  if (canJumpBoost) {
+    return {
+      mode: 'hold',
+      ms: Math.min(900, Math.round(220 + climb * 130)),
+      hold: true,
+      reason: `高差 ${climb} 格 > 单跳 ${JUMP_REACH_TILES} 格，但有跳跃增益/翅膀：按住续跳直到到位`,
+    }
+  }
   return {
-    mode: 'hold',
-    ms,
-    hold: true,
-    reason: climb > JUMP_REACH_TILES
-      ? `高差 ${climb} 格超过单跳 ${JUMP_REACH_TILES} 格，需要长按 + 搭脚点`
-      : `高差 ${climb} 格，长按跳到顶再松手`,
+    mode: 'platform',
+    ms: 0,
+    hold: false,
+    needsPlatform: true,
+    reason: `高差 ${climb} 格 > 单跳实测 ${JUMP_REACH_TILES} 格，且按住不会更高：先造台阶/落脚点再跳`,
   }
 }
 
