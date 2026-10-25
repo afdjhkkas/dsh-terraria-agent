@@ -65,6 +65,7 @@ namespace DshTerrariaBridge
                 case "tiledata": return TileDataCmd(p);
                 case "move": return Move(p);
                 case "jump": return Jump(p);
+                case "climb": return Climb(p);
                 case "use": return Use(p);
                 case "attack": return Attack(p);
                 case "spawn_npc": return SpawnNpc(p);
@@ -1431,6 +1432,32 @@ namespace DshTerrariaBridge
             BridgeSystem.BeginWalk(x, y, tol, BridgeSystem.Now + BridgeSystem.Ticks(ms));
             return Json.Ok(new { target = new { x, y }, tol, ms });
         }
+
+        /// <summary>
+        /// 爬绳：只按 controlUp / controlDown，交给原版的绳子物理。
+        /// 之前 `move dir=up` 是直接把 velocity 设成 -2.4，那是悬停，不是原地爬绳；
+        /// 这里不碰速度，所以能真的验证"绳子能爬"。
+        /// </summary>
+        private static string Climb(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            string dir = Json.Str(p, "dir", "up");
+            int ms = Json.Int(p, "ms", 1200);
+            ulong until = BridgeSystem.Now + BridgeSystem.Ticks(ms);
+            if (dir == "down") { BridgeSystem.ClimbDownUntil = until; BridgeSystem.ClimbUpUntil = 0; }
+            else { BridgeSystem.ClimbUpUntil = until; BridgeSystem.ClimbDownUntil = 0; }
+            int tx = (int)(pl.Center.X / 16f), ty = (int)(pl.Center.Y / 16f);
+            bool onRope = BridgeSystem.OnRopeNow(pl);
+            return Json.Ok(new
+            {
+                dir, ms, onRope, ropeCount = pl.ropeCount,
+                from = new { x = tx, y = ty },
+                note = "只按 controlUp/Down，速度交给原版；没有绳子时按了也不会动",
+            });
+        }
+
 
         private static string Accessory(JsonElement p)
         {

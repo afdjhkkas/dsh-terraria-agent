@@ -607,6 +607,9 @@ namespace DshTerrariaBridge
             }
 
             if (UpUntil > now) { p.controlUp = true; p.velocity.Y = Math.Min(p.velocity.Y, -2.4f); }
+            // 爬绳：只在真的贴着绳子时才抬人（没有绳子就不给"悬停"）。
+            if (ClimbUpUntil > now && OnRopeNow(p)) { p.controlUp = true; p.velocity.Y = Math.Min(p.velocity.Y, -2.2f); }
+            if (ClimbDownUntil > now && OnRopeNow(p)) { p.controlDown = true; p.velocity.Y = Math.Max(p.velocity.Y, 2.2f); }
             if (DownUntil > now) { p.controlDown = true; p.velocity.Y = Math.Max(p.velocity.Y, 1.2f); }
             if (JumpUntil > now)
             {
@@ -746,6 +749,8 @@ namespace DshTerrariaBridge
                     UseJustStarted = false;
                 }
             }
+            if (ClimbUpUntil > now) p.controlUp = true;
+            if (ClimbDownUntil > now) p.controlDown = true;
             if (UseTileUntil > now)
             {
                 Main.mouseRight = true;
@@ -1203,6 +1208,9 @@ namespace DshTerrariaBridge
         // Written from the bridge thread, read from the main thread: keep the
         // published values volatile instead of relying on x64 store atomicity.
         internal static ulong LeftUntil, RightUntil, UpUntil, DownUntil, JumpUntil, UseUntil, UseTileUntil;
+        // 攀爬：只按 controlUp/controlDown，让原版的绳子物理自己抬人。
+        // 不复用 UpUntil/DownUntil —— 那两个会直接写 velocity，等于"悬停"，不是原版行为。
+        internal static ulong ClimbUpUntil, ClimbDownUntil;
         internal static ulong AttackUntil, AttackNextTick;
         internal static volatile int AttackTarget = -1, AttackRadius = 40, AttackIntervalTicks = 10;
         internal static volatile bool AttackAutoTarget, AttackFinished, AttackFinishedCleanly, AttackKilled, AttackBlockedByTerrain, JumpIssued;
@@ -1220,11 +1228,36 @@ namespace DshTerrariaBridge
             if (JumpUntil > now) player.controlJump = true;
             if (UseUntil > now) player.controlUseItem = true;
             if (UseTileUntil > now) player.controlUseTile = true;
+            if (ClimbUpUntil > now) { player.controlUp = true; if (OnRopeNow(player)) player.velocity.Y = Math.Min(player.velocity.Y, -2.2f); }
+            if (ClimbDownUntil > now) { player.controlDown = true; if (OnRopeNow(player)) player.velocity.Y = Math.Max(player.velocity.Y, 2.2f); }
         }
+
+    /// <summary>
+    /// 贴在绳子上吗？原版把"附近有绳子"记在 Player.ropeCount 里；这里同时兜一层
+    /// 直接查方块，避免 ropeCount 还没刷新的那一帧判错。
+    /// </summary>
+    internal static bool OnRopeNow(Player p)
+    {
+        if (p == null) return false;
+        if (p.ropeCount > 0) return true;
+        int tx = (int)(p.Center.X / 16f), ty = (int)(p.Center.Y / 16f);
+        for (int dy = -1; dy <= 2; dy++) if (IsRopeTile(tx, ty + dy)) return true;
+        return false;
+    }
+
+    internal static bool IsRopeTile(int x, int y)
+    {
+        if (x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY) return false;
+        Tile t = Main.tile[x, y];
+        if (t == null || !t.HasTile) return false;
+        int type = t.TileType;
+        return type == 213 || type == 353 || type == 365 || type == 366 || type == 504;
+    }
 
     internal static void ClearControls()
     {
         LeftUntil = RightUntil = UpUntil = DownUntil = JumpUntil = UseUntil = UseTileUntil = 0;
+        ClimbUpUntil = ClimbDownUntil = 0;
         ClearAttack();
     }
 
