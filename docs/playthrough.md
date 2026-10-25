@@ -935,3 +935,38 @@ loop {
 ### 位置
 
 1625,337，距雪原（1550）约 **75 格**。
+
+### 第 153 轮：`travel` 支持向下 + 遇水即停
+
+**向下 travel 实测**：y=331 → 402，**71 格 / 12 秒**，mine=204（真在挖）。
+
+但第一版**直通水层淹死**（100 → 92 → 22 → 0）。修复后：
+
+```
+travel dir=down → stop=water，hp 100%，wet=false ✅
+```
+
+### 两处改动
+
+1. **遇水即停**：前方 3 格（纵向 3 宽×4 深）内液体 >32 就停，
+   不再"挖穿水层引水灌进来"
+2. **溺水保护**：`p.wet && p.breath <= 0` → stop=drowning
+3. 顺带修正方向显示（原来 down 显示成 right）
+
+### 现在的 `travel` 能力
+
+| 参数 | 说明 |
+|---|---|
+| `dir` | left / right / down |
+| `distance` | 格数 |
+| `ms` | 超时 |
+| 返回 | active/dir/targetX/x/y/mine/fill/steps/stopReason/hp |
+
+**stopReason 覆盖**：reached / timeout / enemy / lowhp / water / drowning / dead / no-pickaxe / requested
+
+### 实测速度汇总
+
+| 方向 | 速度 |
+|---|---|
+| 横向（含开挖） | **150 格/24 秒**（6.3 格/秒） |
+| 向下 | **71 格/12 秒**（5.9 格/秒） |

@@ -1007,7 +1007,7 @@ namespace DshTerrariaBridge
             return Json.Ok(new
             {
                 active = Travel.Active,
-                dir = Travel.Dir > 0 ? "right" : "left",
+                dir = Travel.Dir == 2 ? "down" : (Travel.Dir > 0 ? "right" : "left"),
                 targetX = Travel.TargetX,
                 x = px,
                 y = py,
@@ -1028,10 +1028,39 @@ namespace DshTerrariaBridge
 
             int px = (int)MathF.Floor(p.Center.X / 16f);
             int py = (int)MathF.Floor(p.Center.Y / 16f);
-            // 到达
-            if (Travel.Dir > 0 ? px >= Travel.TargetX : px <= Travel.TargetX) { StopTravel("reached"); return; }
-            // 血低 / 有敌人：交还给脚本层
+            // 到达：横向看 x，纵向（Dir==2 向下）看 y
+            bool vertical = Travel.Dir == 2;
+            int reachedNow = vertical ? (py >= Travel.TargetX ? 1 : 0) : (Travel.Dir > 0 ? (px >= Travel.TargetX ? 1 : 0) : (px <= Travel.TargetX ? 1 : 0));
+            if (reachedNow == 1) { StopTravel("reached"); return; }
+            // 血低 / 溺水 / 有敌人：交还给脚本层
             if (p.statLife < p.statLifeMax2 * 0.45f) { StopTravel("lowhp"); return; }
+            if (p.wet && p.breath <= 0) { StopTravel("drowning"); return; }
+            // 前方 3 格内有水就停：继续挖只会引水灌进来
+            {
+                int ax = vertical ? px : px + Travel.Dir;
+                int ay0 = vertical ? py + 2 : py;
+                bool water = false;
+                if (vertical)
+                {
+                    for (int dx = -1; dx <= 1 && !water; dx++)
+                        for (int dy = 2; dy <= 5 && !water; dy++)
+                        {
+                            int wx = px + dx, wy = py + dy;
+                            if (!WorldGen.InWorld(wx, wy, 2)) continue;
+                            if (Main.tile[wx, wy].LiquidAmount > 32) water = true;
+                        }
+                }
+                else
+                {
+                    for (int dy = -1; dy <= 2 && !water; dy++)
+                    {
+                        int wx = ax, wy = py + dy;
+                        if (!WorldGen.InWorld(wx, wy, 2)) continue;
+                        if (Main.tile[wx, wy].LiquidAmount > 32) water = true;
+                    }
+                }
+                if (water) { StopTravel("water"); return; }
+            }
             for (int i = 0; i < Main.npc.Length; i++)
             {
                 NPC n = Main.npc[i];
@@ -1045,7 +1074,8 @@ namespace DshTerrariaBridge
 
             // 每 tick 持续推进方向键
             ulong until = Now + 40;
-            if (Travel.Dir > 0) { RightUntil = until; LeftUntil = 0; }
+            if (vertical) { DownUntil = until; UpUntil = 0; }
+            else if (Travel.Dir > 0) { RightUntil = until; LeftUntil = 0; }
             else { LeftUntil = until; RightUntil = 0; }
 
             if (Now < Travel.NextMine) return;
@@ -1083,17 +1113,32 @@ namespace DshTerrariaBridge
                 }
             }
 
-            // 2) 再挖挡路格（前方 1 列，身体高度 3 行）
-            int bx = px + Travel.Dir;
-            for (int dy = -1; dy <= 1; dy++)
+            // 2) 再挖挡路格
+            p.selectedItem = pick;
+            if (vertical)
             {
-                int by = py + dy;
-                if (!WorldGen.InWorld(bx, by, 2)) continue;
-                Tile t = Main.tile[bx, by];
-                if (!t.HasTile) continue;
-                p.selectedItem = pick;
-                p.PickTile(bx, by, p.inventory[pick].pick);
-                if (!Main.tile[bx, by].HasTile) Travel.Mined++;
+                // 向下：挖开脚下 3 宽 × 2 高
+                for (int dx = -1; dx <= 1; dx++)
+                    for (int dy = 2; dy <= 3; dy++)
+                    {
+                        int bx = px + dx, by = py + dy;
+                        if (!WorldGen.InWorld(bx, by, 2)) continue;
+                        if (!Main.tile[bx, by].HasTile) continue;
+                        p.PickTile(bx, by, p.inventory[pick].pick);
+                        if (!Main.tile[bx, by].HasTile) Travel.Mined++;
+                    }
+            }
+            else
+            {
+                int bx = px + Travel.Dir;
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    int by = py + dy;
+                    if (!WorldGen.InWorld(bx, by, 2)) continue;
+                    if (!Main.tile[bx, by].HasTile) continue;
+                    p.PickTile(bx, by, p.inventory[pick].pick);
+                    if (!Main.tile[bx, by].HasTile) Travel.Mined++;
+                }
             }
             Travel.Steps++;
         }
