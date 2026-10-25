@@ -6,6 +6,9 @@ import {
   parseNeedKnowledge, buildContinuation, TAGS,
 } from './src/kb-router.js'
 import { loadMetaCheckPrompt, selfCheck, loadCapabilities } from './src/meta-check.js'
+import {
+  classify, decide, createTaskState, createLog, tick, observe, applyPlan, loadExceptionPrompt,
+} from './src/exception-policy.js'
 
 export const name = 'dsh-terraria-agent'
 export const inject = ['tools']
@@ -278,6 +281,77 @@ export function apply(ctx, rawConfig = {}) {
         scores: ctx.scores,
         hits: ctx.hits,
         docs: ctx.docs.map((d) => ({ tag: d.tag, file: d.file, chars: d.text.length, text: d.text })),
+      })
+    },
+  })
+
+  // 异常应急状态按「主目标」保存：重试预算必须跨工具调用累计，
+  // 否则每次调用都从 0 开始，"跳 2 次→绕行 3 次→失败" 永远到不了。
+  const exceptionState = new Map()
+  const exceptionLog = createLog()
+  const stateFor = (goal = '未命名任务', step = null) => {
+    const key = String(goal)
+    if (!exceptionState.has(key)) exceptionState.set(key, createTaskState(key, step))
+    const st = exceptionState.get(key)
+    if (step) st.step = step
+    return st
+  }
+
+  register({
+    name: 'terraria_exception',
+    description: '全局异常处理体系（与任务无关，所有任务每一步都要走一遍）。 '
+      + 'observe:true 读实时状态（血量/敌怪/液体/卡位）并判出触发了哪类异常； '
+      + '给 snap + goal 走 decide 出应急计划（地形阻挡先跳后绕、卡死重规划、敌怪先避后打、血低先撤喝药）， '
+      + 'apply:true 会把计划里属于「控制角色」的移动/跳跃/喝药/攻击真的发给游戏。 '
+      + '重试预算跨调用累计：跳 2 次不成绕行 3 次，还不行重规划 3 次，最终判失败并上报，绝不静默重试。 '
+      + '任何应急都是临时子状态，主目标与原子步骤永不被覆盖，处理完必须回主线（返回值 resume/backTo）。 '
+      + 'prompt:true 取规则全文；log:true 取本次会话的异常证据表。',
+    parameters: {
+      prompt: boolean('true = 返回 prompts/exception-policy.md 全文（应急规则与重试预算）。'),
+      observe: boolean('true = 读 state/npc/inventory 拼快照并返回命中的异常（不执行任何动作）。'),
+      snap: string('快照 JSON：{player:{tile:[x,y],life,lifeMax},hostiles:[{name,dist}],env:{onFatal,fatalAhead,dropAhead,deepWaterAhead},'
+        + 'inventory:{free,missing},stuck:{blocked,blockedBy,sameCount}}。省略时用 observe 的结果。'),
+      goal: string('主目标（永不改变）。重试预算按它分组累计。'),
+      step: string('当前原子步骤。应急不得改动它，处理完回到这一步。'),
+      apply: boolean('true = 真的下发计划里的控制命令（move/jump/heal/attack）。默认只出计划。'),
+      reset: boolean('true = 清掉这个主目标的应急状态与预算（换任务时用）。'),
+      log: boolean('true = 返回异常证据表（markdown）。'),
+    },
+    async run(args, exec) {
+      if (args.prompt) return JSON.stringify({ ok: true, prompt: loadExceptionPrompt() })
+      if (args.log) return JSON.stringify({ ok: true, markdown: exceptionLog.markdown(), entries: exceptionLog.entries })
+      const goal = String(args.goal ?? '未命名任务')
+      if (args.reset) { exceptionState.delete(goal); return JSON.stringify({ ok: true, reset: goal }) }
+
+      let snap
+      if (args.snap) {
+        try { snap = JSON.parse(String(args.snap)) } catch (e) { throw new Error(`snap 不是合法 JSON：${e.message}`) }
+      } else {
+        snap = await observe((command, params = {}) => request(command, params, exec))
+      }
+      const st = stateFor(goal, args.step ? String(args.step) : null)
+
+      if (args.observe && !args.snap && !args.apply) {
+        const hits = classify(snap)
+        return JSON.stringify({ ok: true, snap, hits, emergency: st.emergency, step: st.step })
+      }
+
+      const result = await tick({
+        snap, state: st, log: exceptionLog, apply: Boolean(args.apply),
+        request: (command, params = {}) => request(command, params, exec),
+      })
+      return JSON.stringify({
+        ok: true,
+        hits: result.hits.map((h) => ({ kind: h.kind, severity: h.severity, evidence: h.evidence })),
+        plan: result.plan,
+        executed: result.executed ?? [],
+        fatal: result.fatal,
+        resume: result.resumed,
+        backTo: st.step,
+        goal: st.goal,
+        attempts: st.attempts,
+        failures: st.failures,
+        emergency: st.emergency,
       })
     },
   })

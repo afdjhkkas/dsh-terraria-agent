@@ -98,7 +98,7 @@
 | `walkto` | `x` `y` `tol` `ms` |
 | `wall` | `x` `y` `type` `remove` `ms` |
 
-## DSH 插件工具（26 个）
+## DSH 插件工具（27 个）
 
 | 工具 | 作用 |
 |---|---|
@@ -110,6 +110,7 @@
 | `terraria_chest` | Work with the chest you are standing next to (within 6 tiles):  |
 | `terraria_craft` | Craft by output item id using the inventory and nearby stations (workbench / furnace / anvil must be within ~1 tile).  |
 | `terraria_equip` | Equip the armour or accessory sitting in one bag slot, then read the equipment slots and defence back.  |
+| `terraria_exception` | 全局异常处理体系（与任务无关，所有任务每一步都要走一遍）。  |
 | `terraria_follow` | Follow another player: walk while further than range tiles, stand still when close.  |
 | `terraria_idle` | Stand still: cancel follow, paths, walks, movement and attack holds. Nothing is erased from the world. |
 | `terraria_inventory` | Read the inventory, the equipped armor/accessories (so you can tell whether you are armoured or have wings) and the sele |

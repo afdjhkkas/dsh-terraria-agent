@@ -257,6 +257,30 @@ node scripts/testcases.mjs --dry --baseline docs/testcases/baseline.json   # 回
 - 新加命令或读取字段，先跑 `npm run tc:dry` 看它让哪几条用例从 GAP 变 PASS，再提交。
 
 
+## 11. 全局异常处理（执行过程中每步都要过一遍）
+
+元自检管「动手之前缺不缺东西」，本节管「动手过程中出了意外怎么办、处理完怎么回主线」。
+规则全文：`prompts/exception-policy.md`（`terraria_exception {prompt:true}` 取）。实现：`src/exception-policy.js`。
+
+三条硬约束：
+
+1. **主目标只有一个**，应急是临时子状态，同一时刻最多一个；处理完必须回到原子步骤，不许借机改做别的、也不许被应急替换。
+2. **重试必须有预算**：同处跳跃 2 次 → 重新寻路 3 次 → 卡死重规划 3 次，用完判任务失败并上报，绝不静默重试、绝不假装继续。
+3. **每次触发/重试/失败都留日志**（六列：序号 / 异常 / 证据 / 动作 / 结果 / 第几次）。
+
+固定分支（不要临场发挥）：
+
+| 异常 | 处理顺序 |
+|---|---|
+| 地形阻挡 | 先跳 → 跳不过就 A\* 绕行 → 连续 3 次坐标不变判卡死 → 重规划 3 次仍失败则判任务失败 |
+| 敌对生物 | 先避险后撤；血量 <45% 边逃边喝药；<25% 只逃不打；只有甩不开且 ≤6 格才反击，打完回原步骤 |
+| 致命环境（岩浆/微光/蜂蜜/深水/大落差）| 立刻松键停步 → 退回上一格安全位 → 探明再走；绕不过就报「此路不通」改道 |
+| 道具缺失 / 背包满 | 缺道具：暂停并报缺什么、缺几个；背包满：不中断主线，但捡东西前先腾格子 |
+
+调用方式：`terraria_exception {observe:true}` 读实时状态判异常；给 `goal`/`step` 出应急计划；
+`apply:true` 才真的下发移动/跳跃/喝药/攻击（都走 `move`/`jump`/`heal`/`attack`，不改世界）。
+
+
 <!-- caps:begin 本节由 scripts/kb-caps.mjs 生成，不要手改 -->
 
 **只读（37）**：api blood bloodmoon bobber boss chatpoll eclipse event find frost frostmoon help housediag housing idmap inventory items map needs npc path ping players pumpkin pumpkinmoon quest recipes research roomcheck scan shop shopdebug shops snowmoon state tile tiledata
