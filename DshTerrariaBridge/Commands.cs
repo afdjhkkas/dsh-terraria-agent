@@ -77,10 +77,12 @@ namespace DshTerrariaBridge
                 case "fly": return Fly(p);
                 case "mount": return MountCmd(p);
                 case "minion": return Minion(p);
+                case "guard": return GuardCmd(p);
                 case "follow": return FollowCmd(p);
                 case "idle": return IdleCmd(p);
                 case "players": return PlayersCmd();
                 case "stop":
+                    BridgeSystem.GuardUntil = 0;
                     BridgeSystem.StopPath("cancelled");
                     BridgeSystem.StopWalk("cancelled");
                     BridgeSystem.ClearControls();
@@ -263,6 +265,15 @@ namespace DshTerrariaBridge
                     wingTime = pl.wingTime,
                     wingTimeMax = pl.wingTimeMax,
                     hasWings = pl.wings > 0,
+                };
+                data["guard"] = new
+                {
+                    active = BridgeSystem.GuardUntil > BridgeSystem.Now,
+                    engaged = BridgeSystem.GuardEngaged,
+                    target = BridgeSystem.GuardLastTarget,
+                    radius = BridgeSystem.GuardRadius,
+                    swings = BridgeSystem.GuardSwings,
+                    weaponSlot = BridgeSystem.GuardWeaponSlot,
                 };
                 data["attack"] = BridgeSystem.AttackStatus();
                 data["path"] = new
@@ -2040,6 +2051,52 @@ namespace DshTerrariaBridge
                 if (pr.active && pr.owner == pl.whoAmI && pr.aiStyle == 7) return pr.type;
             }
             return -1;
+        }
+
+        /// <summary>
+        /// 自动防守：在 r 格内自主找敌对目标，换武器、瞄准、按住使用键，直到 ms 到点。
+        /// 伤害全部来自原版挥击/弹幕（命令本身不扣血、不动世界）。
+        /// </summary>
+        private static string GuardCmd(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            if (!CanTick(out string perr2)) return Json.Error(perr2);
+            Player pl = P;
+            if (Json.Bool(p, "off", false))
+            {
+                BridgeSystem.GuardDefault = false;
+                BridgeSystem.GuardUntil = 0;
+                BridgeSystem.GuardEngaged = false;
+                return Json.Ok(new { off = true, note = "自动防守已关闭（guard 不带 off 可再打开）" });
+            }
+            BridgeSystem.GuardDefault = true;
+            int ms = Math.Clamp(Json.Int(p, "ms", 60000), 500, 1800000);
+            int r = Math.Clamp(Json.Int(p, "r", 14), 4, 60);
+            BridgeSystem.GuardUntil = BridgeSystem.Now + BridgeSystem.Ticks(ms);
+            BridgeSystem.GuardRadius = (ulong)r;
+            BridgeSystem.GuardNextScan = 0;
+            BridgeSystem.GuardEngaged = false;
+            int hostile = 0;
+            for (int i = 0; i < Main.npc.Length; i++)
+            {
+                NPC n = Main.npc[i];
+                if (n != null && n.active && n.CanBeChasedBy()
+                    && Vector2.Distance(pl.Center, n.Center) <= r * 16f) hostile++;
+            }
+            // 现在就挑一次武器，让回包能说清"用什么武器防的"
+            int slot = pl.selectedItem;
+            return Json.Ok(new
+            {
+                untilTick = BridgeSystem.GuardUntil,
+                radius = r,
+                ms,
+                hostileInRange = hostile,
+                weaponSlot = slot,
+                weapon = new { type = pl.inventory[slot].type, name = pl.inventory[slot].Name },
+                minions = pl.numMinions,
+                note = "角色会自己转向、自己换武器、自己按住开火；伤害由原版弹幕/挥击产生",
+            });
         }
 
         private static bool IsHookItem(Item it)

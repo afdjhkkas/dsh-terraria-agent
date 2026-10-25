@@ -854,6 +854,7 @@ namespace DshTerrariaBridge
             Player p = Main.LocalPlayer;
             if (p == null || !p.active) return;
 
+            ApplyGuard(p, now);
             if (UseUntil > now)
             {
                 Main.mouseLeft = true;
@@ -1372,6 +1373,15 @@ namespace DshTerrariaBridge
         internal static ulong ClimbUpUntil, ClimbDownUntil;
         // 抓钩：原版是 Player.controlHook（真人按住左键时由输入层置位）驱动的。
         // 之前只置 mouseLeft 没用——钩子根本不会飞出去（实测 grapCount 一直 0）。
+        // 自动防守：真持武器、真瞄准、真松开，伤害全部由原版弹幕/挥击产生。
+        // 用户的原话是"你一直在被怪打"——角色不能站着挨打。
+        internal static ulong GuardUntil, GuardRadius = 14, GuardNextScan, GuardTargets;
+        internal static int GuardLastTarget = -1, GuardWeaponSlot = -1;
+        // 真挥了几刀：itemAnimation 从 >0 回到 0 就是"这一次挥击播完了"。
+        internal static int GuardSwings, GuardPrevAnim, GuardSavedSlot = -1;
+        // 默认开：真人不会站着挨打。命令里显式 guard off 才关。
+        internal static volatile bool GuardDefault = true;
+        internal static bool GuardEngaged;
         internal static volatile bool HookHeld;
         internal static ulong HookUntil;
         // 脱钩要走原版的 releaseHook 一帧标志（和 mouseLeftRelease 同类的机制）。
@@ -1427,6 +1437,102 @@ namespace DshTerrariaBridge
         ClimbUpUntil = ClimbDownUntil = 0;
         ClearAttack();
     }
+
+        /// <summary>
+        /// 自动防守：每 tick 找最近的敌对 NPC，视线可达就换武器、瞄准它、按住使用键。
+        /// 伤害由原版挥击/弹幕产生（这里只管"手怎么动"，不直接扣血、不动世界）。
+        /// </summary>
+        private static void ApplyGuard(Player p, ulong now)
+        {
+            if (UseUntil > now || UseTileUntil > now) return; // 手上有明确的活（挖/放）就不抢手
+            if (GuardDefault) GuardUntil = now + Ticks(300);
+            if (GuardUntil <= now)
+            {
+                if (GuardEngaged) { GuardEngaged = false; GuardLastTarget = -1; }
+                GuardPrevAnim = 0;
+                return;
+            }
+            if (GuardPrevAnim > 0 && p.itemAnimation == 0) GuardSwings++;
+            GuardPrevAnim = p.itemAnimation;
+            if (now < GuardNextScan)
+            {
+                if (GuardEngaged && GuardLastTarget >= 0 && GuardLastTarget < Main.npc.Length)
+                {
+                    NPC hold = Main.npc[GuardLastTarget];
+                    if (hold != null && hold.active && hold.CanBeChasedBy())
+                    {
+                        SetAim((int)(hold.Center.X / 16f), (int)(hold.Center.Y / 16f));
+                        Main.mouseLeft = true;
+                        p.controlUseItem = true;
+                        p.direction = hold.Center.X >= p.Center.X ? 1 : -1;
+                    }
+                }
+                return;
+            }
+            GuardNextScan = now + 6;
+
+            NPC best = null;
+            float bestDist = GuardRadius * 16f;
+            for (int i = 0; i < Main.npc.Length; i++)
+            {
+                NPC n = Main.npc[i];
+                if (n == null || !n.active || !n.CanBeChasedBy()) continue;
+                float d = Vector2.Distance(p.Center, n.Center);
+                if (d > bestDist) continue;
+                if (!Collision.CanHitLine(p.position, p.width, p.height, n.position, n.width, n.height)) continue;
+                best = n; bestDist = d;
+            }
+            if (best == null)
+            {
+                if (GuardEngaged)
+                {
+                    GuardEngaged = false; GuardLastTarget = -1;
+                    // 打完了换回原来的格子，别把正在建房子的方块/镐子顶掉
+                    if (GuardSavedSlot >= 0 && GuardSavedSlot < p.inventory.Length
+                        && p.inventory[GuardSavedSlot].type > 0) p.selectedItem = GuardSavedSlot;
+                    GuardSavedSlot = -1;
+                }
+                return;
+            }
+            GuardEngaged = true;
+            GuardLastTarget = best.whoAmI;
+            GuardTargets++;
+            int slot = PickWeaponSlot(p);
+            if (slot >= 0 && slot != p.selectedItem)
+            {
+                if (!GuardEngaged) GuardSavedSlot = p.selectedItem;
+                p.selectedItem = slot;
+            }
+            SetAim((int)(best.Center.X / 16f), (int)(best.Center.Y / 16f));
+            p.direction = best.Center.X >= p.Center.X ? 1 : -1;
+            Main.mouseLeft = true;
+            p.controlUseItem = true;
+        }
+
+        /// <summary>优先有弹药的远程武器，其次近战；都不行就用当前手持。</summary>
+        private static int PickWeaponSlot(Player p)
+        {
+            int melee = -1;
+            for (int i = 0; i < 10; i++)
+            {
+                Item it = p.inventory[i];
+                if (it == null || it.type <= 0 || it.stack <= 0 || it.damage <= 0) continue;
+                if (it.shoot > 0 && it.ammo == 0 && it.mana == 0 && HasAmmoFor(p, it)) { GuardWeaponSlot = i; return i; }
+                if (melee < 0 && it.useStyle > 0 && it.ammo == 0) melee = i;
+            }
+            GuardWeaponSlot = melee >= 0 ? melee : GuardWeaponSlot;
+            return GuardWeaponSlot;
+        }
+
+        private static bool HasAmmoFor(Player p, Item weapon)
+        {
+            for (int i = 0; i < p.inventory.Length; i++)
+            {
+                Item a = p.inventory[i];
+                if (a != null && a.ammo > 0 && a.stack > 0 && ItemLoader.CanChooseAmmo(weapon, a, p)) return true;
+            }
+            return false;
+        }
 
         internal static ulong Now => Main.GameUpdateCount;
         internal static ulong Ticks(int ms) => (ulong)Math.Max(1, ms / 16.67);

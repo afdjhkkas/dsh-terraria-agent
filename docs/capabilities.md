@@ -386,3 +386,5 @@ if (pPlaced) WorldGen.RangeFrame(x - 2, y - 2, x + 3, y + 3);
 2. **抓钩甩出去挂不住**：只置 `Main.mouseLeft` 没用，抓钩由 `Player.controlHook` 驱动；
    脱钩则要 `Player.releaseHook` 一帧 + 让抓钩弹幕收回（只清 `grapCount` 下一帧就被重算回来）。
    改法：`hook` 期间每帧置 `controlHook`；`unhook` 置一帧 `releaseHook`，250ms 后仍挂着就 `projectile.Kill()`。
+
+| 自动防守 | `guard {r,ms}` / `guard {off:true}` | ✅ | 默认开启。站在僵尸出没处 24 秒：`swings 1→12`（真挥击）、木箭 76→**57**（真放箭）、hp 全程 **100**、僵尸 20 血被清掉；地形挡住的敌人（视线不通）不会假装打得到 |
