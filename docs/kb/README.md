@@ -2,7 +2,7 @@
 
 > 收到玩家指令 → **先判标签 → 只读命中的库**，不把无关资料塞进上下文。
 
-## 一条硬规定：这七个库只收"通用机制"
+## 一条硬规定：这些库只收"通用机制"
 
 每个库都只写**换成任何世界种子、任何地图都成立**的东西。
 写之前问一句：
@@ -31,10 +31,10 @@
 - `docs/debug/unknowns.md` —— 本档还没搞清的 40 条未知（P0/P1/P2 + 测法）
 - `docs/capabilities.md` —— 我们自己的工具能力矩阵（接口，不是游戏知识）
 
-**自动校验**：`npm run kb:lint` 会扫这七个文件，发现坐标、`x=`/`y=`、
+**自动校验**：`npm run kb:lint` 会扫这些库文件，发现坐标、`x=`/`y=`、
 "本档/本次/实测/测试"、世界名、毫秒/tick 这类单局痕迹就报错；`npm test` 里也挂了这条。
 
-## 结构：4 大主库 + 2 个辅助库
+## 结构：4 个基础主库 + 4 个内容主库 + 3 个辅助库
 
 | # | 标签 | 库文件 | 覆盖内容 |
 |---|---|---|---|
@@ -42,9 +42,13 @@
 | 2 | `item_operation` | [item-operation.md](item-operation.md) | 物品分类与功能边界 / 使用硬性约束 / 背包与切换 / 交互站位 / 常用 ID 速查 |
 | 3 | `build_standard` | [build-standard.md](build-standard.md) | 通用建造规范 / NPC 房屋通用规范 / 各类平台 / 方块搭配 / 地形改造 |
 | 4 | `actor_behavior` | [actor-behavior.md](actor-behavior.md) | 移动 / 战斗 / 拾取 / NPC 交互 / 增益与召唤 |
-| 5 | `atomic_action` | [atomic-action.md](atomic-action.md) | 动作执行链条 / 判定条件 / 先后顺序 / 失败分类 / 重试策略 / 操作限制 / 批量规范 |
-| 6 | `task_correct` | [task-correct.md](task-correct.md) | 模糊指令 / 歧义 / 任务中断 / 修改迭代 / 无法完成怎么回 |
-| 7 | `safety_limit` | [safety-limit.md](safety-limit.md) | 禁止行为清单 / 操作范围限制 / 自检修正规则 |
+| 5 | `world_biome` | [world-biome.md](world-biome.md) | 世界分层 / 生物群系判定 / 液体窒息坠落 / 环境扩散 / 昼夜月相天气 / 地貌结构 |
+| 6 | `progression_boss` | [progression-boss.md](progression-boss.md) | 进程骨牌 / 前困难模式首领 / 困难模式首领 / 祭坛 / 战前准备 |
+| 7 | `combat_math` | [combat-math.md](combat-math.md) | 伤害结算顺序 / 暴击击退无敌帧 / 伤害类型与穿透 / 生命魔力召唤位 / 减益 / 幸运 |
+| 8 | `loot_source` | [loot-source.md](loot-source.md) | 自然容器 / 掉落规则 / 钓鱼板条箱 / 首领事件掉落 / NPC 商店 / 转化回收 |
+| 9 | `atomic_action` | [atomic-action.md](atomic-action.md) | 动作执行链条 / 判定条件 / 先后顺序 / 失败分类 / 重试策略 / 操作限制 / 批量规范 |
+| 10 | `task_correct` | [task-correct.md](task-correct.md) | 模糊指令 / 歧义 / 任务中断 / 修改迭代 / 无法完成怎么回 |
+| 11 | `safety_limit` | [safety-limit.md](safety-limit.md) | 禁止行为清单 / 操作范围限制 / 自检修正规则 |
 
 生成物（由代码/游戏导出，**不要手改**）：
 
@@ -82,6 +86,10 @@ system prompt 原文：[`prompts/self-route.md`](../../prompts/self-route.md)
 玩家消息
   ├─ 永远先加载：safety_limit（禁令 / 范围 / 自检）
   ├─ 问"游戏怎么算"（为什么行/不行、机制、判定）        → game_rule
+  ├─ 问"这是哪/会怎样"（分层、群系、液体、天气、地形）    → world_biome
+  ├─ 问"下一步打谁/怎么召唤/祭坛能干什么"                → progression_boss
+  ├─ 问"为什么打不动/多少伤害/怎么减伤"                  → combat_math
+  ├─ 问"东西去哪找/怎么刷/箱子要不要开"                  → loot_source
   ├─ 问"东西怎么用"（镐/斧/锤/门/弓箭/药水/召唤物）      → item_operation
   ├─ 要建/要改地形（房子、平台、农场、竖井、隧道）        → build_standard（+ game_rule 判定）
   ├─ 做事（走/打/捡/找 NPC/喝药）                        → actor_behavior
@@ -91,7 +99,7 @@ system prompt 原文：[`prompts/self-route.md`](../../prompts/self-route.md)
 
 多标签命中时的加载顺序（后者补充前者，不重复整库加载）：
 
-`safety_limit` → `game_rule` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`
+`safety_limit` → `game_rule` → `world_biome` → `progression_boss` → `combat_math` → `loot_source` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`
 
 关键词表的**唯一事实来源**是 `src/kb-router.js` 的 `KEYWORDS`
 （每条规则都可审计：命中哪些词、各打几分，`route()` 会一起返回）。

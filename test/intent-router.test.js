@@ -36,12 +36,12 @@ function expectedRows() {
   return rows
 }
 
-test('分类器 Prompt 存在且覆盖全部七个标签', () => {
+test('分类器 Prompt 存在且覆盖全部十一个标签', () => {
   assert.ok(ROUTER_PROMPT_PATH.endsWith('intent-router.md'))
   for (const tag of Object.keys(LIBRARIES)) {
     assert.match(ROUTER_PROMPT, new RegExp('`' + tag + '`'), `Prompt 里缺标签 ${tag}`)
   }
-  assert.equal(TAGS.length, 7)
+  assert.equal(TAGS.length, 11)
 })
 
 test('Prompt 咬死“只输出标签”和固定顺序', () => {

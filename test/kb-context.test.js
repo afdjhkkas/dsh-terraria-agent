@@ -54,6 +54,10 @@ test('标签常量不被手改坏', () => {
   assert.deepEqual(TAGS, [
     'safety_limit',
     'game_rule',
+    'world_biome',
+    'progression_boss',
+    'combat_math',
+    'loot_source',
     'build_standard',
     'actor_behavior',
     'atomic_action',

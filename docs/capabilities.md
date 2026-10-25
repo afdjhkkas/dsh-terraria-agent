@@ -264,11 +264,25 @@ api {type:"Terraria.Player", member:"controlHook"} → "field | Boolean controlH
 
 标记必须**独占一行**；写在句子中间不算数，工具会报 `nearMiss` 让上层重写一行再来。
 
-七个标签与加载顺序：
-`safety_limit` → `game_rule` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。
+十一个标签与加载顺序：
+`safety_limit` → `game_rule` → `world_biome` → `progression_boss` → `combat_math` → `loot_source` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。
+
+| 标签 | 库 | 管什么 |
+|---|---|---|
+| `safety_limit` | `safety-limit.md` | 禁令、范围、自检（永远加载） |
+| `game_rule` | `game-rule.md` | 房屋判定、NPC 入住、刷怪、物块地形、扩散、世界机制 |
+| `world_biome` | `world-biome.md` | 世界分层、生物群系判定、液体窒息坠落、天气月相、地貌结构 |
+| `progression_boss` | `progression-boss.md` | 进程骨牌、首领召唤与前置、祭坛、困难模式、战前准备 |
+| `combat_math` | `combat-math.md` | 伤害结算、防御减法、暴击/无敌帧、穿透、减益、幸运 |
+| `loot_source` | `loot-source.md` | 容器与掉落、钓鱼板条箱、首领掉落、商店幸福度、转化回收 |
+| `build_standard` | `build-standard.md` | 房屋/平台/农场/竖井/隧道的通用建造规范 |
+| `actor_behavior` | `actor-behavior.md` | 移动、战斗、拾取、NPC 交互、增益召唤 |
+| `atomic_action` | `atomic-action.md` | 单步动作链条、判定、先后顺序、失败分类、重试 |
+| `item_operation` | `item-operation.md` | 物品分类与用途、装备弹药药水、背包切换 |
+| `task_correct` | `task-correct.md` | 模糊指令、歧义、中断、迭代、做不成怎么回 |
 
 命令/参数/报错去 `docs/kb/_generated-commands.md`（生成物，69 命令 / 26 工具），
-不要往七个理论库里塞接口文档。
+不要往这些理论库里塞接口文档。
 
 ---
 

@@ -107,7 +107,7 @@ PreItemCheck 钩子（游戏主线程，不需要前台、不动用户光标）
 
 1. **永远先读** `docs/kb/safety-limit.md`（禁令 / 范围 / 边界 / 确认），不参与判定。
 2. 收到玩家指令，**第一行先写标记**（独占一行，只写一次）：
-   `NEED_KNOWLEDGE:标签1,标签2`，标签取自下文七个，可多选。
+   `NEED_KNOWLEDGE:标签1,标签2`，标签取自下文十一个，可多选。
    system prompt 原文：`prompts/self-route.md`（`node scripts/route.mjs --system` 可取）。
    细则：动手改世界/动身体必带 `atomic_action` 或 `actor_behavior`；危险或大范围动土必带 `safety_limit`；
    玩家在纠正我必带 `task_correct`。
@@ -122,7 +122,7 @@ PreItemCheck 钩子（游戏主线程，不需要前台、不动用户光标）
 3b. 标签串过 `normalizeTags()`（去重、丢非法、按加载顺序排）——写错要当场发现：
    `node scripts/route.mjs --need "<模型输出>"` 会把非法标签打出来并 exit 1。
 4. **只读命中的那几个库**，不把无关资料塞进上下文；多标签按
-   `safety_limit → game_rule → build_standard → actor_behavior → atomic_action → item_operation → task_correct` 叠加。
+   `safety_limit → game_rule → world_biome → progression_boss → combat_math → loot_source → build_standard → actor_behavior → atomic_action → item_operation → task_correct` 叠加。
 5. 玩家带纠正语气（"不是 / 别 / 又 / 错了"）时 `task_correct` 必须带，且**优先读**，
    按它 §4 的流程把纠正**落成规则或代码**，不能当场改一次就算完。
 
@@ -147,7 +147,7 @@ PreItemCheck 钩子（游戏主线程，不需要前台、不动用户光标）
 `docs/debug/unknowns.md`（本世界还没搞清的事）、任务记录与提交信息。
 
 机器校验：`npm run kb:lint`（`npm test` 里也挂了一条），
-一旦在七个库里出现坐标、`x=`/`y=`、世界名、"本档/本次/实测"、毫秒或 tick 数值就报错。
+一旦在库里出现坐标、`x=`/`y=`、世界名、"本档/本次/实测"、毫秒或 tick 数值就报错。
 这条界由用户 m05304 指定：**知识库只放所有世界都生效的通用机制**。
 
 命令/工具参数表是**生成物**：`docs/kb/_generated-commands.md`

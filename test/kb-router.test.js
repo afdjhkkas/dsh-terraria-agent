@@ -12,15 +12,19 @@ import { extractCommands, extractTools, braceDelta } from '../scripts/kb-sync.mj
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-test('七个标签都有库文件，且文件真实存在', async () => {
+test('十一个标签都有库文件，且文件真实存在', async () => {
   assert.deepEqual(Object.keys(LIBRARIES).sort(), [
     'actor_behavior',
     'atomic_action',
     'build_standard',
+    'combat_math',
     'game_rule',
     'item_operation',
+    'loot_source',
+    'progression_boss',
     'safety_limit',
     'task_correct',
+    'world_biome',
   ])
   const docs = await load(Object.keys(LIBRARIES))
   for (const d of docs) {
@@ -152,6 +156,10 @@ const REQUIRED_SECTIONS = {
   ],
   'task-correct.md': ['模糊指令处理规则', '歧义处理规则', '任务中断规则', '修改迭代规则', '无法完成时怎么回'],
   'safety-limit.md': ['禁止行为清单', '操作范围限制', '自检修正规则'],
+  'world-biome.md': ['世界分层', '生物群系怎么判定', '液体、窒息、坠落', '环境扩散', '昼夜、月相、天气', '地貌结构'],
+  'progression-boss.md': ['进程是骨牌', '前困难模式首领', '困难模式首领', '祭坛', '打首领前的通用准备'],
+  'combat-math.md': ['一次攻击的结算顺序', '暴击、击退、无敌帧', '伤害类型与穿透', '生命、魔力、召唤位', '减益', '幸运'],
+  'loot-source.md': ['自然容器', '掉落规则', '钓鱼与板条箱', '首领与事件掉落', 'NPC 商店', '转化与回收'],
 }
 
 test('每个库保留规格要求的子分类小节', async () => {
@@ -163,7 +171,7 @@ test('每个库保留规格要求的子分类小节', async () => {
   }
 })
 
-test('七个库不含单局测试数据（坐标/世界名/单局措辞/计时数值）', () => {
+test('全部库不含单局测试数据（坐标/世界名/单局措辞/计时数值）', () => {
   const out = execFileSync(process.execPath, [join(ROOT, 'scripts', 'kb-lint.mjs')], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -171,7 +179,7 @@ test('七个库不含单局测试数据（坐标/世界名/单局措辞/计时�
   assert.match(out, /^ok:/m)
 })
 
-test('README 列出了七个标签且与 LIBRARIES 一致', async () => {
+test('README 列出了全部标签且与 LIBRARIES 一致', async () => {
   const readme = await readFile(join(KB_DIR, 'README.md'), 'utf8')
   for (const tag of Object.keys(LIBRARIES)) {
     assert.ok(readme.includes(tag), `README 没提到标签 ${tag}`)

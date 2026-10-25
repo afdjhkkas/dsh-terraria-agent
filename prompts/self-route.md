@@ -20,6 +20,10 @@
 | `task_correct` | 对话理解与任务纠错库 | 指令模糊、歧义、修改需求、任务冲突、我上次没做成、玩家纠正我 |
 | `safety_limit` | 全局安全约束库 | 高危操作、大范围地形改动、安全校验、禁止行为判定 |
 | `atomic_action` | 原子动作实操知识库 | 落方块、挖掘、切物品、铺背景墙、拾取、锚点与支撑、动作重试与失败判定 |
+| `world_biome` | 世界与生物群系库 | 世界分层、生物群系怎么判定、液体/窒息/坠落、环境扩散、昼夜与天气、自然地貌 |
+| `progression_boss` | 进程与首领库 | 进程骨牌顺序、首领召唤条件与前置、祭坛用途、进入困难模式、战前准备 |
+| `combat_math` | 战斗数值库 | 伤害结算顺序、防御的减法效应、暴击/击退/无敌帧、类型与穿透、生命魔力召唤位、减益、幸运 |
+| `loot_source` | 物品来源库 | 容器在哪开到什么、掉落规则、钓鱼与板条箱、首领与事件掉落、NPC 商店与幸福度、转化回收 |
 
 ## 要求
 
@@ -32,7 +36,7 @@
 
 3. 标记行之后不要解释"我为什么选这些标签"，直接开始构思任务方案（可以先写一两行草稿思路）。
 4. 这行标记是给程序用的检索指令，代表你自己认为接下来需要这些知识来支撑动作规划。
-5. 标签按加载顺序排：`safety_limit` → `game_rule` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。
+5. 标签按加载顺序排：`safety_limit` → `game_rule` → `world_biome` → `progression_boss` → `combat_math` → `loot_source` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。
 6. **只要任务里出现动手改世界或动身体**（放、挖、切、铺、捡、走、打），必须带 `atomic_action` 或 `actor_behavior`。
 7. **只要涉及大范围动土、危险环境、可能致死**，必须带 `safety_limit`。
 8. 玩家在纠正我、或问"为什么没做成"时，必须带 `task_correct`。

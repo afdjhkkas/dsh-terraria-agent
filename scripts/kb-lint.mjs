@@ -2,7 +2,7 @@
 /**
  * 知识库防污染检查（kb-lint）。
  *
- * 七个库只收「换张地图也成立」的通用机制。这个脚本扫 docs/kb 下的七个库，
+ * 全部库只收「换张地图也成立」的通用机制。这个脚本扫 docs/kb 下的全部库，
  * 一旦发现单局测试痕迹就报错：
  *   - 成对坐标        2103,301 / ( 2103 , 301 )
  *   - 坐标赋值        x=2103 / y = 466
@@ -79,7 +79,7 @@ export function lintText(text) {
   return out
 }
 
-/** 扫整个 docs/kb 下的六个库。返回 {file: violations[]}。 */
+/** 扫整个 docs/kb 下的全部库。返回 {file: violations[]}。 */
 export async function lintTree(dir = KB_DIR) {
   const result = {}
   for (const [tag, file] of Object.entries(LIBRARIES)) {
@@ -97,7 +97,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === join(ROOT, 'scripts', 
   if (json) {
     console.log(JSON.stringify({ ok: files.length === 0, violations: bad }, null, 2))
   } else if (files.length === 0) {
-    console.log(`ok: 七个库都很干净（${Object.keys(LIBRARIES).length} 个文件）`)
+    console.log(`ok: 全部库都很干净（${Object.keys(LIBRARIES).length} 个文件）`)
   } else {
     console.error('知识库混进了单局数据：')
     for (const [file, vs] of Object.entries(bad)) {

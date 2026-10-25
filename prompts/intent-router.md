@@ -18,12 +18,16 @@
 | `task_correct` | 对话理解与任务纠错库 | 指令模糊、歧义、修改需求、任务冲突、我上次没做成、玩家纠正我 |
 | `safety_limit` | 全局安全约束库 | 高危操作、大范围地形改动、安全校验、禁止行为判定 |
 | `atomic_action` | 原子动作实操知识库 | 需要角色动手执行的单步动作：放置方块、挖掘、切物品、铺背景墙、拾取、锚点与支撑、动作重试与失败判定 |
+| `world_biome` | 世界与生物群系库 | 世界分层、生物群系怎么判定、液体/窒息/坠落、环境扩散、昼夜与天气、自然地貌结构 |
+| `progression_boss` | 进程与首领库 | 进程骨牌顺序、首领召唤条件与前置、祭坛用途、进入困难模式、战前准备 |
+| `combat_math` | 战斗数值库 | 伤害结算顺序、防御的减法效应、暴击/击退/无敌帧、伤害类型与穿透、生命魔力召唤位、减益、幸运 |
+| `loot_source` | 物品来源库 | 容器在哪能开到什么、掉落规则、钓鱼与板条箱、首领与事件掉落、NPC 商店与幸福度、转化回收 |
 
 ## 规则
 
 1. 可以同时输出多个标签，按任务实际需要组合。
 2. **只输出标签，不要解释、不要额外文字、不要编号、不要引号。**
-3. 输出顺序固定为加载顺序：`safety_limit` → `game_rule` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。
+3. 输出顺序固定为加载顺序：`safety_limit` → `game_rule` → `world_biome` → `progression_boss` → `combat_math` → `loot_source` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。
 4. 分隔符是英文逗号加一个空格：`a, b, c`。
 5. 只要任务里出现**要角色真的动手改世界或动身体**的动作（放、挖、切、铺、捡、走、打），就一定要带 `atomic_action` 或 `actor_behavior`。
 6. 只要任务涉及**大规模破坏地形、在危险环境作业、可能致死**，就一定要带 `safety_limit`。
@@ -33,6 +37,10 @@
 ## 参考匹配逻辑
 
 - 问"游戏怎么算""为什么行/不行""房屋算不算有效""NPC 为什么不来" → `game_rule`
+- 问"这是哪一层/什么群系/会不会淹死/会不会摔死/扩散过来吗" → `world_biome`
+- 问"下一步打谁""怎么召唤""祭坛能干什么""怎么进困难模式" → `progression_boss`
+- 问"为什么打不动""多少伤害""防御值有用吗""怎么提高掉落"（数值层面） → `combat_math`
+- 问"东西去哪找""箱子要不要开""怎么刷钱""钓鱼能出什么" → `loot_source`
 - 问"这东西能干什么""这把镐能挖什么""背包里有没有料" → `item_operation`
 - 要建/要改地形（房子、平台、农场、竖井、隧道、桥） → `build_standard`
 - 要走、要打、要躲、要捡、要跟 NPC 说话买东西 → `actor_behavior`
@@ -72,6 +80,18 @@
 **玩家**：把这块地方整平，我要盖个农场
 **输出**：safety_limit, game_rule, build_standard, atomic_action
 
+**玩家**：我现在在洞穴层还是地下层，这个高度会不会有水
+**输出**：safety_limit, world_biome
+
+**玩家**：手上有晶状体了，下一步该打谁，要做什么召唤物
+**输出**：safety_limit, progression_boss, loot_source
+
+**玩家**：为什么我怎么打它都掉不动血，是不是防御太高
+**输出**：safety_limit, combat_math
+
+**玩家**：想搞点铁矿又不想挖，还有什么路子
+**输出**：safety_limit, loot_source
+
 ---
 
 ## 输出示例（供校验）
@@ -84,6 +104,10 @@
 | 往东走，路上有怪就打 | `actor_behavior` `safety_limit` |
 | 你上次说我听不懂人话吗，我说的是铺背景墙不是挖 | `task_correct` `atomic_action` `safety_limit` |
 | 这个方块放上去没反应，怎么回事 | `item_operation` `atomic_action` `safety_limit` |
+| 我现在在洞穴层还是地下层，这个高度会不会有水 | `world_biome` `safety_limit` |
+| 手上有晶状体了，下一步该打谁，要做什么召唤物 | `progression_boss` `loot_source` `safety_limit` |
+| 为什么我怎么打它都掉不动血，是不是防御太高 | `combat_math` `safety_limit` |
+| 想搞点铁矿又不想挖，还有什么路子 | `loot_source` `safety_limit` |
 
 上表由 `test/intent-router.test.js` 校验：
 
