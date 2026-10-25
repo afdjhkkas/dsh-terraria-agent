@@ -2697,3 +2697,40 @@ road 从基地(2122) → x=2232：填了 29 格，跨过 4 个坑，走完全程
 `actor_behavior` / `task_correct` / `safety_limit`（原 `tool_command` / `build_plan` /
 `actor_interact` / `chat_correct` 全部改名并重写内容）。
 命令与参数表不再占库位，留在生成物 `docs/kb/_generated-commands.md`。
+
+## 第一一六节：阶段②第一批——把"缺的读取和原语"批量补掉（编译通过，未实测）
+
+用户定的四阶段里，这一节是第 2 步。阶段①（离线推演）产出 29 项缺口，按"解锁用例数 ÷ 工作量"排序，
+第一批只动两件事：**读取字段**（最小改动、最大解锁）和**单点奋斗不可能缺的动作原语**。
+
+补了什么（10 项，全部 `DshTerrariaBridge/Commands.cs`）：
+
+| 缺口 | 补法 | 解锁 |
+|---|---|---|
+| R1 液体类型 | `tile` 加 `liquidType`/`liquidName`；`scan` stride 4→5 加 `liqType` | 6 条（M05 M06 G04 G08 E03 E04） |
+| R2 事件状态 | `state.world` 加血月/日食/南瓜月/霜月/入侵/渔夫任务/夜晚 | 2 条（E01 E05） |
+| R3 buff 计时 | `state.buffs[]` 加 `timeSec` | 1 条（Q02） |
+| R4 小动物 | `npc` 加 `critter`/`catchItem` | 1 条（F02） |
+| R5 浮标 | 新命令 `bobber`（原始读数，不替调用方"判"咬钩） | 2 条（F01 F04） |
+| C1 钓鱼 | 新命令 `castline`/`reel`（走 `BeginItemUse`，抛竿交给原版） | 2 条 |
+| C2 捉虫 | 新命令 `capture`（虫网，判定交给原版 `CheckCatchNPC`） | 2 条 |
+| C4 大地图 | 新命令 `map`（已探索包围盒 + 占比） | 1 条（M07） |
+| C5 事件 | 新命令 `startevent`（走 `Main.startPumpkinMoon` / `StartInvasion` 等原版入口） | 3 条 |
+| C6 拆分 | 新命令 `splitstack`（纯背包） | 1 条（K06） |
+
+结果：`npm run tc:dry` 从 30/54 变 45/54；剩下的 9 条主要卡在 `quest` / 容器存取 /
+对话选项 / 液体操作四件事，以及四块知识没入库。
+
+**三条必须记住的教训**：
+
+1. **`api` 反射查到的签名不等于可用代码。** 这一批里 `LiquidID.Shimmer`、`Main.Map.IsRevealed`、
+   `Projectile.bobber`、`NPC.catchItem`、`Main.startPumpkinMoon` 全是先写进代码再编译才确认的；
+   之前光看 `api` 输出就跟用户说"已确认"，被当场追问"你确定是真的？每一天都确认了？"
+   ——以后凡是"API 事实"，判定标准只有**编译通过 + 真机调用过**。
+2. **别把"编译通过"说成"能用"。** 这一批一次游戏都没进，所以 KB 和 `docs/capabilities.md`
+   都按"🚧 编译通过未实测"标注，`sim-gaps.md` 第四节也写明诚实边界。
+3. **测试会拦"补了不回来改声明"**：`testcases/cases.json` 里 `missingCommands` 声明过的命令一旦实现，
+   `npm test` 立刻红；这次 7 条用例就是被它逼着改的。
+
+下一批（第二批）：`quest`、容器存取（`containerTake`/`containerPut`）、对话选项（`talkOption`）、
+液体操作（`liquidOp`），外加三块知识（钓竿与鱼饵取得链、容器存取规则、祭坛与血肉墙召唤链）。

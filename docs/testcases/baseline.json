@@ -1,11 +1,11 @@
 {
   "schema": "terraria-testcases/1",
-  "ranAt": "2026-10-25T18:47:35.408Z",
+  "ranAt": "2026-10-25T19:17:18.666Z",
   "phase": null,
   "category": null,
   "total": 54,
-  "pass": 44,
-  "gap": 10,
+  "pass": 45,
+  "gap": 9,
   "results": [
     {
       "id": "M01",
@@ -79,10 +79,6 @@
       "task": "打开大地图，读出已探索区域范围并定位自己在地图上的位置",
       "status": "GAP",
       "gaps": [
-        {
-          "dimension": "动作原语缺口",
-          "detail": "没有 map"
-        },
         {
           "dimension": "知识缺口",
           "detail": "没有大地图：读不到已探索区域范围，也读不到自己在地图上被标在哪"
@@ -306,10 +302,6 @@
       "status": "GAP",
       "gaps": [
         {
-          "dimension": "动作原语缺口",
-          "detail": "没有 splitstack"
-        },
-        {
           "dimension": "知识缺口",
           "detail": "item_operation 没有堆叠拆分规则"
         }
@@ -412,20 +404,8 @@
       "status": "GAP",
       "gaps": [
         {
-          "dimension": "动作原语缺口",
-          "detail": "没有 castline"
-        },
-        {
-          "dimension": "动作原语缺口",
-          "detail": "没有 reel"
-        },
-        {
           "dimension": "能力缺口",
           "detail": "明确做不到：随机事件与时机窗口"
-        },
-        {
-          "dimension": "能力缺口",
-          "detail": "明确做不到：通用弹幕状态"
         },
         {
           "dimension": "知识缺口",
@@ -476,23 +456,11 @@
       "gaps": [
         {
           "dimension": "动作原语缺口",
-          "detail": "没有 castline"
-        },
-        {
-          "dimension": "动作原语缺口",
-          "detail": "没有 reel"
-        },
-        {
-          "dimension": "动作原语缺口",
           "detail": "没有 quest"
         },
         {
           "dimension": "能力缺口",
           "detail": "明确做不到：NPC 对话文本"
-        },
-        {
-          "dimension": "能力缺口",
-          "detail": "明确做不到：通用弹幕状态"
         },
         {
           "dimension": "知识缺口",
@@ -575,10 +543,6 @@
       "status": "GAP",
       "gaps": [
         {
-          "dimension": "动作原语缺口",
-          "detail": "没有 startevent"
-        },
-        {
           "dimension": "能力缺口",
           "detail": "明确做不到：随机事件与时机窗口"
         }
@@ -592,13 +556,8 @@
       "phase": 3,
       "category": "event",
       "task": "手动开一次日食、南瓜月、霜月，各打一轮",
-      "status": "GAP",
-      "gaps": [
-        {
-          "dimension": "动作原语缺口",
-          "detail": "没有 startevent"
-        }
-      ],
+      "status": "PASS",
+      "gaps": [],
       "warnings": [
         "库里没直接出现：日食、南瓜月、霜月（确认是不是换了说法）"
       ]
@@ -630,10 +589,6 @@
       "task": "哥布林入侵或海盗入侵时守住基地",
       "status": "GAP",
       "gaps": [
-        {
-          "dimension": "动作原语缺口",
-          "detail": "没有 startevent"
-        },
         {
           "dimension": "能力缺口",
           "detail": "明确做不到：随机事件与时机窗口"
@@ -691,51 +646,12 @@
   "aggregate": {
     "commands": [
       {
-        "what": "没有 startevent",
-        "cases": [
-          "E01",
-          "E02",
-          "E05"
-        ],
-        "count": 3
-      },
-      {
         "what": "没有 quest",
         "cases": [
           "N04",
           "F04"
         ],
         "count": 2
-      },
-      {
-        "what": "没有 castline",
-        "cases": [
-          "F01",
-          "F04"
-        ],
-        "count": 2
-      },
-      {
-        "what": "没有 reel",
-        "cases": [
-          "F01",
-          "F04"
-        ],
-        "count": 2
-      },
-      {
-        "what": "没有 map",
-        "cases": [
-          "M07"
-        ],
-        "count": 1
-      },
-      {
-        "what": "没有 splitstack",
-        "cases": [
-          "K06"
-        ],
-        "count": 1
       }
     ],
     "knowledge": [
@@ -803,14 +719,6 @@
         "what": "明确做不到：NPC 对话文本",
         "cases": [
           "N04",
-          "F04"
-        ],
-        "count": 2
-      },
-      {
-        "what": "明确做不到：通用弹幕状态",
-        "cases": [
-          "F01",
           "F04"
         ],
         "count": 2

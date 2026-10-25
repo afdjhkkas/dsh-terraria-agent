@@ -3,15 +3,20 @@
 > 本文件由 `node scripts/kb-sync.mjs` 从 `DshTerrariaBridge/Commands.cs` 与
 > `index.js` 生成。**不要手改**；要改就改代码再重新生成。
 
-## mod 桥命令（69 个）
+## mod 桥命令（88 个）
 
 | 命令 | 参数 |
 |---|---|
 | `accessory` | `off` `slot` `from` |
 | `api` | `type` `member` |
 | `attack` | `who` `r` `ms` `interval` `slot` |
+| `blood` | — |
+| `bloodmoon` | — |
+| `bobber` | — |
 | `boss` | — |
 | `buy` | `slot` `shopId` |
+| `capture` | `x` `y` `who` `ms` |
+| `castline` | `x` `y` `ms` |
 | `chat` | `text` |
 | `chatpoll` | `since` `max` |
 | `chatpost` | `text` |
@@ -21,12 +26,16 @@
 | `down` | — |
 | `drop` | `slot` `count` |
 | `duplicate` | `item` `count` |
+| `eclipse` | — |
 | `equip` | `slot` |
 | `event` | — |
 | `fill` | `x1` `y1` `x2` `y2` `type` |
 | `find` | `type` `x1` `x2` `y1` `y2` `max` |
 | `fly` | `ms` |
 | `follow` | `off` `player` `guard` `range` |
+| `frost` | — |
+| `frostmoon` | — |
+| `goblin` | — |
 | `grab` | `r` |
 | `guard` | `off` `ms` `r` |
 | `heal` | — |
@@ -41,6 +50,8 @@
 | `items` | `r` |
 | `jump` | `ms` |
 | `left` | — |
+| `map` | `step` |
+| `martian` | — |
 | `mine` | `x` `y` `ms` |
 | `minion` | `slot` |
 | `mirror` | — |
@@ -50,9 +61,13 @@
 | `npc` | `r` |
 | `path` | `x` `y` `ms` `dig` |
 | `ping` | — |
+| `pirate` | — |
 | `place` | `x` `y` `type` `ms` |
 | `players` | — |
+| `pumpkin` | — |
+| `pumpkinmoon` | — |
 | `recipes` | `q` `limit` |
+| `reel` | `ms` |
 | `removeblock` | `x` `y` `ms` |
 | `research` | `slot` |
 | `right` | — |
@@ -65,6 +80,10 @@
 | `shop` | `shopId` `npc` |
 | `shopdebug` | `npc` |
 | `shops` | `want` |
+| `snowman` | — |
+| `snowmoon` | — |
+| `splitstack` | `slot` `count` |
+| `startevent` | `event` |
 | `state` | — |
 | `stop` | — |
 | `talk` | `npc` |

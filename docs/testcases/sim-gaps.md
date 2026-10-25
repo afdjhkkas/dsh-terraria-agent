@@ -151,3 +151,27 @@
 7. **D1 远距导航规则** —— 解锁 4 条，但要先解决"载入区外读不到地图"这个根本限制
 8. 其余（C4 map、C6 splitstack、C8 talkOption、C9 liquidOp、R3 buff、K2 K3 K4）——
    单条小补，可并行
+## 四、阶段②进度：第一批已补（编译通过，**实机未验**）
+
+上一节的逐条判定是阶段①（离线推演）当时的快照，留作对照；下表是补完之后的状态。
+权威的当前状态看 `docs/testcases/gap-report.md`（`npm run tc:dry` 生成）。
+
+| 缺口 | 补成了什么 | 影响的用例 | 验证程度 |
+|---|---|---|---|
+| **R1** | `tile` / `scan` 增加 `liquidType` / `liquidName`（水/岩浆/蜂蜜/微光） | M05 M06 G04 G08 E03 E04 | 编译通过，实机未验 |
+| **R2** | `state.world` 增加 `bloodMoon` / `eclipse` / `pumpkinMoon` / `snowMoon` / `invasionType` / `invasionSize` / `invasionProgress` / `anglerQuest` / `night` | E01 E05 | 编译通过，实机未验 |
+| **R3** | `state.buffs[]` 增加 `timeSec`（剩余秒数） | Q02 | 编译通过，实机未验 |
+| **R4** | `npc` 列表增加 `critter`（是不是小动物）/ `catchItem`（抓到手会变成什么） | F02 | 编译通过，实机未验 |
+| **R5** | 新命令 `bobber`：浮标位置/速度/是否浸液 | F01 F04 | 编译通过，实机未验 |
+| **C1** | 新命令 `castline` / `reel` | F01 F04 | 编译通过，实机未验 |
+| **C2** | 新命令 `capture`（虫网，可给 `who` 或 `x,y`） | F02 K04 | 编译通过，实机未验 |
+| **C4** | 新命令 `map`：已探索区域包围盒 + 占比 + 自身地图坐标 | M07 | 编译通过，实机未验 |
+| **C5** | 新命令 `startevent`：血月/日食/南瓜月/霜月/四种入侵（**仅测试用**） | E01 E02 E05 | 编译通过，实机未验 |
+| **C6** | 新命令 `splitstack`：把一叠拆一半到空格 | K06 | 编译通过，实机未验 |
+
+仍缺（第二批）：`quest`（C3）、`containerTake/Put`（C7）、`talkOption`（C8）、`liquidOp`（C9），
+以及三块知识（钓竿与鱼饵取得链、容器存取规则、祭坛与血肉墙召唤链）。
+
+**这批的诚实边界**：全部只做到"编译通过 + 用例声明已更新"，一次游戏都没进。
+按用户定的四阶段，真正的验证在阶段③逐条实测；届时重点验三件事：
+`tile` 的液体类型与游戏画面一致、`bobber` 的咬钩信号可判、`capture` 真能抓到东西。

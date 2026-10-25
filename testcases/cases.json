@@ -163,11 +163,11 @@
       "category": "move",
       "task": "打开大地图，读出已探索区域范围并定位自己在地图上的位置",
       "needs": {
-        "commands": [],
-        "kb": [],
-        "missingCommands": [
+        "commands": [
           "map"
         ],
+        "kb": [],
+        "missingCommands": [],
         "kbAnchors": [
           "地图",
           "已探索"
@@ -644,14 +644,13 @@
       "needs": {
         "commands": [
           "drop",
-          "inventory"
+          "inventory",
+          "splitstack"
         ],
         "kb": [
           "item_operation"
         ],
-        "missingCommands": [
-          "splitstack"
-        ],
+        "missingCommands": [],
         "kbAnchors": [
           "拆分",
           "丢弃"
@@ -832,20 +831,19 @@
       "task": "装备钓竿，在水边抛竿，等浮标沉下去再收线",
       "needs": {
         "commands": [
+          "bobber",
+          "castline",
+          "reel",
           "select",
-          "use",
-          "state"
+          "state",
+          "use"
         ],
         "kb": [
           "loot_source"
         ],
-        "missingCommands": [
-          "castline",
-          "reel"
-        ],
+        "missingCommands": [],
         "unsupported": [
-          "随机事件与时机窗口",
-          "通用弹幕状态"
+          "随机事件与时机窗口"
         ],
         "kbAnchors": [
           "钓竿",
@@ -865,10 +863,11 @@
       "task": "用虫网抓一只蝴蝶、一条蠕虫、一只青蛙",
       "needs": {
         "commands": [
-          "select",
-          "use",
+          "capture",
+          "inventory",
           "npc",
-          "inventory"
+          "select",
+          "use"
         ],
         "kb": [
           "loot_source"
@@ -912,20 +911,20 @@
       "task": "钓一条任务鱼，交给渔夫完成任务闭环",
       "needs": {
         "commands": [
-          "select",
-          "use",
+          "bobber",
+          "castline",
           "npc",
-          "talk"
+          "reel",
+          "select",
+          "talk",
+          "use"
         ],
         "kb": [],
         "missingCommands": [
-          "castline",
-          "reel",
           "quest"
         ],
         "unsupported": [
-          "NPC 对话文本",
-          "通用弹幕状态"
+          "NPC 对话文本"
         ],
         "kbAnchors": [
           "任务鱼",
@@ -1082,15 +1081,14 @@
       "task": "血月来了，在家门口顶住整夜刷怪",
       "needs": {
         "commands": [
+          "attack",
           "event",
           "guard",
-          "attack",
+          "startevent",
           "state"
         ],
         "kb": [],
-        "missingCommands": [
-          "startevent"
-        ],
+        "missingCommands": [],
         "unsupported": [
           "随机事件与时机窗口"
         ],
@@ -1108,14 +1106,13 @@
       "task": "手动开一次日食、南瓜月、霜月，各打一轮",
       "needs": {
         "commands": [
-          "event",
           "attack",
-          "guard"
-        ],
-        "kb": [],
-        "missingCommands": [
+          "event",
+          "guard",
           "startevent"
         ],
+        "kb": [],
+        "missingCommands": [],
         "kbAnchors": [
           "日食",
           "南瓜月",
@@ -1180,15 +1177,14 @@
       "task": "哥布林入侵或海盗入侵时守住基地",
       "needs": {
         "commands": [
+          "attack",
           "event",
           "guard",
-          "attack",
-          "npc"
-        ],
-        "kb": [],
-        "missingCommands": [
+          "npc",
           "startevent"
         ],
+        "kb": [],
+        "missingCommands": [],
         "unsupported": [
           "随机事件与时机窗口"
         ],

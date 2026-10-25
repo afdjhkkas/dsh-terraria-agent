@@ -52,6 +52,30 @@
       "summary": ""
     },
     {
+      "name": "blood",
+      "kind": "read",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "bloodmoon",
+      "kind": "read",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "bobber",
+      "kind": "read",
+      "params": [],
+      "returns": [
+        "count",
+        "bobbers"
+      ],
+      "summary": ""
+    },
+    {
       "name": "boss",
       "kind": "read",
       "params": [],
@@ -73,6 +97,37 @@
         "priceCopper",
         "slot",
         "stack"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "capture",
+      "kind": "act",
+      "params": [
+        "x",
+        "y",
+        "who",
+        "ms"
+      ],
+      "returns": [
+        "swinging",
+        "netSlot",
+        "at"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "castline",
+      "kind": "act",
+      "params": [
+        "x",
+        "y",
+        "ms"
+      ],
+      "returns": [
+        "cast",
+        "poleSlot",
+        "at"
       ],
       "summary": ""
     },
@@ -190,6 +245,13 @@
       "summary": ""
     },
     {
+      "name": "eclipse",
+      "kind": "read",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
       "name": "equip",
       "kind": "act",
       "params": [
@@ -291,6 +353,27 @@
         "dist",
         "note"
       ],
+      "summary": ""
+    },
+    {
+      "name": "frost",
+      "kind": "read",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "frostmoon",
+      "kind": "read",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "goblin",
+      "kind": "act",
+      "params": [],
+      "returns": [],
       "summary": ""
     },
     {
@@ -470,6 +553,28 @@
       "summary": ""
     },
     {
+      "name": "map",
+      "kind": "read",
+      "params": [
+        "step"
+      ],
+      "returns": [
+        "mapWidth",
+        "mapHeight",
+        "sampled",
+        "revealedPercent",
+        "explored"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "martian",
+      "kind": "act",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
       "name": "mine",
       "kind": "act",
       "params": [
@@ -586,6 +691,13 @@
       "summary": ""
     },
     {
+      "name": "pirate",
+      "kind": "act",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
       "name": "place",
       "kind": "act",
       "params": [
@@ -614,6 +726,20 @@
       "summary": ""
     },
     {
+      "name": "pumpkin",
+      "kind": "read",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "pumpkinmoon",
+      "kind": "read",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
       "name": "recipes",
       "kind": "read",
       "params": [
@@ -623,6 +749,18 @@
       "returns": [
         "count",
         "recipes"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "reel",
+      "kind": "act",
+      "params": [
+        "ms"
+      ],
+      "returns": [
+        "reeled",
+        "poleSlot"
       ],
       "summary": ""
     },
@@ -796,6 +934,52 @@
       "summary": ""
     },
     {
+      "name": "snowman",
+      "kind": "act",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "snowmoon",
+      "kind": "read",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "splitstack",
+      "kind": "act",
+      "params": [
+        "slot",
+        "count"
+      ],
+      "returns": [
+        "from",
+        "name",
+        "type",
+        "moved",
+        "left"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "startevent",
+      "kind": "act",
+      "params": [
+        "event"
+      ],
+      "returns": [
+        "bloodMoon",
+        "eclipse",
+        "pumpkinMoon",
+        "snowMoon",
+        "invasionType",
+        "dayTime"
+      ],
+      "summary": ""
+    },
+    {
       "name": "state",
       "kind": "read",
       "params": [],
@@ -856,6 +1040,7 @@
         "name",
         "wall",
         "liquid",
+        "liquidName",
         "slope",
         "halfBlock",
         "actuator"

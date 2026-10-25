@@ -62,6 +62,13 @@ namespace DshTerrariaBridge
                 case "buy": return ShopBuy(p);
                 case "sell": return ShopSell(p);
                 case "chest": return ChestCmd(p);
+                case "startevent": return StartEvent(p);
+                case "map": return MapInfo(p);
+                case "splitstack": return SplitStack(p);
+                case "castline": return CastLine(p);
+                case "reel": return Reel(p);
+                case "bobber": return Bobbers();
+                case "capture": return Capture(p);
                 case "drop": return DropItem(p);
                 case "heal": return HealSelf(p);
                 case "boss": return BossStatus(p);
@@ -236,6 +243,15 @@ namespace DshTerrariaBridge
                     bloodMoon = Main.bloodMoon,
                     eclipse = Main.eclipse,
                     hardmode = Main.hardMode,
+                    // 事件状态：血月/日食/南瓜月/霜月/入侵是否在进行、入侵到什么程度。
+                    // 守夜、清入侵、判断"该不该出门"全靠这几个字段。
+                    pumpkinMoon = Main.pumpkinMoon,
+                    snowMoon = Main.snowMoon,
+                    invasionType = Main.invasionType,
+                    invasionSize = Main.invasionSize,
+                    invasionProgress = Main.invasionProgress,
+                    anglerQuest = Main.anglerQuest,
+                    night = !Main.dayTime,
                     tick = Main.GameUpdateCount,
                 };
                 data["player"] = new
@@ -353,7 +369,7 @@ namespace DshTerrariaBridge
             for (int i = 0; i < pl.buffType.Length; i++)
             {
                 if (pl.buffType[i] > 0 && pl.buffTime[i] > 0)
-                    list.Add(new { type = pl.buffType[i], name = BuffID.Search.GetName(pl.buffType[i]), time = pl.buffTime[i] });
+                    list.Add(new { type = pl.buffType[i], name = BuffID.Search.GetName(pl.buffType[i]), time = pl.buffTime[i], timeSec = Math.Round(pl.buffTime[i] / 60f, 1) });
             }
             return list.ToArray();
         }
@@ -398,7 +414,7 @@ namespace DshTerrariaBridge
 
             if (format == "rows")
             {
-                int stride = withWalls ? 4 : 2;
+                int stride = withWalls ? 5 : 3;
                 var rows = new List<int[]>(h);
                 for (int j = 0; j < h; j++)
                 {
@@ -412,20 +428,23 @@ namespace DshTerrariaBridge
                         {
                             row[k + 1] = t.WallType;
                             row[k + 2] = t.LiquidAmount;
-                            row[k + 3] = ShapeCode(t);
+                            row[k + 3] = t.LiquidAmount > 0 ? t.LiquidType : 0;
+                            row[k + 4] = ShapeCode(t);
                         }
                         else
                         {
                             row[k + 1] = t.LiquidAmount;
+                            row[k + 2] = t.LiquidAmount > 0 ? t.LiquidType : 0;
                         }
                     }
                     rows.Add(row);
                 }
                 data["stride"] = stride;
-                data["fields"] = withWalls ? new[] { "type", "wall", "liquid", "shape" } : new[] { "type", "liquid" };
+                data["fields"] = withWalls ? new[] { "type", "wall", "liquid", "liqType", "shape" } : new[] { "type", "liquid", "liqType" };
                 data["tiles"] = rows;
                 data["legend"] = "type=-1 空，其余是 Terraria 方块 ID（0=土块）；"
                     + "tiles[j] 是 y=y0+j 这一行，第 i 格在 tiles[j][i*stride .. i*stride+stride-1]；"
+                    + "liqType 0=水 1=岩浆 2=蜂蜜 3=微光（只有 liquid>0 时才有意义）；"
                     + "shape 0=实心 1=半砖 2..5=斜坡；liquid 0-255";
             }
             else if (format == "ascii")
@@ -489,6 +508,10 @@ namespace DshTerrariaBridge
                 name = t.HasTile ? TileID.Search.GetName(t.TileType) : "",
                 wall = t.WallType,
                 liquid = t.LiquidAmount,
+                // 液体类型（水/岩浆/蜂蜜/微光）。只有数量读不出"这格会不会烧死我"，
+                // 下地狱、挖狱石、找微光池都要靠这个。
+                liquidType = t.LiquidAmount > 0 ? t.LiquidType : 0,
+                liquidName = t.LiquidAmount > 0 ? LiquidName(t.LiquidType) : "",
                 slope = (int)t.Slope,
                 halfBlock = t.IsHalfBlock,
                 actuator = t.HasActuator,
@@ -3008,9 +3031,265 @@ namespace DshTerrariaBridge
                     friendly = n.friendly,
                     boss = n.boss,
                     hostile = n.CanBeChasedBy(),
+                    // 小动物（虫网能抓的）与它会变成的物品：抓虫/钓鱼/笼子要先认出它们。
+                    critter = n.CountsAsACritter,
+                    catchItem = n.catchItem,
                 });
             }
             return Json.Ok(new { radius = r, count = near.Count, npcs = near.ToArray() });
+        }
+
+
+        /* ── 事件 / 地图 / 背包拆分 ─────────────────────────────────── */
+
+        private static string LiquidName(int id)
+        {
+            if (id == LiquidID.Lava) return "lava";
+            if (id == LiquidID.Honey) return "honey";
+            if (id == LiquidID.Shimmer) return "shimmer";
+            return "water";
+        }
+
+        /// <summary>
+        /// 手动开事件。只给测试用例用（E01/E02/E05），走的是原版自己的入口：
+        /// 血月/日食是置标志位（游戏自己也是这么开的），南瓜月/霜月/入侵是原版 Start*。
+        /// 它不改世界，只是把"现在该发生什么"告诉游戏。
+        /// </summary>
+        private static string StartEvent(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            string ev = (Json.Str(p, "event", "") ?? "").Trim().ToLowerInvariant();
+            string started;
+            switch (ev)
+            {
+                case "bloodmoon":
+                case "blood":
+                    Main.dayTime = false;
+                    Main.time = 0;
+                    Main.bloodMoon = true;
+                    started = "bloodMoon";
+                    break;
+                case "eclipse":
+                    Main.dayTime = true;
+                    Main.time = 0;
+                    Main.eclipse = true;
+                    started = "eclipse";
+                    break;
+                case "pumpkin":
+                case "pumpkinmoon":
+                    Main.startPumpkinMoon();
+                    started = "pumpkinMoon";
+                    break;
+                case "frost":
+                case "frostmoon":
+                case "snowmoon":
+                    Main.startSnowMoon();
+                    started = "snowMoon";
+                    break;
+                case "goblin":
+                    Main.StartInvasion(1);
+                    started = "invasion:goblin";
+                    break;
+                case "pirate":
+                    Main.StartInvasion(2);
+                    started = "invasion:pirate";
+                    break;
+                case "snowman":
+                    Main.StartInvasion(3);
+                    started = "invasion:snowman";
+                    break;
+                case "martian":
+                    Main.StartInvasion(4);
+                    started = "invasion:martian";
+                    break;
+                default:
+                    return Json.Error("event 只支持 bloodmoon / eclipse / pumpkin / frost / goblin / pirate / snowman / martian");
+            }
+            return Json.Ok(new
+            {
+                started,
+                bloodMoon = Main.bloodMoon,
+                eclipse = Main.eclipse,
+                pumpkinMoon = Main.pumpkinMoon,
+                snowMoon = Main.snowMoon,
+                invasionType = Main.invasionType,
+                dayTime = Main.dayTime,
+            });
+        }
+
+        /// <summary>
+        /// 大地图：已探索区域的包围盒与占比。逐格取样（step 越大越粗），
+        /// 不返回逐格位图——那东西一次几十万个数，读回来也没用。
+        /// </summary>
+        private static string MapInfo(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            int step = Math.Clamp(Json.Int(p, "step", 8), 1, 64);
+            int w = Main.Map.MaxWidth, h = Main.Map.MaxHeight;
+            int minX = int.MaxValue, minY = int.MaxValue, maxX = -1, maxY = -1;
+            int revealed = 0, total = 0;
+            for (int y = 0; y < h; y += step)
+            {
+                for (int x = 0; x < w; x += step)
+                {
+                    total++;
+                    if (!Main.Map.IsRevealed(x, y)) continue;
+                    revealed++;
+                    if (x < minX) minX = x;
+                    if (y < minY) minY = y;
+                    if (x > maxX) maxX = x;
+                    if (y > maxY) maxY = y;
+                }
+            }
+            Player pl = P;
+            return Json.Ok(new
+            {
+                mapWidth = w,
+                mapHeight = h,
+                step,
+                sampled = total,
+                revealed,
+                revealedPercent = total > 0 ? (int)Math.Round(100.0 * revealed / total) : 0,
+                explored = revealed > 0 ? new { x0 = minX, y0 = minY, x1 = maxX, y1 = maxY } : null,
+                player = pl != null && pl.active ? new[] { (int)(pl.Center.X / 16f), (int)(pl.Center.Y / 16f) } : null,
+                note = "explored 是已探索区域的包围盒，不是逐格地图；step 越小越精确也越慢",
+            });
+        }
+
+        /// <summary>
+        /// 拆堆叠：把一叠分成两半，一半挪到空格。纯背包操作（和 drop/grab 同类），
+        /// 不动世界。
+        /// </summary>
+        private static string SplitStack(JsonElement p)
+        {
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int slot = Json.Int(p, "slot", pl.selectedItem);
+            if (slot < 0 || slot >= pl.inventory.Length) return Json.Error("slot 越界");
+            Item src = pl.inventory[slot];
+            if (src == null || src.type <= 0) return Json.Error("这个格子是空的");
+            if (src.stack < 2) return Json.Error("只有 1 个，拆不开");
+            int half = Math.Clamp(Json.Int(p, "count", src.stack / 2), 1, src.stack - 1);
+            int to = -1;
+            for (int i = 0; i < pl.inventory.Length; i++)
+            {
+                if (pl.inventory[i] != null && pl.inventory[i].type == 0) { to = i; break; }
+            }
+            if (to < 0) return Json.Error("背包没有空格放拆出来的那一半");
+            Item halfItem = src.Clone();
+            halfItem.stack = half;
+            pl.inventory[to] = halfItem;
+            src.stack -= half;
+            return Json.Ok(new { from = slot, to, name = halfItem.Name, type = halfItem.type, moved = half, left = src.stack });
+        }
+
+        /* ── 钓鱼 / 捉虫 ───────────────────────────────────────────── */
+
+        private static int FindFishingPole(Player pl)
+        {
+            for (int i = 0; i < pl.inventory.Length; i++)
+            {
+                Item it = pl.inventory[i];
+                if (it != null && it.type > 0 && it.fishingPole > 0) return i;
+            }
+            return -1;
+        }
+
+        private static int FindBugNet(Player pl)
+        {
+            for (int i = 0; i < pl.inventory.Length; i++)
+            {
+                Item it = pl.inventory[i];
+                if (it == null || it.type <= 0) continue;
+                if (it.type == ItemID.BugNet || it.type == ItemID.GoldenBugNet || it.type == ItemID.FireproofBugNet) return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// 抛竿：选中钓竿、瞄准水面格、短按一次。原版 ItemCheck 自己抛出浮标
+        /// （带 bobber 标记的弹幕），浮标状态用 bobber 读。
+        /// </summary>
+        private static string CastLine(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int slot = FindFishingPole(pl);
+            if (slot < 0) return Json.Error("背包里没有钓竿（fishingPole>0 的物品）");
+            int x = Json.Int(p, "x", int.MinValue), y = Json.Int(p, "y", int.MinValue);
+            if (x == int.MinValue || y == int.MinValue) return Json.Error("castline 需要 x,y（水面那一格）");
+            BridgeSystem.BeginItemUse(slot, x, y, Json.Int(p, "ms", 150));
+            return Json.Ok(new { cast = true, poleSlot = slot, at = new[] { x, y }, hint = "抛出去了；用 bobber 读浮标，用 reel 收线" });
+        }
+
+        /// <summary>
+        /// 收线：再短按一次钓竿。原版看到浮标还在就会把它收回来，
+        /// 中途咬钩则会结算钓获。
+        /// </summary>
+        private static string Reel(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            int slot = FindFishingPole(P);
+            if (slot < 0) return Json.Error("背包里没有钓竿");
+            BridgeSystem.BeginItemUse(slot, Player.tileTargetX, Player.tileTargetY, Json.Int(p, "ms", 150));
+            return Json.Ok(new { reeled = true, poleSlot = slot });
+        }
+
+        /// <summary>
+        /// 浮标状态：只返回原始读数（位置/速度/是否浸在液体里）。
+        /// 咬钩不在这里"判"，由调用方连续采样看浮标下坠——那是玩家在水面上看到的同一个现象。
+        /// </summary>
+        private static string Bobbers()
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            Player pl = P;
+            var list = new List<object>();
+            for (int i = 0; i < Main.projectile.Length; i++)
+            {
+                Projectile pr = Main.projectile[i];
+                if (pr == null || !pr.active || !pr.bobber) continue;
+                if (pl != null && pr.owner != pl.whoAmI) continue;
+                int tx = (int)(pr.Center.X / 16f), ty = (int)(pr.Center.Y / 16f);
+                bool inLiquid = InBounds(tx, ty) && Main.tile[tx, ty].LiquidAmount > 0;
+                list.Add(new
+                {
+                    bid = i,
+                    tile = new[] { MathF.Round(pr.Center.X / 16f, 2), MathF.Round(pr.Center.Y / 16f, 2) },
+                    velocityY = MathF.Round(pr.velocity.Y, 3),
+                    inLiquid,
+                    liquidType = inLiquid ? Main.tile[tx, ty].LiquidType : 0,
+                    age = pr.timeLeft,
+                });
+            }
+            return Json.Ok(new { count = list.Count, bobbers = list.ToArray() });
+        }
+
+        /// <summary>
+        /// 抓虫：选中虫网对准目标挥一下，判定交给原版（CheckCatchNPC 只在 ItemCheck 里跑）。
+        /// who 是 npc 索引，也可以直接给 x,y。
+        /// </summary>
+        private static string Capture(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int slot = FindBugNet(pl);
+            if (slot < 0) return Json.Error("背包里没有虫网（BugNet / GoldenBugNet / FireproofBugNet）");
+            int x = Json.Int(p, "x", int.MinValue), y = Json.Int(p, "y", int.MinValue);
+            int who = Json.Int(p, "who", -1);
+            if (who >= 0 && who < Main.maxNPCs)
+            {
+                NPC n = Main.npc[who];
+                if (n == null || !n.active) return Json.Error($"who={who} 这个 NPC 不在场");
+                if (!n.CountsAsACritter) return Json.Error($"{n.FullName} 不是小动物，虫网抓不了");
+                x = (int)(n.Center.X / 16f);
+                y = (int)(n.Center.Y / 16f);
+            }
+            if (x == int.MinValue || y == int.MinValue) return Json.Error("capture 需要 who 或 x,y");
+            BridgeSystem.BeginItemUse(slot, x, y, Json.Int(p, "ms", 300));
+            return Json.Ok(new { swinging = true, netSlot = slot, at = new[] { x, y }, hint = "挥完用 inventory 看有没有抓到" });
         }
 
         private static string Chat(JsonElement p)

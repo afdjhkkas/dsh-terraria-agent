@@ -4,26 +4,35 @@
 > 元自检的第 4、5 维（动作原语 / 状态读取）就是拿这张表对照的：
 > 表里没有的接口和命令，一律视为不存在，不许在计划里使用。
 
-## 一、状态读取能力（28 个命令）
+## 一、状态读取能力（38 个命令）
 
 | 命令 | 能读到什么（返回值顶层字段） |
 |---|---|
 | `api` | `type` `count` `members` |
+| `blood` | — |
+| `bloodmoon` | — |
+| `bobber` | `count` `bobbers` |
 | `boss` | `active` `bosses` |
 | `chatpoll` | — |
+| `eclipse` | — |
 | `event` | `dayTime` `time` `day` `bloodMoon` `eclipse` `invasionType` `invasionSize` `pumpkinMoon` `snowMoon` `raining` `hardMode` `downedEye` `downedEater` `downedSkeletron` `downedWall` `downedPlantera` `downedGolem` |
 | `find` | `scanned` |
+| `frost` | — |
+| `frostmoon` | — |
 | `help` | — |
 | `housediag` | `x` `y` `tiles` `box` |
 | `housing` | `townNPCs` |
 | `idmap` | `rows` |
 | `inventory` | `selected` `count` `items` `equipment` `canFly` |
 | `items` | `count` `items` |
+| `map` | `mapWidth` `mapHeight` `sampled` `revealedPercent` `explored` |
 | `needs` | `worldFields` `npc` `name` `homeless` `homeTile` `position` |
 | `npc` | `radius` `count` `npcs` |
 | `path` | `from` |
 | `ping` | — |
 | `players` | `count` `players` |
+| `pumpkin` | — |
+| `pumpkinmoon` | — |
 | `recipes` | `count` `recipes` |
 | `research` | `item` `alreadyFull` `researched` `have` `unlocked` |
 | `roomcheck` | `ok` `reason` `reasonValue` |
@@ -31,19 +40,22 @@
 | `shop` | `npc` `shop` `npcType` `distance` |
 | `shopdebug` | `npc` `npcType` |
 | `shops` | `scanned` |
+| `snowmoon` | — |
 | `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `world` `player` `guard` `attack` `path` `walk` `input` `hint` |
-| `tile` | `hasTile` `type` `name` `wall` `liquid` `slope` `halfBlock` `actuator` |
+| `tile` | `hasTile` `type` `name` `wall` `liquid` `liquidName` `slope` `halfBlock` `actuator` |
 | `tiledata` | `name` `hasObjectData` `frameImportant` `width` `height` `originX` `originY` `styleHorizontal` `styleWrapLimit` |
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
 | `mount` | `activeAfter` `held` `action` `active` `type` `flight` `items` |
 
-## 二、动作能力（43 个命令）
+## 二、动作能力（52 个命令）
 
 | 命令 | 参数 | 干什么 |
 |---|---|---|
 | `accessory` | `off` `slot` `from` | — |
 | `attack` | `who` `r` `ms` `interval` `slot` | — |
 | `buy` | `slot` `shopId` | — |
+| `capture` | `x` `y` `who` `ms` | — |
+| `castline` | `x` `y` `ms` | — |
 | `chat` | `text` | — |
 | `chatpost` | — | — |
 | `climb` | `dir` `ms` | — |
@@ -55,6 +67,7 @@
 | `fill` | `x1` `y1` `x2` `y2` `type` | — |
 | `fly` | `ms` | — |
 | `follow` | `off` `player` `guard` `range` | — |
+| `goblin` | — | — |
 | `grab` | `r` | — |
 | `guard` | `off` `ms` `r` | — |
 | `heal` | — | — |
@@ -63,17 +76,23 @@
 | `idle` | — | — |
 | `jump` | `ms` | — |
 | `left` | — | — |
+| `martian` | — | — |
 | `mine` | `x` `y` `ms` | — |
 | `minion` | `slot` | — |
 | `mirror` | — | — |
 | `move` | `dir` `ms` | — |
+| `pirate` | — | — |
 | `place` | `x` `y` `type` `ms` | — |
+| `reel` | `ms` | — |
 | `removeblock` | `x` `y` `ms` | — |
 | `right` | — | — |
 | `save` | — | — |
 | `select` | `slot` `item` | — |
 | `sell` | `slot` | — |
 | `shoot` | `x` `y` `slot` `ms` | — |
+| `snowman` | — | — |
+| `splitstack` | `slot` `count` | — |
+| `startevent` | `event` | — |
 | `stop` | — | — |
 | `talk` | `npc` | — |
 | `travel` | `stop` `dir` `distance` `ms` `dig` | — |

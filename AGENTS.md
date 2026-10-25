@@ -259,9 +259,9 @@ node scripts/testcases.mjs --dry --baseline docs/testcases/baseline.json   # 回
 
 <!-- caps:begin 本节由 scripts/kb-caps.mjs 生成，不要手改 -->
 
-**只读（26）**：api boss chatpoll event find help housediag housing idmap inventory items needs npc path ping players recipes research roomcheck scan shop shopdebug shops state tile tiledata
+**只读（36）**：api blood bloodmoon bobber boss chatpoll eclipse event find frost frostmoon help housediag housing idmap inventory items map needs npc path ping players pumpkin pumpkinmoon recipes research roomcheck scan shop shopdebug shops snowmoon state tile tiledata
 
-**动作（41）**：accessory attack buy chat chatpost climb craft down drop duplicate equip fill fly follow grab guard heal homeroom hook idle jump left mine minion mirror move place removeblock right save select sell shoot stop talk travel unhook up use walkto wall
+**动作（50）**：accessory attack buy capture castline chat chatpost climb craft down drop duplicate equip fill fly follow goblin grab guard heal homeroom hook idle jump left martian mine minion mirror move pirate place reel removeblock right save select sell shoot snowman splitstack startevent stop talk travel unhook up use walkto wall
 
 **看参数（2）**：chest mount
 

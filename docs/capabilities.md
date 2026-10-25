@@ -147,6 +147,28 @@ minions,minionSlots,grapCount,hookType,mounted,wingTime,hasWings,itemAnimation }
 
 ---
 
+## 3.5 液体 / 钓鱼 / 捉虫 / 事件 / 地图（阶段②第一批）
+
+> **状态：编译通过，一次游戏都没进。** 这里只写"代码里有、参数长这样"，
+> 真正的验证在阶段③逐条实测。不要把本节的"有"当成"能用"。
+
+| 命令 / 字段 | 参数 | 做什么 | 备注 |
+|---|---|---|---|
+| `tile` 新字段 | — | `liquidType` / `liquidName`（water/lava/honey/shimmer） | 只有 `liquid>0` 时才有意义 |
+| `scan` 新列 | — | 行末多一列 `liqType` | stride 由 4 变 5（带墙时） |
+| `state.world` 新字段 | — | `bloodMoon` `eclipse` `pumpkinMoon` `snowMoon` `invasionType` `invasionSize` `invasionProgress` `anglerQuest` `night` | 判"现在是什么局面" |
+| `state.buffs[]` 新字段 | — | `timeSec`（剩余秒） | 药剂还剩多久 |
+| `npc` 新字段 | — | `critter`（是不是小动物）/ `catchItem`（抓到手变成什么） | 抓虫、钓鱼认饵 |
+| `castline` | `x,y` `ms` | 选中钓竿朝水面短按，由原版抛出浮标 | 抛完用 `bobber` 看 |
+| `bobber` | — | 我方浮标的 `tile` / `velocityY` / `inLiquid` / `age` | 咬钩靠连续采样看下坠 |
+| `reel` | `ms` | 再短按一次收线（咬钩时结算渔获） | |
+| `capture` | `who` 或 `x,y` `ms` | 选虫网对准小动物挥一下 | 非小动物会明确拒绝 |
+| `startevent` | `event` | bloodmoon/eclipse/pumpkin/frost/goblin/pirate/snowman/martian | **仅测试用**，正常游玩没有这条路径 |
+| `map` | `step` | 已探索区域包围盒 + 占比 + 自身地图坐标 | 不返回逐格位图 |
+| `splitstack` | `slot` `count` | 把一叠拆一半到空格 | 纯背包操作 |
+
+---
+
 ## 4. 物品、合成与收纳
 
 ### `craft {item,times}` — 制作
@@ -235,6 +257,7 @@ api {type:"Terraria.Player", member:"controlHook"} → "field | Boolean controlH
 | 飞行 | 🚧 | 无翅膀/坐骑，`fly` 只做诚实拒绝 |
 | 坐骑 | 🚧 | 背包无坐骑物品 |
 | 箱子收纳 | 🚧 | 代码有，世界还没箱子，未实测 |
+| 液体类型 / 钓鱼 / 捉虫 / 事件 / 地图 / 拆分 | 🚧 | §3.5 新加，只编译过，阶段③实测 |
 | `save` | ❌ | 见 §7 |
 | `path` 竖井上行 | ❌ | 空腔里跳 60 秒原地不动 |
 | `travel down` | ❌ | 沿斜坡漂移，淹死过 |
