@@ -114,7 +114,7 @@
 | `up` | — | — |
 | `up` | — | — |
 | `use` | `slot` `right` `ms` `x` `y` | — |
-| `walkto` | `x` `y` `tol` `ms` | — |
+| `walkto` | `x` `y` `tol` `ms` `dig` | — |
 | `wall` | `x` `y` `type` `remove` `ms` | — |
 | `chest` | `action` `slot` `count` `invSlot` | — |
 | `down` | `ms` `slot` `right` `x` `y` `item` `off` `r` `action` `player` `guard` `range` `who` `interval` `times` `event` | 按住跳跃键时长 → 跳跃顶点高度（格） |

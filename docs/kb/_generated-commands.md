@@ -108,7 +108,7 @@
 | `up` | — |
 | `up` | — |
 | `use` | `slot` `right` `ms` `x` `y` |
-| `walkto` | `x` `y` `tol` `ms` |
+| `walkto` | `x` `y` `tol` `ms` `dig` |
 | `wall` | `x` `y` `type` `remove` `ms` |
 
 ## DSH 插件工具（27 个）

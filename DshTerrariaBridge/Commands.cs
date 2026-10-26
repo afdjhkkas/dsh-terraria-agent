@@ -2374,6 +2374,11 @@ namespace DshTerrariaBridge
             if (x < 0 || y < 0) return Json.Error("walkto 需要 x,y");
             int tol = Json.Int(p, "tol", 1);
             int ms = Json.Int(p, "ms", 15000);
+            // 默认不挖：A* 一旦认为“地板可挖开”，规划出的路就会穿自建房的墙和地板，
+            // 而真到跟前又不许挖（建材受保护），结果是卡在墙根报 stuck（实测）。
+            // 要开隧道就显式传 dig:true。
+            BridgeSystem.PathAllowDig = Json.Bool(p, "dig", false);
+            BridgeSystem.PathProtectBuilds = true;
             BridgeSystem.BeginWalk(x, y, tol, BridgeSystem.Now + BridgeSystem.Ticks(ms));
             return Json.Ok(new { target = new { x, y }, tol, ms });
         }

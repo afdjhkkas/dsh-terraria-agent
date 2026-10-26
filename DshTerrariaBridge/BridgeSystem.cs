@@ -527,6 +527,10 @@ namespace DshTerrariaBridge
                 if (TileLiquid(x, y)) return float.MaxValue;
                 if (!TileAir(x, y))
                 {
+                    // 门是“走过去就开”的通道，不是墙：A* 必须允许穿过门，否则自建 NPC 房会被
+                    // 判成完全封闭、整条路算不出来（表现为 walkto 一启动就 stuck）。
+                    var tt = Main.tile[x, y];
+                    if (tt.HasTile && (tt.TileType == TileID.ClosedDoor || tt.TileType == TileID.OpenDoor)) return 1f;
                     if (PathProtectBuilds && IsProtectedBuild(x, y)) return float.MaxValue;   // 自己造的：绕路
                     return PathAllowDig ? 8f : float.MaxValue;   // 要挖（禁挖时不可通行）
                 }
@@ -646,10 +650,12 @@ namespace DshTerrariaBridge
                     else if (PathStillTicks >= 5 && PathAllowDig)
                         for (int k = -2; k <= 1; k++) if (!TileAir(px + sign, py + k)) WalkMine(px + sign, py + k);
                 }
-                else if (rise <= 5 && TileAir(px + sign, py + 2)) WalkJump(2.4f);
+                // 没被挡就只走路，不跳：用户指出“明明走就可以，为什么要边走边跳”（m16540）。
+                // 需要上台阶时，原版会自动跨 1 格；真跨不上去（rise 大）才跳，且按满跳量一次跳到位。
                 p.controlLeft |= sign < 0;
                 p.controlRight |= sign > 0;
-                p.velocity.X = sign * 2.9f;
+                // 不硬改 velocity：原版靠 control 标志自己算速度，才会触发台阶/斜坡/门的自动处理。
+                // 事故背景：之前为了追横向速度直接写 velocity.X，结果走到自建房的关门前推不动（原版自动开门逻辑被绕过）。
                 p.direction = sign;
             }
             else if (dy <= -1)
@@ -693,6 +699,14 @@ namespace DshTerrariaBridge
          */
         internal static bool WalkActive;
         internal static int WalkX, WalkY, WalkTol = 1;
+        // 中途被挡会自己重新找路（用户要求：走路不能一次算完就照做）
+        internal static int WalkRepaths;
+        internal static int WalkStuckHard;
+        internal static int WalkRepathSame;
+        internal static ulong WalkDoorUntil;
+        internal static int WalkRepathPx = -99999;
+        internal static int WalkWpX, WalkWpY;
+        internal static bool WalkHasWp;
         internal static string WalkStop = "";
         internal static ulong WalkDeadline;
         private static ulong WalkNextJump, WalkNextMine;
@@ -703,12 +717,13 @@ namespace DshTerrariaBridge
             WalkActive = true; WalkX = x; WalkY = y;
             WalkTol = Math.Max(0, tol); WalkDeadline = until;
             WalkStop = ""; WalkNextJump = 0; WalkNextMine = 0; WalkStuck = 0; WalkLastPx = -99999;
+            WalkRepaths = 0; WalkStuckHard = 0; WalkRepathSame = 0; WalkRepathPx = -99999; WalkHasWp = false; WalkWpX = 0; WalkWpY = 0;
         }
 
         internal static void StopWalk(string reason)
         {
             if (!WalkActive) return;
-            WalkActive = false; WalkStop = reason;
+            WalkActive = false; WalkStop = reason; WalkHasWp = false;
             Player p = Main.LocalPlayer;
             if (p != null) { p.controlLeft = false; p.controlRight = false; p.controlJump = false; }
         }
@@ -757,6 +772,32 @@ namespace DshTerrariaBridge
             WalkNextMine = Now + 7;
         }
 
+        /// <summary>
+        /// 重新找路，取近距离的一个点当临时路点。
+        /// 取太远（第 8 步）会变成“原地往上跳 8 格”，跳不上去白算。
+        /// 预算按进展算：从上次重算位置又往前挪 2 格以上，说明在推进，次数重新给满。
+        /// </summary>
+        private static bool TryRepath(int px, int py)
+        {
+            // 只有“位置真的前进了”才清零重算计数；否则连续 3 次重算不出进展就认输。
+            // （旧代码里 WalkRepathSame 那段是错的：第一行刚把 WalkRepathPx 设成 px，
+            //   第二行必然相等，计到第 7 次就永久返回 false，表现为一启动就 stuck。）
+            if (Math.Abs(px - WalkRepathPx) >= 2) { WalkRepaths = 0; WalkRepathPx = px; }
+            if (WalkRepaths >= 3) return false;
+            string why;
+            var path = ComputePath(px, py, WalkX, WalkY, out why);
+            if (path == null || path.Count == 0) return false;
+            int k = 0;
+            for (int i = 1; i < path.Count && i <= 12; i++)
+            {
+                if (Math.Abs(path[i].x - px) + Math.Abs(path[i].y - py) >= 3) { k = i; break; }
+            }
+            if (k == 0) return false;
+            WalkWpX = path[k].x; WalkWpY = path[k].y; WalkHasWp = true;
+            WalkRepaths++; WalkStuck = 0;
+            return true;
+        }
+
         private static void TickWalk()
         {
             if (!WalkActive) return;
@@ -767,19 +808,37 @@ namespace DshTerrariaBridge
             if (p.wet) { p.velocity.Y = Math.Min(p.velocity.Y, -3.0f); return; }
 
             int px = (int)(p.Center.X / 16f), py = (int)(p.Center.Y / 16f);
-            int dx = WalkX - px, dy = WalkY - py;
-            if (Math.Abs(dx) <= WalkTol && Math.Abs(dy) <= WalkTol) { StopWalk("arrived"); return; }
+            if (Math.Abs(WalkX - px) <= WalkTol && Math.Abs(WalkY - py) <= WalkTol) { StopWalk("arrived"); return; }
+            // 有路点时朝路点走；走到就丢掉，回到朝总目标走
+            if (WalkHasWp && Math.Abs(WalkWpX - px) <= 1 && Math.Abs(WalkWpY - py) <= 1) WalkHasWp = false;
+            int gx = WalkHasWp ? WalkWpX : WalkX;
+            int gy = WalkHasWp ? WalkWpY : WalkY;
+            int dx = gx - px, dy = gy - py;
             // 向下挖时容易一掉就冲过头（目标 y=347 却掉到 y=406）：超过目标就停
             if (py > WalkY + 2) { StopWalk("overshoot"); return; }
 
             int sign = Math.Sign(dx);
             if (sign == 0) return;
 
+            // 卡进实心格（跳跃落进墙里）：原地怎么走都出不来，先往上跳并清掉身内那一格
+            if (TileSolid(px, py))
+            {
+                WalkMine(px, py);
+                WalkJump(6.0f);
+                if (++WalkStuckHard > 24) { StopWalk("embedded"); }
+                return;
+            }
+            WalkStuckHard = 0;
+
             // 卡住自救：位置连续多帧几乎不动，就把前方 3 行挖开再跳
             if (Math.Abs(px - WalkLastPx) <= 0) WalkStuck++;
             else { WalkStuck = 0; WalkLastPx = px; }
-            if (WalkStuck > 10)
+            if (WalkStuck > 6)
             {
+                // 注意：重算之后不能 return——否则每 6 帧重算一次、永远执行不到下面的移动代码，
+                // 表现就是“原地不动但没停”（m16540 那次卡在门格就是这么来的）。
+                if (TryRepath(px, py)) { WalkStuck = 0; }
+                if (WalkRepaths >= 3) { StopWalk("stuck"); return; }
                 for (int dy2 = -1; dy2 <= 1; dy2++)
                     if (TileSolid(px + sign, py + dy2)) WalkMine(px + sign, py + dy2);
                 WalkJump(3.2f);
@@ -789,34 +848,105 @@ namespace DshTerrariaBridge
             // 悬崖保护：前方 4 格内没有地面就不要往前冲（以前会直接掉几十格）
             int floorDepth = 0;
             bool floorFound = false;
-            for (int k = 1; k <= 4; k++)
+            // 原来只看 4 格，2~4 格的小坑也被当悬崖停住；现在看到 8 格，≤6 格走下去（摔不死）
+            for (int k = 1; k <= 8; k++)
             {
                 if (TileSolid(px + sign, py + k)) { floorFound = true; floorDepth = k; break; }
             }
-            if (!floorFound)
+            // 前方是门/房内：地板在门后面，从外侧探不到，“无地面”判据在这里会误报悬崖。
+            bool doorAhead = false;
+            for (int k = 0; k <= 2; k++)
             {
-                // 前方是深坑：停在原地，把决定权交回调用方（不要盲跳）
+                Tile da = Main.tile[px + sign, py + k];
+                if (da.HasTile && (da.TileType == TileID.ClosedDoor || da.TileType == TileID.OpenDoor)) { doorAhead = true; break; }
+            }
+            if ((!floorFound || floorDepth > 6) && !doorAhead)
+            {
+                if (TryRepath(px, py)) return;
                 StopWalk("cliff");
                 return;
             }
-            bool gapAhead = floorDepth >= 2;
+            // 用户原话：「明明走就可以，为什么要边走边跳？」——1~2 格落差直接走，3 格以上才起跳
+            bool gapAhead = floorDepth >= 3;
 
             bool bodyBlocked = TileSolid(px + sign, py);
-            bool headBlocked = TileSolid(px + sign, py - 1);
-            bool stepBlocked = TileSolid(px + sign, py + 1);
 
-            if (headBlocked) WalkMine(px + sign, py - 1);
-            else if (bodyBlocked)
+            // 用户原话：「先判断再考虑大跳还是小跳」「为什么会莫名其妙挥镐子」。
+            // 所以：量出前方障碍多高、缺口多宽，再决定跳多高；只有高墙且是天然地形才动镐。
+            int wallH = 0;
+            for (int k = 0; k < 8; k++)
             {
-                if (stepBlocked) WalkMine(px + sign, py);       // 一堵墙，挖
-                else WalkJump(2.6f);                            // 只有台阶，跳
+                if (TileSolid(px + sign, py - k)) wallH = k + 1; else break;
             }
-            if (gapAhead) WalkJump(2.6f);                        // 1-3 格的小缺口，跳
+            int gapW = 0;
+            if (gapAhead)
+            {
+                for (int k = 1; k <= 5; k++)
+                {
+                    bool floor = false;
+                    for (int d = 1; d <= 3; d++) if (TileSolid(px + sign * k, py + d)) { floor = true; break; }
+                    if (floor) break;
+                    gapW++;
+                }
+            }
+
+            // 前方是关着的门：用原版右键交互把它打开（人走过去门会自己开，但这里靠推速度，
+            // 原版那套自动开门不会触发，所以显式按一次“使用方块”）。
+            if (bodyBlocked)
+            {
+                Tile dt = Main.tile[px + sign, py];
+                if (dt.HasTile && dt.TileType == TileID.ClosedDoor && Now > WalkDoorUntil)
+                {
+                    SetAim(px + sign, py);
+                    UseTileUntil = Now + 3;
+                    WalkDoorUntil = Now + 25;
+                    PathNextAct = Now + 6;
+                    return;
+                }
+            }
+
+            // 自己造的建材（木块/平台/门/工作台…）：一律不跳、不挖，整条路绕开。
+            // 事故背景：walkto 穿自建 NPC 房时，右墙被当成“矮墙”去跳，跳不过就卡在墙根；
+            // 墙是玩家自己造的，正确做法是从门进出或绕路，绝不是翻自己的房。
+            if (!bodyBlocked && !gapAhead)
+            {
+                // 平地 / 小落差：什么都不做，直接走
+            }
+            else if (gapAhead)
+            {
+                // 缺口：跳多高按落差给，越深跳越高（上限约满跳）
+                WalkJump(Math.Min(5.9f, floorDepth + 0.8f));
+            }
+            else if (wallH <= 1)
+            {
+                // 就一格台阶：原版自己会跨，什么都不用做
+            }
+            else if (wallH <= 5)
+            {
+                // 矮墙：跳多高按墙高给，不用定值
+                WalkJump(Math.Min(5.9f, wallH + 1.5f));
+            }
+            else
+            {
+                Tile bt = Main.tile[px + sign, py];
+                if (bt.HasTile && !IsBuildTile(bt.TileType))
+                {
+                    WalkMine(px + sign, py);                    // 天然地形且高过满跳：才挖
+                }
+                else
+                {
+                    // 自己造的墙（2 格以上）：绝不留墙也不跳，重新规划绕开；规划不出才停
+                    if (!TryRepath(px, py)) StopWalk("blocked-build");
+                    return;
+                }
+            }
 
             p.controlLeft |= sign < 0;
             p.controlRight |= sign > 0;
-            p.velocity.X = sign * 2.9f;
             p.direction = sign;
+            // 只写 control 实测推不动人（本模组的写入时机抢不过原版输入解析），
+            // 所以水平速度仍由这里直接给；门另走“主动开门”，不指望硬推能穿过去。
+            if (Math.Abs(p.velocity.X) < 2.6f) p.velocity.X = sign * 2.6f;
             if (dy < -1) { p.controlUp = true; WalkJump(2.8f); }
             else if (dy > 2)
             {
@@ -1304,6 +1434,16 @@ namespace DshTerrariaBridge
                 swings = Travel.Swings,
                 aiming = Travel.ArmedX < 0 ? null : (object)new { x = Travel.ArmedX, y = Travel.ArmedY },
                 stopReason = Travel.StopReason,
+                // walkto 自己的状态：卡住时才能看出走的是哪条路、为什么停
+                walk = new
+                {
+                    active = WalkActive,
+                    x = WalkX, y = WalkY, tol = WalkTol,
+                    stop = WalkStop,
+                    repaths = WalkRepaths,
+                    hasWp = WalkHasWp,
+                    wpX = WalkWpX, wpY = WalkWpY,
+                },
                 hp = p == null ? 0 : (int)(100f * p.statLife / Math.Max(1, p.statLifeMax2)),
             });
         }
@@ -1964,6 +2104,9 @@ namespace DshTerrariaBridge
         {
             BridgeSystem.ApplyAim();
             BridgeSystem.ApplyControls(Player);
+            // 走路必须在物理之前写 control 标志：PostUpdate 里写的话，下一帧 Main.UpdateInput
+            // 会把 controlLeft/Right 重置掉，标志永远不生效（古老版靠直接改 velocity 掩盖了这一点）。
+            BridgeSystem.ApplyMovement();
         }
 
         // 真正逐帧生效的地方：Player.Update 结束时再推一次速度/标志

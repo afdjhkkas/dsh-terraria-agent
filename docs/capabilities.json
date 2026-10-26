@@ -1404,7 +1404,8 @@
         "x",
         "y",
         "tol",
-        "ms"
+        "ms",
+        "dig"
       ],
       "returns": [
         "target"
