@@ -408,6 +408,9 @@ namespace DshTerrariaBridge
                     wingTime = pl.wingTime,
                     wingTimeMax = pl.wingTimeMax,
                     hasWings = pl.wings > 0,
+                    // 出生点：魔镜/床这类回城手段的判据。没有这个坐标就只能靠"动了多远"猜，
+                    // 而人本来就站在出生点旁边时，回城位移不到两格，会被误判成失败。
+                    spawn = new { x = Main.spawnTileX, y = Main.spawnTileY },
                 };
                 data["guard"] = new
                 {

@@ -252,6 +252,69 @@ export function createPrimitives({ request, sleep = defaultSleep, now = Date.now
   }
 
   /** Stack count of one inventory slot (null when the slot is out of range). */
+  /* ── escape ─────────────────────────────────────────────────────────── */
+
+  /** Items that send the player home when used: Magic/Ice Mirror, Cell Phone, Shellphone. */
+  const RECALL_TYPES = [50, 3199, 3124, 5358]
+  /**
+   * Recall has no walking in it, so *any* real displacement during the use is the
+   * teleport. The bar is low on purpose: standing next to your spawn point, a
+   * recall home only moves you a tile or two.
+   */
+  const RECALL_DISTANCE = 12
+
+  /**
+   * Use a mirror-class item to get out of a hole.
+   *
+   * A pocket you cannot climb out of is the one case where waiting is strictly
+   * worse than leaving: dying drops coins and replays the walk, while the mirror
+   * costs nothing. Success is only claimed once the position actually jumped.
+   */
+  async function escapeHome({ deadlineMs = 4000, signal } = {}) {
+    const inv = (await request('inventory', {}, { signal })).data ?? {}
+    const mirror = (inv.items ?? []).find(it => RECALL_TYPES.includes(it.type))
+    if (!mirror) {
+      return { ok: false, used: null, reason: '背包里没有魔镜/冰镜/手机这类回城物品' }
+    }
+    const snap = async () => (await request('state', {}, { signal })).data?.player ?? {}
+    const first = await snap()
+    const tileOf = async () => (await snap()).tile ?? []
+    // 桥回的是 { x, y } 对象，不是数组；直接下标会得到 undefined 并让判定恒为假。
+    const rawSpawn = first.spawn ?? null
+    const spawn = rawSpawn ? [rawSpawn.x ?? rawSpawn[0], rawSpawn.y ?? rawSpawn[1]] : null
+    const from = (first.tile ?? []).slice()
+    const distToSpawn = (t) => spawn ? Math.hypot((t[0] ?? 0) - spawn[0], (t[1] ?? 0) - spawn[1]) : Infinity
+    const homeAlready = spawn && distToSpawn(from) <= 3
+    // 人已经在出生点旁边就没必要浪费一次使用，也没有"回不去"的问题。
+    if (homeAlready) {
+      return { ok: false, used: mirror.name, slot: mirror.slot, from, to: from, reason: '你本来就在出生点旁边，魔镜没有可回的地方' }
+    }
+
+    // 先把上一个命令残留的方向键/挥动全部清掉，否则人还在走，位移会被当成"传送"。
+    await request('stop', {}, { signal }).catch(() => null)
+    await request('use', { slot: mirror.slot, ms: 1800 }, { signal })
+
+    const waited = await pollUntil(async () => {
+      const tile = await tileOf()
+      // 唯一的成功判据是"人到了出生点附近"。用位移判不行：往下掉一格的采样间隔
+      // 就能跳出好几格，实测把自由落体当成了传送。
+      if (spawn) return distToSpawn(tile) <= 3 ? { tile, via: 'home' } : null
+      const d = Math.hypot((tile[0] ?? 0) - (from[0] ?? 0), (tile[1] ?? 0) - (from[1] ?? 0))
+      return d >= RECALL_DISTANCE ? { tile, via: 'jump' } : null
+    }, { deadlineMs, signal })
+
+    const to = waited.hit ? waited.value.tile : await tileOf()
+    if (!waited.hit) {
+      return {
+        ok: false, used: mirror.name, slot: mirror.slot, from, to,
+        reason: homeAlready
+          ? '你本来就在出生点旁边，魔镜没有可回的地方'
+          : '用了回城物品但位置没变：确认没有在读条被打断、也没被怪打断',
+      }
+    }
+    return { ok: true, used: mirror.name, slot: mirror.slot, from, to, via: waited.value.via, attempts: waited.attempts }
+  }
+
   async function stackAt(slot, signal) {
     if (typeof slot !== 'number' || slot < 0) return null
     const inv = (await request('inventory', {}, { signal })).data ?? {}
@@ -446,6 +509,7 @@ export function createPrimitives({ request, sleep = defaultSleep, now = Date.now
     chestPut,
     chestTake,
     countItem,
+    escapeHome,
     pollUntil,
   }
 }

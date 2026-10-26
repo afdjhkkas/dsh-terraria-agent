@@ -416,3 +416,77 @@ test('fillVerified 逐格真实放置：已实心的格跳过、够不着先走�
   assert.equal(r.ok, false)
   assert.ok(r.failures.length >= 1 && r.failures.length <= 8)
 })
+
+/* ── escapeHome：掉坑用魔镜回城 ───────────────────────────────────────── */
+
+test('escapeHome 没有回城物品时明确拒绝，不假装成功', async () => {
+  const request = async (cmd) => {
+    if (cmd === 'inventory') return { data: { items: [{ slot: 0, type: 1, stack: 1 }] } }
+    return { data: {} }
+  }
+  const prim = createPrimitives({ request, sleep: async () => {} })
+  const r = await prim.escapeHome({ deadlineMs: 50 })
+  assert.equal(r.ok, false)
+  assert.match(r.reason, /回城/)
+  assert.equal(r.used, null)
+})
+
+test('escapeHome 位置真的跳回出生点才算成功', async () => {
+  let used = 0
+  let tile = [2200, 400]
+  const request = async (cmd, params) => {
+    if (cmd === 'inventory') return { data: { items: [{ slot: 7, type: 50, name: '魔镜', stack: 1 }] } }
+    if (cmd === 'state') return { data: { player: { tile: [...tile] } } }
+    if (cmd === 'use') { used++; assert.equal(params.slot, 7); tile = [2097.5, 275.7]; return { data: { slot: 7 } } }
+    return { data: {} }
+  }
+  const prim = createPrimitives({ request, sleep: async () => {} })
+  const r = await prim.escapeHome({ deadlineMs: 200 })
+  assert.equal(used, 1, '必须真的对魔镜那一格发起使用')
+  assert.equal(r.ok, true)
+  assert.equal(r.used, '魔镜')
+  assert.equal(r.slot, 7)
+  assert.deepEqual(r.from, [2200, 400])
+  assert.deepEqual(r.to, [2097.5, 275.7])
+})
+
+test('escapeHome 用了但位置没变 → 失败并说明原因', async () => {
+  const request = async (cmd) => {
+    if (cmd === 'inventory') return { data: { items: [{ slot: 7, type: 50, name: '魔镜', stack: 1 }] } }
+    if (cmd === 'state') return { data: { player: { tile: [2200, 400] } } }
+    if (cmd === 'use') return { data: { slot: 7 } }
+    return { data: {} }
+  }
+  const prim = createPrimitives({ request, sleep: async () => {} })
+  const r = await prim.escapeHome({ deadlineMs: 20 })
+  assert.equal(r.ok, false)
+  assert.equal(r.used, '魔镜')
+  assert.match(r.reason, /位置没变/)
+})
+
+test('escapeHome 认得桥返回的 {x,y} 形态出生点：离得远才判“到家”', async () => {
+  let tile = [2300, 400]
+  const request = async (cmd) => {
+    if (cmd === 'inventory') return { data: { items: [{ slot: 7, type: 50, name: '魔镜', stack: 1 }] } }
+    if (cmd === 'state') return { data: { player: { tile: [...tile], spawn: { x: 2097, y: 277 } } } }
+    if (cmd === 'use') { tile = [2097.5, 275.7]; return { data: { slot: 7 } } }
+    return { data: {} }
+  }
+  const prim = createPrimitives({ request, sleep: async () => {} })
+  const r = await prim.escapeHome({ deadlineMs: 100 })
+  assert.equal(r.ok, true)
+  assert.equal(r.via, 'home', '有出生点坐标时，判据是“到家”，不是“动了多远”')
+})
+
+test('escapeHome 人已经在家旁边时明说“没地方可回”', async () => {
+  const request = async (cmd) => {
+    if (cmd === 'inventory') return { data: { items: [{ slot: 7, type: 50, name: '魔镜', stack: 1 }] } }
+    if (cmd === 'state') return { data: { player: { tile: [2097.5, 275.7], spawn: { x: 2097, y: 277 } } } }
+    if (cmd === 'use') return { data: { slot: 7 } }
+    return { data: {} }
+  }
+  const prim = createPrimitives({ request, sleep: async () => {} })
+  const r = await prim.escapeHome({ deadlineMs: 500 })
+  assert.equal(r.ok, false)
+  assert.match(r.reason, /本来就在出生点旁边|位置没变/)
+})
