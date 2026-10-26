@@ -429,3 +429,21 @@ const shape = scan.tiles[row][col * scan.stride + 4]   // 0 实心 / 1 半砖 / 
 ### 本轮新增硬规则
 1. `place` 瞄准行必须是身体下方那一行（`round(py)+1`）。
 2. 通道验收看“连续位置推进 + hp 不变 + 每列脚下实心”，不看单次 `place` 返回值。
+
+## 第 34 轮：阶段④ 回归跑起来（`scripts/live-regress.mjs`）
+
+新增脚本 `scripts/live-regress.mjs`（`node scripts/live-regress.mjs [--port 47777]`）：对当前已部署的 mod + 桥做 13 项真机自检，**每条都以“回读世界/背包字段”判定**，不认命令返回值；改动世界的那两项（place/mine）会在原地挖回去，净变化为零。
+
+结果：**13/13 PASS**（port 47777）
+```
+PASS R01 桥连通        PASS R06 inventory count/free     PASS R11 recipes 命中 38 条
+PASS R02 state.player  PASS R07 gravity grounded/vy      PASS R12 housing 带坐标可读
+PASS R03 tile 字段全   PASS R08 place 后回读变实心       PASS R13 chatpost 回写成功
+PASS R04 scan 行=h×stride  PASS R09 mine 后回读变空
+PASS R05 find 命中 8 个石块 PASS R10 grab seen/picked
+```
+作用：以后每次改代码/部署完，跑一条命令就知道“能力还在不在”，不用再逐条回忆用例。
+
+### 顺带暴露的回归（记为 S11）
+`housediag 2125,274` 又变成 `valid:false, tiles:9001, leaks@y=1`；逐格读 272–274 行发现**天花板与两侧墙全部是空气**——世界回到了“房子还没盖”的存档。
+**教训：建房这类有状态的里程碑，做完必须立刻 `save`（发到服务端端口 47778），否则宿主重启就回滚。** 回归脚本只能证明“能力在”，不能证明“世界状态在”。
