@@ -32,6 +32,7 @@ namespace DshTerrariaBridge
                 case "state": return State();
                 case "scan": return Scan(p);
                 case "tile": return TileAt(p);
+                case "gravity": return Gravity(p);
                 case "mine": return Mine(p);
                 case "mirror": return MirrorHome(p);
                 case "accessory": return Accessory(p);
@@ -507,6 +508,53 @@ namespace DshTerrariaBridge
                 data["legend"] = "每行从 x0 往右读：\"<数量>x<type>\"，type=-1 为空；map[j] 对应 y=y0+j";
             }
 
+            return Json.Ok(data);
+        }
+
+        /// <summary>
+        /// 重力/物理诊断：把原版判定"我这只脚站不站得住"用到的字段全打印出来。
+        /// 用来定位 "grounded:true 但脚下全空、坐标一格不动" 这类卡死。
+        /// </summary>
+        private static string Gravity(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int cx = (int)(pl.Center.X / 16f), cy = (int)(pl.Center.Y / 16f);
+            var feet = new List<object>();
+            for (int x = cx - 1; x <= cx + 1; x++)
+            {
+                for (int y = cy + 1; y <= cy + 3; y++)
+                {
+                    if (!InBounds(x, y)) continue;
+                    Tile t = Main.tile[x, y];
+                    feet.Add(new { x, y, hasTile = t.HasTile, type = (int)t.TileType, solid = Main.tileSolid[t.TileType], solidTop = Main.tileSolidTop[t.TileType], slope = (int)t.Slope });
+                }
+            }
+            var data = new
+            {
+                pos = new[] { MathF.Round(pl.position.X / 16f, 2), MathF.Round(pl.position.Y / 16f, 2) },
+                center = new[] { MathF.Round(pl.Center.X / 16f, 2), MathF.Round(pl.Center.Y / 16f, 2) },
+                velocity = new[] { MathF.Round(pl.velocity.X, 3), MathF.Round(pl.velocity.Y, 3) },
+                oldVelocity = new[] { MathF.Round(pl.oldVelocity.X, 3), MathF.Round(pl.oldVelocity.Y, 3) },
+                grounded = pl.velocity.Y == 0f,
+                standing = pl.Bottom.Y / 16f,
+                controlJump = pl.controlJump,
+                controlDown = pl.controlDown,
+                controlLeft = pl.controlLeft,
+                controlRight = pl.controlRight,
+                controlUseItem = pl.controlUseItem,
+                mount = pl.mount?.Type ?? -1,
+                webbed = pl.webbed,
+                wet = pl.wet,
+                fallStart = pl.fallStart,
+                wingTime = pl.wingTime,
+                jump = pl.jump,
+                jumpSpeed = Player.jumpSpeed,
+                updateCount = Main.GameUpdateCount,
+                frameVel = Main.player[Main.myPlayer]?.velocity is Vector2 v ? new[] { MathF.Round(v.X, 3), MathF.Round(v.Y, 3) } : null,
+                feet,
+            };
             return Json.Ok(data);
         }
 

@@ -50,7 +50,7 @@
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
 | `mount` | `activeAfter` `held` `action` `active` `type` `flight` `items` |
 
-## 二、动作能力（54 个命令）
+## 二、动作能力（55 个命令）
 
 | 命令 | 参数 | 干什么 |
 |---|---|---|
@@ -72,6 +72,7 @@
 | `follow` | `off` `player` `guard` `range` | — |
 | `goblin` | — | — |
 | `grab` | `r` | — |
+| `gravity` | — | — |
 | `guard` | `off` `ms` `r` | — |
 | `heal` | — | — |
 | `homeroom` | `x` `y` `who` | — |

@@ -229,3 +229,27 @@ NullReferenceException
 - **H2 读取与实际不同步**：`Main.tile` 在该区域读到的是未加载 section（返回空），但玩家碰撞用的是已加载数据。下一步：同一格用 `tile` 与 `scan` 交叉读，并在停止移动/等待 1 秒后再读一次。
 
 **绕行办法（已验证）**：`jump` 一次可以解锁，让角色掉进下方空腔继续下挖。
+
+### S10 追查进展（第 29 轮，已加 `gravity` 诊断命令）
+
+新增桥命令 **`gravity`**（`DshTerrariaBridge/Commands.cs`），一次返回：
+`pos / center / velocity / oldVelocity / grounded / standing / controlJump / controlDown / controlLeft / controlRight /
+controlUseItem / mount / webbed / wet / fallStart / wingTime / jump / jumpSpeed / updateCount / frameVel`，
+以及脚下 3 行 × 3 列的 `hasTile / type / solid / solidTop / slope`。
+
+**用它在出生点读到的正常态**（说明命令本身对）：
+```
+pos [2096.88,274.38] center [2097.5,275.69] velocity [0,0] grounded true standing 277
+feet: (2097,277)=Grass type2 solid=true / (2098,277)=dirt solid / (2096,277)=air(wall 30)
+```
+
+**第 29 轮新观察（把问题缩小到"具体格子挖不动"）**
+- `(2096,277)` → `mine` 一次即破；
+- `(2097,277)`、`(2098,277)` → 连续 `mine` 两次（1800ms + 等待 2.6s）**始终不破**，回读仍是 `Grass`；
+- 横移一格再挖、掉到 (2093,282.5) 再挖，同样不破（此时距离 ≈6.8 格，已超过镐子的 5.5 格范围，属正常拒绝）。
+- 两格共同点：**都落在角色碰撞盒所在列**（中心 2097.5、盒宽 1.25 格 → 覆盖 2096.9~2098.1）。
+
+**当前最可能的解释**：挥镐的 aimed cell 与角色自身碰撞盒重叠时，原版 `ItemCheck` 会把这次使用判为无效
+（放方块的同类规则已确认存在；挖方块是否同样被拦下待验证）。
+**下一步验证**：把角色挪到与目标格完全不相邻的位置（水平隔 2 格、垂直隔 1 格），再对同一格 `mine`；
+若那时能破，即可确认"身体重叠格不可挖"，并把竖井算法改成"永远挖井壁两侧、不挖自身列"。

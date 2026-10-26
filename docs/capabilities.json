@@ -392,6 +392,13 @@
       "summary": ""
     },
     {
+      "name": "gravity",
+      "kind": "act",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
       "name": "guard",
       "kind": "act",
       "params": [
