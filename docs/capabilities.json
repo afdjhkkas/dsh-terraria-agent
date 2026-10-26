@@ -752,6 +752,23 @@
       "summary": ""
     },
     {
+      "name": "nodig",
+      "kind": "read",
+      "params": [
+        "action",
+        "x1",
+        "y1",
+        "x2",
+        "y2"
+      ],
+      "returns": [
+        "cleared",
+        "count",
+        "zones"
+      ],
+      "summary": ""
+    },
+    {
       "name": "npc",
       "kind": "read",
       "params": [

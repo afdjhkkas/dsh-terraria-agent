@@ -52,6 +52,7 @@ namespace DshTerrariaBridge
                 case "housing": return Housing(p);
                 case "needs": return RoomDiagnostics(p);
                 case "homeroom": return HomeRoom(p);
+                case "nodig": return NoDig(p);
                 case "housediag": return HouseDiag(p);
                 case "items": return DroppedItems(p);
                 case "grab": return GrabLoot(p);
@@ -1951,6 +1952,21 @@ namespace DshTerrariaBridge
         /// HoleInWallIsTooBig，且 box 总是往西/北漏到固定坐标），没法当判据。
         /// 这里一次独立洪水填充 + 逐条核对原版规则，返回"缺什么"。
         /// </summary>
+        /// <summary>登记/查看/清空“不许挖”矩形：自己造的东西靠类型分不出来，只能显式记。</summary>
+        private static string NoDig(JsonElement p)
+        {
+            string act = (Json.Str(p, "action", "list") ?? "list").ToLowerInvariant();
+            if (act == "clear") { BridgeSystem.NoDigZones.Clear(); return Json.Ok(new { cleared = true, count = 0 }); }
+            if (act == "add")
+            {
+                int x1 = Json.Int(p, "x1", 0), y1 = Json.Int(p, "y1", 0), x2 = Json.Int(p, "x2", 0), y2 = Json.Int(p, "y2", 0);
+                if (x1 <= 0 || y1 <= 0 || x2 <= 0 || y2 <= 0) return Json.Error("nodig add 需要 x1,y1,x2,y2");
+                BridgeSystem.NoDigZones.Add((Math.Min(x1, x2), Math.Min(y1, y2), Math.Max(x1, x2), Math.Max(y1, y2)));
+            }
+            var list = BridgeSystem.NoDigZones.Select(z => new { x0 = z.x0, y0 = z.y0, x1 = z.x1, y1 = z.y1 }).ToList();
+            return Json.Ok(new { count = list.Count, zones = list });
+        }
+
         private static string HouseDiag(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);

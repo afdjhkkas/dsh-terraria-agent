@@ -390,8 +390,24 @@ namespace DshTerrariaBridge
         internal static bool PathProtectBuilds = true;
         private static readonly HashSet<int> ProtectTiles = new() { 4, 10, 11, 15, 16, 17, 18, 19, 21, 26, 30, 31, 50, 51, 63, 72, 73, 77, 85, 86 };
 
+        // 人自己认下来的“不许挖”矩形（自己的房子、NPC 房、箱区…）。
+        // 只靠方块类型判断不够：自建房屋的地板常常就是普通的土/石，按类型看和天然地形一模一样。
+        // 真正的判据是“这块地方是我造的/我要留的”，只能由建造方登记。
+        internal static List<(int x0, int y0, int x1, int y1)> NoDigZones = new();
+
+        internal static bool InNoDigZone(int x, int y)
+        {
+            for (int i = 0; i < NoDigZones.Count; i++)
+            {
+                var z = NoDigZones[i];
+                if (x >= z.x0 && x <= z.x1 && y >= z.y0 && y <= z.y1) return true;
+            }
+            return false;
+        }
+
         internal static bool IsProtectedBuild(int x, int y)
         {
+            if (InNoDigZone(x, y)) return true;
             Tile t = Main.tile[x, y];
             return t.HasTile && ProtectTiles.Contains(t.TileType);
         }
@@ -548,12 +564,18 @@ namespace DshTerrariaBridge
                 int sign = Math.Sign(dx);
                 // 只在“真被挡住”（位置连续几 tick 没变）时才挖：实测无条件挥镐会在自建房里把地板和墙刨掉。
                 bool blocked = !TileAir(px + sign, py) || !TileAir(px + sign, py + 1);
-                if (blocked && PathStillTicks >= 5 && PathAllowDig)
-                    for (int k = -2; k <= 1; k++) if (!TileAir(px + sign, py + k)) WalkMine(px + sign, py + k);
                 if (TileAir(px + sign, py + 2) && TileAir(px + sign, py + 3)) PlaceWalkBlock(px + sign, py + 2);
-                // 跳之前先比高度：满跳只有 6 格左右，目标高出一大截时跳也是白跳（实测会贴墙原地弹）。
+                // 障碍处理顺序：先跳（1 格台阶跳过去就行）→ 还不行才动镐。
+                // 事故背景：原来的顺序是“看到挡路就先挥镐”，结果在自建房里把地板、墙和门一起刨了。
                 int rise = py - next.y;
-                if (TileAir(px + sign, py + 2) && rise <= 5) WalkJump(2.4f);      // 台阶就跳
+                if (blocked)
+                {
+                    bool canHop = TileAir(px + sign, py + 2) && rise <= 5 && PathStillTicks < 5;
+                    if (canHop) WalkJump(2.4f);
+                    else if (PathStillTicks >= 5 && PathAllowDig)
+                        for (int k = -2; k <= 1; k++) if (!TileAir(px + sign, py + k)) WalkMine(px + sign, py + k);
+                }
+                else if (rise <= 5 && TileAir(px + sign, py + 2)) WalkJump(2.4f);
                 p.controlLeft |= sign < 0;
                 p.controlRight |= sign > 0;
                 p.velocity.X = sign * 2.9f;
