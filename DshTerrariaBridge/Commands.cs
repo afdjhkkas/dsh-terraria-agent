@@ -2650,7 +2650,10 @@ namespace DshTerrariaBridge
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             if (!CanTick(out string perr2)) return Json.Error(perr2);
             Player pl = P;
-            int ms = Math.Clamp(Json.Int(p, "ms", 150), 1, 2000);
+            // 默认按满跳（400ms → 6.1 格）。默认 150ms 只到 3.8 格，
+            // 于是"跳不上去"的判断全是假的——不是跳不过，是根本没跳满。
+            // 要精确高度传 tiles（实测曲线反查），要矮跳显式传更小的 ms。
+            int ms = Math.Clamp(Json.Int(p, "ms", 400), 1, 2000);
             // 真人实测：按住跳跃键顶到 6.1 格，短按只有 1.4~2.7 格——高度是靠"按住多久"走出来的。
             // 所以默认改成**原生跳跃**：只保持 controlJump，让引擎自己起跳并做变高，
             // 不再替它设竖直速度（旧做法恒 5.2 格，且有天花板时与真人差得更远）。
