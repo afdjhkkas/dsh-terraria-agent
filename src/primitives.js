@@ -135,11 +135,24 @@ export function createPrimitives({ request, sleep = defaultSleep, now = Date.now
       if (cleared.length) await sleep(300)
       await request('move', { dir, ms }, { signal })
       await sleep(ms + 250)
-      const after = await here()
-      const [x2, y2] = after.pos ?? [0, 0]
-      const moved = Math.hypot(x2 - px, y2 - py)
-      trace.push({ attempt, from: [px, py], to: [x2, y2], moved: +moved.toFixed(2), cleared })
-      if (moved >= 0.4) return { ok: true, dir, moved: +moved.toFixed(2), attempt, cleared, trace }
+      let after = await here()
+      let [x2, y2] = after.pos ?? [0, 0]
+      let moved = Math.hypot(x2 - px, y2 - py)
+      // 平面走不动但格子已经清空，多半是一格高的台阶：跳跃是唯一解。
+      // 实测：出生点东侧地面抬高 1 格，move 十几次位移 0；jump+move 立刻过去。
+      let jumped = false
+      if (moved < 0.4 && dx !== 0) {
+        await request('jump', { ms: 220 }, { signal })
+        await sleep(180)
+        await request('move', { dir, ms: Math.max(ms, 420) }, { signal })
+        await sleep(ms + 320)
+        after = await here()
+        ;[x2, y2] = after.pos ?? [0, 0]
+        moved = Math.hypot(x2 - px, y2 - py)
+        jumped = true
+      }
+      trace.push({ attempt, from: [px, py], to: [x2, y2], moved: +moved.toFixed(2), cleared, jumped })
+      if (moved >= 0.4) return { ok: true, dir, moved: +moved.toFixed(2), attempt, cleared, jumped, trace }
     }
     const last = trace[trace.length - 1] ?? { moved: 0 }
     return {

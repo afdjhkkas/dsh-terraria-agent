@@ -92,6 +92,10 @@ function makeFakeBridge({
       }
       case 'state':
         return { data: { player: { pos: [state.pos.x, state.pos.y], grounded: true, dead: false, life: 100, lifeMax: 100 } } }
+      case 'jump': {
+        // 跳跃本身不移动位置；只是让被测代码知道这一步用过了跳跃
+        return { data: { ok: true, jumped: true } }
+      }
       case 'move': {
         if (walkNowhere) return { data: { ok: true } }
         const dx = { left: -1, right: 1 }[params.dir] ?? 0
@@ -355,6 +359,27 @@ test('walkClear digs the head row that the body is caught on, then moves', async
   assert.equal(result.ok, true)
   assert.ok(result.cleared.length >= 2)
   assert.ok(result.moved > 0)
+})
+
+test('walkClear 走不动时用跳跃越过一格高的台阶', async () => {
+  // 实测：出生点东侧地面抬高 1 格，move 十几次位移 0；jump+move 一次就过去。
+  const state = { x: 10, y: 40, jumped: false, jumps: 0 }
+  const request = async (cmd, params = {}) => {
+    if (cmd === 'state') return { data: { player: { pos: [state.x, state.y] } } }
+    if (cmd === 'tile') return { data: { hasTile: false, type: -1, solid: false } }
+    if (cmd === 'jump') { state.jumped = true; state.jumps += 1; return { data: { ok: true } } }
+    if (cmd === 'move') {
+      if (state.jumped) state.x += 2
+      return { data: { ok: true } }
+    }
+    return { data: {} }
+  }
+  const prim = createPrimitives({ request, sleep: async () => {} })
+  const r = await prim.walkClear({ dir: 'right', ms: 1, attempts: 2 })
+  assert.equal(r.ok, true)
+  assert.equal(r.jumped, true)
+  assert.equal(state.jumps, 1)
+  assert.ok(r.moved > 0)
 })
 
 test('walkClear reports the real displacement instead of trusting move', async () => {
