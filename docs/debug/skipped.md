@@ -157,3 +157,15 @@ NullReferenceException
 - `WorldGen.moveRoom(x, y, who)` 的第三个参数是 **NPC 类型 id**，不是数组下标；代码已按 `n.type` 传参并部署。
 - 但 `homeroom` 仍然走 `via:"fields"` 兜底：说明 `moveRoom` 在这个世界没把 NPC 挪过去（向导仍在 (2137,337) 的坑里）。归属字段已经生效（`homeless:false`、`home:{2125,274}`），引擎不认。
 - 下一步可查：`moveRoom` 内部是否要求 NPC 当前 `homeless == true`（它第一件事就是把 homeless 置 false 再找床），以及是否需要先在“住房菜单”里打开过该房间。
+
+## S9 `travel` 在当前构建里不走也不挖（待查）
+
+**现象**：`travel {dir:"left", distance:100}` 返回 `{active:true, targetX:2001, …}`，但随后轮询 `state` 60 秒，
+坐标一格没动；`travel {distance:0}` 查状态回 `{active:true, steps:0, mine:0, swings:0}`。
+在同一位置 `move` 能走、`mine` 能挖，所以不是桥断线，是 travel 任务本身没推进。
+
+**已排除**：桥连接（`ping` ok / `move` 有效）、玩家卡死（同位置 `move` 有位移）。
+
+**下一步怎么查**：看 `BridgeSystem.cs` 的 travel 任务循环里 `steps/mine/swings` 的累加条件，
+确认它是否在等某个前置标志（例如“脚下必须 grounded”或“前方必须是空气”）而永远不满足。
+
