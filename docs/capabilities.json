@@ -217,6 +217,7 @@
       "kind": "both",
       "params": [
         "ms",
+        "moveMs",
         "slot",
         "right",
         "x",
@@ -710,7 +711,8 @@
       "name": "jump",
       "kind": "act",
       "params": [
-        "ms"
+        "ms",
+        "moveMs"
       ],
       "returns": [
         "tiles",

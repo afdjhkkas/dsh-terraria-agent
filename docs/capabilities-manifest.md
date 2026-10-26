@@ -86,7 +86,7 @@
 | `heal` | — | — |
 | `homeroom` | `x` `y` `who` | — |
 | `idle` | — | — |
-| `jump` | `ms` | — |
+| `jump` | `ms` `moveMs` | — |
 | `left` | — | — |
 | `left` | — | — |
 | `liquidop` | `x` `y` `ms` | — |
@@ -119,7 +119,7 @@
 | `walkto` | `x` `y` `tol` `ms` `dig` | — |
 | `wall` | `x` `y` `type` `remove` `ms` | — |
 | `chest` | `action` `slot` `count` `invSlot` | — |
-| `down` | `ms` `slot` `right` `x` `y` `item` `off` `r` `action` `player` `guard` `range` `who` `interval` `times` `event` | 按住跳跃键时长 → 跳跃顶点高度（格） |
+| `down` | `ms` `moveMs` `slot` `right` `x` `y` `item` `off` `r` `action` `player` `guard` `range` `who` `interval` `times` `event` | 按住跳跃键时长 → 跳跃顶点高度（格） |
 | `mount` | `action` `slot` | — |
 
 ## 三、明确做不到的（做计划前先看这里）

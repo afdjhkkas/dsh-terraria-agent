@@ -24,7 +24,7 @@
 | `climb` | `dir` `ms` `lay` |
 | `craft` | `item` `times` |
 | `down` | — |
-| `down` | `ms` `slot` `right` `x` `y` `item` `off` `r` `action` `player` `guard` `range` `who` `interval` `times` `event` |
+| `down` | `ms` `moveMs` `slot` `right` `x` `y` `item` `off` `r` `action` `player` `guard` `range` `who` `interval` `times` `event` |
 | `drop` | `slot` `count` |
 | `duplicate` | `item` `count` |
 | `eclipse` | — |
@@ -54,7 +54,7 @@
 | `interact` | `x` `y` |
 | `inventory` | — |
 | `items` | `r` |
-| `jump` | `ms` |
+| `jump` | `ms` `moveMs` |
 | `keyevents` | `since` `max` `clear` |
 | `left` | — |
 | `left` | — |
