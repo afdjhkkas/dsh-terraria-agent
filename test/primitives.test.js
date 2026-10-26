@@ -386,6 +386,7 @@ test('fillVerified 逐格真实放置：已实心的格跳过、够不着先走�
   const prim = createPrimitives({ request })
   const r = await prim.fillVerified({ x1: 1, y1: 5, x2: 4, y2: 6, type: 1, ms: 1 })
   assert.equal(r.placed, 5, 'x<=3 的四格应放成功（(2,5) 已实心被跳过）')
+  assert.equal(r.skipped, 1, "(2,5) 已实心必须记进 skipped，而不是当成失败")
   assert.equal(r.failed, 2, 'x=4 的两格放不成，必须记进 failures')
   assert.equal(r.ok, false)
   assert.ok(r.failures.length >= 1 && r.failures.length <= 8)

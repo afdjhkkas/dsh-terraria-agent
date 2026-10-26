@@ -394,10 +394,11 @@ export function createPrimitives({ request, sleep = defaultSleep, now = Date.now
     const loX = Math.min(x1, x2), hiX = Math.max(x1, x2)
     const loY = Math.min(y1, y2), hiY = Math.max(y1, y2)
     const placed = [], failed = []
+    let skipped = 0
     for (let y = hiY; y >= loY; y--) {
       for (let x = loX; x <= hiX; x++) {
         const cur = await readTile(x, y, signal)
-        if (cur && cur.hasTile) continue
+        if (cur && cur.hasTile) { skipped++; continue }
         // 够不着就先走过去（水平方向；垂直靠挖/搭台阶，不在本函数职责内）
         for (let k = 0; k < 4; k++) {
           const st = (await request('state', {}, { signal })).data?.player
@@ -411,7 +412,9 @@ export function createPrimitives({ request, sleep = defaultSleep, now = Date.now
         if (r && r.ok) placed.push([x, y]); else failed.push({ x, y, reason: (r && r.reason) || (r && r.error) || 'not placed' })
       }
     }
-    return { ok: failed.length === 0 && placed.length > 0, placed: placed.length, failed: failed.length, cells: placed, failures: failed.slice(0, 8) }
+    // skipped 必须单独报：区域里本来就是实心的格既不算成功也不算失败，
+    // 否则「placed 0 / failed 0」看着像函数没干活（实测踩过一次）。
+    return { ok: failed.length === 0 && placed.length > 0, placed: placed.length, failed: failed.length, skipped, cells: placed, failures: failed.slice(0, 8) }
   }
 
   return {
