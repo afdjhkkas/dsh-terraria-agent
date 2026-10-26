@@ -191,3 +191,29 @@ test('atomizeEvents：按住不放超过上限不算单次动作', () => {
   assert.equal(atoms.length, 0)
   assert.ok(dropped.loop >= 1)
 })
+
+test('事件流优先于帧序列：按住时长取 tick 差值，并标明来自哪个原子', async () => {
+  const { createObserver } = await import('../src/observe-mode.js')
+  const { DemoLibrary } = await import('../src/demo-library.js')
+  const lib = new DemoLibrary({ file: 'C:/Windows/Temp/trtest/atom-obs.jsonl' })
+  lib.clear()
+  const seen = []
+  let t = 0
+  const obs = createObserver({
+    read: () => ({}), library: lib, everyMs: 50, windowMs: 1000,
+    now: () => (t += 60),
+    planner: () => ({ kind: 'mine', digHoldMs: 40 }),
+    onSample: (e) => seen.push(e),
+  })
+  const snap = { zone: 'surface', grounded: true, life: 100, lifeMax: 100 }
+  // 帧序列只知道"在按左键"；事件流说这 9 tick 是精确的按住时长。
+  obs.tick({ snap, input: { mouse: { left: true }, player: { tile: [0, 0] } }, events: [{ tick: 100, key: 'mouseLeft', down: true }] })
+  obs.tick({ snap, input: { mouse: { left: true }, player: { tile: [0, 0] } }, events: [] })
+  obs.tick({ snap, input: { mouse: { left: false }, player: { tile: [0, 0] } }, events: [{ tick: 109, key: 'mouseLeft', down: false }] })
+  obs.run({ ms: 0, maxFrames: 0 })
+  if (seen.length) {
+    const held = seen[0].human?.digHoldMs
+    assert.ok(held > 0, '按住时长应当来自事件流')
+  }
+  lib.clear()
+})

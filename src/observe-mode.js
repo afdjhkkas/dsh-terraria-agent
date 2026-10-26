@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { actionDelta, sceneLabel, sceneOf, tuneTiming } from './demo-library.js'
+import { atomizeEvents } from './atom-model.js'
 import { describeViolations, gatePlan, loadRuleSet } from './rule-gate.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -291,6 +292,18 @@ export function createObserver({
     const last = frames[frames.length - 1]
     const snap = last.snap || {}
     const human = framesToAction(frames, everyMs)
+    // 有 tick 级事件就优先用它：按住时长由 up/down 两个 tick 相减，不受轮询帧间隔影响。
+    // 帧序列只负责判断“这一段人在干什么”，时长以事件流为准。
+    const segEvents = frames.flatMap(fr => fr.events || [])
+    if (segEvents.length) {
+      const { atoms } = atomizeEvents(segEvents)
+      const first = atoms.find(a => a.kind === human.kind || (human.kind === 'mine' && a.kind === 'mine-swing')) || atoms[0]
+      if (first && Number.isFinite(first.holdMs)) {
+        const key = first.kind.startsWith('jump') ? 'jumpHoldMs' : first.kind === 'place-swing' ? 'digHoldMs' : 'digHoldMs'
+        human[key] = first.holdMs
+        human.atomKind = first.kind
+      }
+    }
     // 人整段没动手：这是"没示范"，不是"人做错了"。不进库，也不许编造修正。
     if (human.kind === 'idle') {
       stats.discarded += 1
