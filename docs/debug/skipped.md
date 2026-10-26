@@ -210,3 +210,22 @@ NullReferenceException
 1. 测试期间只跑单进程（`deploy2.ps1` 会自动杀掉所有 tModLoader 进程再起客户端 host&play）；
 2. 让桥接同时持有服务端连接（47778），把"动作类"命令发给服务端、把"观察类"命令留给客户端。
    代价：两边的 tile 视图可能不一致，需要额外做一致性校验。
+
+## S10 「站在空气上不动」（grounded:true + 脚下全空 + velocity 恒 [0,0]）
+
+**现象（host&play 单进程下也会出现，与 S9 无关）**
+- `state.player` → `pos:[2094.44,281.38]`、`velocity:[0,0]`、`grounded:true`；
+- `tile` 逐格读脚下 1..12 行（两列）**全是 `hasTile:false`**；
+- `mine` 对这些格返回 `mode:"player"` + 正确 `held`，但坐标一格不动；
+- `move down 400ms` 无效；**`jump` 有效**：y 274.38 → 276.29、`grounded:false`，随后下落 1.9 格才停 —— 说明重力管线是活的，只是平时被"钉住"。
+
+**已经排除**
+- 不是 S9（本轮是 `deploy2.ps1` 起的 host&play 单进程，进程表只有一个 `tModLoader.dll`）；
+- 不是读错坐标系（`scan` 与 `tile` 对同一格读数一致，且同一会话里 `mine` 能正常打碎 (2095,277)）；
+- 不是 reach 问题（`mine` 对 3 格内的格子同样无效）。
+
+**两个待验证假设**
+- **H1 运动写入钉住了竖轴**：桥每帧按输入写 `player.velocity`，空闲时不写 Y；若某条路径把 `velocity.Y` 归零而 `grounded` 仍为 true，原版跳跃/重力判定就会一直被跳过。下一步：加诊断命令 `gravity`，打印 `velocity / oldVelocity / controlJump / controlDown / grounded / mount / wet / frozen / fallStart` 与脚下 3 格的原版读法，定位是谁在钉。
+- **H2 读取与实际不同步**：`Main.tile` 在该区域读到的是未加载 section（返回空），但玩家碰撞用的是已加载数据。下一步：同一格用 `tile` 与 `scan` 交叉读，并在停止移动/等待 1 秒后再读一次。
+
+**绕行办法（已验证）**：`jump` 一次可以解锁，让角色掉进下方空腔继续下挖。
