@@ -13,6 +13,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MIN_HP_RATIO, RULES, checkAction } from './rule-gate.js'
+import { atomFromAction, sequenceRejection, strippedFields } from './atom-model.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const DEFAULT_CASE_PATH = join(HERE, '..', 'data', 'demo-cases.jsonl')
@@ -163,6 +164,13 @@ export class DemoLibrary {
 
   /** 记一条样本。返回本次是否真的入库，以及被丢弃的原因。 */
   record(sample = {}, opts = {}) {
+    // 规则 1/2/3/4/6：执行序列、循环轮数、分支走向、固定坐标一律不许入库，
+    // 入口就先拒掉——不是存下来再过滤，而是根本不让它进来。
+    const seq = sequenceRejection(sample)
+    if (seq) {
+      this.discarded.push({ reason: seq, rule: null, kb: null, at: sample.at || null })
+      return { ok: false, reason: seq, stripped: strippedFields(sample) }
+    }
     const gate = validateSample(sample, opts)
     if (!gate.ok) {
       // 丢弃也要能溯源：rule/kb 来自知识库闸门，日志里直接写"违背了哪条成文规则"。
@@ -175,6 +183,8 @@ export class DemoLibrary {
       at: sample.at || new Date().toISOString(),
       scene: sceneOf(sample.snap),
       label: sceneLabel(sample.snap),
+      // 入库的只有原子模板（动作 + 按住多久）；坐标/次数/总时长在入口就被 sequenceRejection 挡掉了。
+      atom: atomFromAction(sample.human),
       human: sample.human,
       agent: sample.agent || null,
       delta,
