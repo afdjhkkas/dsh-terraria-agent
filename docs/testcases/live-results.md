@@ -313,3 +313,24 @@ S8（铅砧差 1 锭）已解决。取矿路线与本次一模一样：`move` �
 `Stop-Process 70256` 之后客户端直接失去玩家（`state.player` 为 undefined）——说明当前不是 host&play，而是"客户端 + 专用服务端"。
 **结论：只有 `deploy2.ps1`（先杀光所有 tModLoader 进程再起 host&play）才能保证单进程权威。**
 本轮末尾杀服务端导致客户端掉回菜单，因此物理测试中断，G06 顺延到下一轮（重启后从 (2094,319) 陶罐继续）。
+
+## 第 30 轮：G06 PASS（陶罐）+ 一次读取格式的自我纠错
+
+### G06 打碎陶罐、捡走里面东西 —— PASS
+- 从出生点竖井两列下挖，**连挖 37 行，0 次失败**（`mine` 每格两次机会、回读 `hasTile===false` 判成功）。
+- `find {type:28}` 在 (2094..2095, 319..320) 找到 4 格陶罐；逐个 `mine` → 4/4 回读为破。
+- `inventory` 前后总数 **6924 → 6929**（+5 件），但新名字列表为空 —— 说明掉的东西并进了已有堆叠（钱币/凝胶这类）。
+  **结论：判“捡到东西”不能只看“有没有新名字”，要看总数量。**
+
+### 自我纠错：`scan` 的 `tiles` 不是一维平铺数组
+我上一轮用 `tiles[j*w*stride + i*stride]` 读，得到一片空白，于是怀疑“读数和世界不一致”。
+真实结构：`tiles` 是**按行排列的二维数组**（`tiles.length === h`），每行是 `w*stride` 个数字按格内字段交错：
+```js
+const cell = scan.tiles[row][col * scan.stride]        // type，-1 表示空气
+const wall = scan.tiles[row][col * scan.stride + 1]
+const liquid = scan.tiles[row][col * scan.stride + 2]
+const liqType = scan.tiles[row][col * scan.stride + 3] // 0 水 / 1 岩浆 / 2 蜂蜜 / 3 微光
+const shape = scan.tiles[row][col * scan.stride + 4]   // 0 实心 / 1 半砖 / 2..5 斜坡
+```
+按这个结构重读 (2094..2100, 274..280)：`tile` 说 (2097,277)=dirt、(2097,276)=Trees，`scan` 同一格给 `2` 与 `5` —— **两条读取路径完全一致**。
+→ 撤回“桥的读数和世界不同步”的怀疑（H2 不成立）；上一轮对 (2097,277) 两次挖不动，是因为当时角色站在出生点正上方、目标格就在脚下那一列（后来换到竖井里、同样的两列公式就 37 行全通）。
