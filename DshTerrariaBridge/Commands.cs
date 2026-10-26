@@ -2378,6 +2378,7 @@ namespace DshTerrariaBridge
             // 而真到跟前又不许挖（建材受保护），结果是卡在墙根报 stuck（实测）。
             // 要开隧道就显式传 dig:true。
             BridgeSystem.PathAllowDig = Json.Bool(p, "dig", false);
+            BridgeSystem.PathGreedy = false;   // 每次 walkto 从规划模式开始，算不出才退贪心
             BridgeSystem.PathProtectBuilds = true;
             BridgeSystem.BeginWalk(x, y, tol, BridgeSystem.Now + BridgeSystem.Ticks(ms));
             return Json.Ok(new { target = new { x, y }, tol, ms });

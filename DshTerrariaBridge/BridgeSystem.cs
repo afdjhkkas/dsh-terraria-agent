@@ -455,7 +455,11 @@ namespace DshTerrariaBridge
         internal static int PathIndex;
         internal static string PathStop = "";
         internal static ulong PathDeadline;
-        internal static bool PathAllowDig = true;
+        // 默认不挖：挖是破坏性动作，必须由上层显式 dig:true 才允许。
+        // 事故：默认 true 时 walkto 一靠近房子就把周围土石刨了一遍。
+        internal static bool PathAllowDig = false;
+        /// <summary>A* 算不出路时（要跳上屋顶、门在反方向这类三维动作）退回"朝目标贪心走"。</summary>
+        internal static bool PathGreedy;
         // 自己造的东西不拿去当路挖（实测事故：从自建的 NPC 房出来时，寻路直接把墙挖穿，房子当场漏气）。
         // 做法是先把这些方块当不可通行，让 A* 绕路；真绕不过去再由调用方显式放开。
         internal static bool PathProtectBuilds = true;
@@ -505,7 +509,7 @@ namespace DshTerrariaBridge
         private static bool FloorWithin(int x, int y, int depth)
         {
             for (int k = 1; k <= depth; k++)
-                if (!TileAir(x, y + k)) return true;
+                if (TileStand(x, y + k)) return true;
             return false;
         }
 
@@ -704,6 +708,9 @@ namespace DshTerrariaBridge
         internal static int WalkStuckHard;
         internal static int WalkRepathSame;
         internal static ulong WalkDoorUntil;
+        /// <summary>前方地形扫描缓存（每 10 tick 重扫；索引 1..8 = 前方第 n 列第一块实心的 y，int.MinValue=无地面）。</summary>
+        private static int[] WalkScan;
+        private static ulong WalkScanAt;
         internal static int WalkRepathPx = -99999;
         internal static int WalkWpX, WalkWpY;
         internal static bool WalkHasWp;
@@ -777,6 +784,38 @@ namespace DshTerrariaBridge
         /// 取太远（第 8 步）会变成“原地往上跳 8 格”，跳不上去白算。
         /// 预算按进展算：从上次重算位置又往前挪 2 格以上，说明在推进，次数重新给满。
         /// </summary>
+        /// <summary>
+        /// 区域预判：读前方 w 列、py-3..py+8 行的地形，返回每列第一块实心方块的 y。
+        /// 一次读一片，比逐格摸墙多了"隔壁几列能不能站"的信息——门口、台阶、屋顶边缘都靠它区分。
+        /// </summary>
+        // 平台（type 19）在 Main.tileSolid 里是 false、只在 tileSolidTop 里为 true。
+        // 之前所有“有没有地面/是不是悬崖”都只看 tileSolid，于是站在木平台上会被判成悬空、
+        // 前方整条平台路被判成悬崖（m16944/m17008 两次 cliff 都是这个原因）。
+        private static bool TileStand(int x, int y)
+        {
+            if (x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY) return true;
+            Tile t = Main.tile[x, y];
+            if (!t.HasTile) return false;
+            int ty = t.TileType;
+            return Main.tileSolid[ty] || Main.tileSolidTop[ty] || TileID.Sets.Platforms[ty];
+        }
+
+        private static int[] ScanGround(int px, int py, int sign, int w)
+        {
+            var g = new int[w + 1];
+            for (int i = 1; i <= w; i++)
+            {
+                g[i] = int.MinValue;
+                // 向下必须扫够深：跳跃中 py 会临时高出地面 6 格，只看 +8 会把脚下地板漏掉，
+                // 于是"人在空中"被误判成悬崖（m16944 那次 cliff 就是这么来的）。
+                for (int k = -3; k <= 16; k++)
+                {
+                    if (TileStand(px + sign * i, py + k)) { g[i] = py + k; break; }
+                }
+            }
+            return g;
+        }
+
         private static bool TryRepath(int px, int py)
         {
             // 只有“位置真的前进了”才清零重算计数；否则连续 3 次重算不出进展就认输。
@@ -785,6 +824,9 @@ namespace DshTerrariaBridge
             if (Math.Abs(px - WalkRepathPx) >= 2) { WalkRepaths = 0; WalkRepathPx = px; }
             if (WalkRepaths >= 3) return false;
             string why;
+            // 滚动局部规划：ComputePath 的包围盒本身只覆盖 ±10/±14/±18 格（见其内部实现），
+            // 已经天然是"近距离规划"。曾在外面再套一层 16 格截断，结果把目标点截到
+            // 平台中间、路点来回振荡，反而从能走到 2173 退化成卡在 2108（m17052 实测）。
             var path = ComputePath(px, py, WalkX, WalkY, out why);
             if (path == null || path.Count == 0) return false;
             int k = 0;
@@ -818,12 +860,14 @@ namespace DshTerrariaBridge
             if (py > WalkY + 2) { StopWalk("overshoot"); return; }
 
             int sign = Math.Sign(dx);
+            if (PathGreedy) sign = Math.Sign(WalkX - px);   // 贪心模式：不跟路径点，直接朝终点
             if (sign == 0) return;
 
             // 卡进实心格（跳跃落进墙里）：原地怎么走都出不来，先往上跳并清掉身内那一格
-            if (TileSolid(px, py))
+            // 必须“身体两格都实心”才算嵌进方块。原来只看 py 一格，而人站地上时 py 恰好就是
+            // 脚踩的那块地面 → 判定成立 → 每帧满跳 → 表现为一路跳着走（m16900/m16944 两次）。
+            if (TileSolid(px, py) && TileSolid(px, py - 1))
             {
-                WalkMine(px, py);
                 WalkJump(6.0f);
                 if (++WalkStuckHard > 24) { StopWalk("embedded"); }
                 return;
@@ -839,9 +883,7 @@ namespace DshTerrariaBridge
                 // 表现就是“原地不动但没停”（m16540 那次卡在门格就是这么来的）。
                 if (TryRepath(px, py)) { WalkStuck = 0; }
                 if (WalkRepaths >= 3) { StopWalk("stuck"); return; }
-                for (int dy2 = -1; dy2 <= 1; dy2++)
-                    if (TileSolid(px + sign, py + dy2)) WalkMine(px + sign, py + dy2);
-                WalkJump(3.2f);
+                WalkJump(5.5f);   // 只跳，不挖：挖是破坏性动作，不能塞在"自救"里自动发生
                 WalkStuck = 0;
             }
 
@@ -849,10 +891,16 @@ namespace DshTerrariaBridge
             int floorDepth = 0;
             bool floorFound = false;
             // 原来只看 4 格，2~4 格的小坑也被当悬崖停住；现在看到 8 格，≤6 格走下去（摔不死）
-            for (int k = 1; k <= 8; k++)
+            // 区域预判（用户规格：先扫一遍再决定，走的时候逐格问，到要判断的点再扫）。
+            // 每 10 tick 把前方 8 列的地面高度整体扫一次，缓存起来逐格使用；
+            // 单看一列会在门口/台阶/屋顶边缘误判，扫一片才能分出"能走 / 要跳 / 是坑 / 是门"。
+            if (Now - WalkScanAt >= 10 || WalkScan == null)
             {
-                if (TileSolid(px + sign, py + k)) { floorFound = true; floorDepth = k; break; }
+                WalkScan = ScanGround(px, py, sign, 8);
+                WalkScanAt = Now;
             }
+            floorFound = WalkScan[1] != int.MinValue;
+            floorDepth = floorFound ? Math.Max(0, WalkScan[1] - py) : 99;
             // 前方是门/房内：地板在门后面，从外侧探不到，“无地面”判据在这里会误报悬崖。
             bool doorAhead = false;
             for (int k = 0; k <= 2; k++)
@@ -860,7 +908,10 @@ namespace DshTerrariaBridge
                 Tile da = Main.tile[px + sign, py + k];
                 if (da.HasTile && (da.TileType == TileID.ClosedDoor || da.TileType == TileID.OpenDoor)) { doorAhead = true; break; }
             }
-            if ((!floorFound || floorDepth > 6) && !doorAhead)
+            // 落差 7~14 格不是悬崖，是该跳下去：真人走断头平台/屋顶边缘就是直接下跳，掉 10 格
+            // 只掉十来点血，而判成 cliff 会让整条路永远走不通（m17008 就卡在平台尽头）。
+            // 只有"前方 16 格都探不到地面"或落差超过 14 格才真的停。
+            if ((!floorFound || floorDepth > 14) && !doorAhead)
             {
                 if (TryRepath(px, py)) return;
                 StopWalk("cliff");
@@ -897,8 +948,9 @@ namespace DshTerrariaBridge
                 Tile dt = Main.tile[px + sign, py];
                 if (dt.HasTile && dt.TileType == TileID.ClosedDoor && Now > WalkDoorUntil)
                 {
-                    SetAim(px + sign, py);
-                    UseTileUntil = Now + 3;
+                    // 开门不是“挥镐”：挥镐只会把门敲坏。原版走这套是 Player.TileInteract，
+                    // 但它由真人右键触发；这里直接调 WorldGen.OpenDoor = 推开门，不改方块结构。
+                    WorldGen.OpenDoor(px + sign, py, sign);
                     WalkDoorUntil = Now + 25;
                     PathNextAct = Now + 6;
                     return;
@@ -931,12 +983,20 @@ namespace DshTerrariaBridge
                 Tile bt = Main.tile[px + sign, py];
                 if (bt.HasTile && !IsBuildTile(bt.TileType))
                 {
-                    WalkMine(px + sign, py);                    // 天然地形且高过满跳：才挖
+                    // 事故：这里原来"天然地形就自动挖"，结果一靠近房子就把周围土石刨了。
+                    // 挖是破坏性动作，必须由上层显式决定；walkto 只负责走，走不过去就停。
+                    StopWalk("wall-ahead");
                 }
                 else
                 {
-                    // 自己造的墙（2 格以上）：绝不留墙也不跳，重新规划绕开；规划不出才停
-                    if (!TryRepath(px, py)) StopWalk("blocked-build");
+                    // 自己造的墙：不挖。但"不挖"不等于"过不去" —— 先按满跳试跨（墙另一侧是空地就过去了），
+                    // 跨不过去才重新规划绕路，规划不出才停。事故：以前直接 TryRepath，A* 就地在原地打转。
+                    // A* 算不出（要跳上屋顶/门在反方向）就退回贪心：朝目标走，遇障按"走→跳→停"处理。
+                    if (!TryRepath(px, py))
+                    {
+                        if (WalkRepaths >= 3) { StopWalk("blocked-build"); return; }
+                        PathGreedy = true;
+                    }
                     return;
                 }
             }
@@ -947,12 +1007,12 @@ namespace DshTerrariaBridge
             // 只写 control 实测推不动人（本模组的写入时机抢不过原版输入解析），
             // 所以水平速度仍由这里直接给；门另走“主动开门”，不指望硬推能穿过去。
             if (Math.Abs(p.velocity.X) < 2.6f) p.velocity.X = sign * 2.6f;
-            if (dy < -1) { p.controlUp = true; WalkJump(2.8f); }
-            else if (dy > 2)
-            {
-                // 目标在下面：挖脚下的方块往下走
-                if (TileSolid(px, py + 2)) WalkMine(px, py + 2);
-            }
+            // 事故：这里原来每帧都调 WalkJump，"目标比当前高"就一路跳着走，看着像抽筋。
+            // 原版自己会跨 1 格台阶；只有明确要跨 2..5 格时才由上层显式 jump。
+            if (dy < -1) p.controlUp = true;
+            // 目标在下方（dy>2）：不挖，靠"走过边缘自然下落"。地形本来就有起伏，
+            // 事故：这里原来判 TileSolid(px,py+2) 就当成"要往下挖"直接停，而 py+2 往往就是自己脚踩的那块地。
+
         }
 
         /// <summary>
