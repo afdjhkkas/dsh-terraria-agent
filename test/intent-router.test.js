@@ -106,6 +106,12 @@ test('离线兜底：每句话至少命中它的一个核心标签，且永远�
     ['往东走，路上有怪就打', 'actor_behavior'],
     ['你上次说我听不懂人话吗，我说的是铺背景墙不是挖', 'task_correct'],
     ['这个方块放上去没反应，怎么回事', 'atomic_action'],
+    // m18346：房子类指令必须同时拿到"合格性判定"和"NPC 入住"，不能只剩建造手艺
+    ['盖一间NPC房子', 'npc_town'],
+    ['盖一间NPC房子', 'game_rule'],
+    // m18346：自建房的进出方式（门/屋顶平台口），不许靠拆墙
+    ['我被困在自己房子里出不去，要拆墙吗', 'build_standard'],
+    ['屋顶留两格平台当出口', 'build_standard'],
   ]
   for (const [text, want] of core) {
     const { tags } = route(text)
