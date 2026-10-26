@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   ATOMIC_KINDS, JUMP_TAP_MS, VOLATILE_FIELDS,
-  atomFromAction, atomize, formatAtoms, sequenceRejection, strippedFields,
+  atomFromAction, atomize, atomizeEvents, formatAtoms, sequenceRejection, strippedFields,
 } from '../src/atom-model.js'
 import { DemoLibrary } from '../src/demo-library.js'
 
@@ -144,4 +144,50 @@ test('单次挥镐的典型时长会被保留（不被上限误杀）', () => {
   const { atoms } = atomize(frames)
   assert.equal(atoms.length, 1)
   assert.equal(atoms[0].holdMs, 120)
+})
+
+test('atomizeEvents：按住时长由 up/down 两个 tick 相减，不受轮询间隔影响', () => {
+  const { atoms } = atomizeEvents([
+    { tick: 100, key: 'jump', down: true },
+    { tick: 124, key: 'jump', down: false },
+  ])
+  assert.equal(atoms.length, 1)
+  assert.equal(atoms[0].kind, 'jump-long')       // 24 tick ≈ 400ms
+  assert.equal(atoms[0].ticks, 24)
+  assert.ok(atoms[0].holdMs > 380 && atoms[0].holdMs < 420)
+})
+
+test('atomizeEvents：轻点跳与长按跳分开，且两次独立动作都保留', () => {
+  const { atoms } = atomizeEvents([
+    { tick: 10, key: 'jump', down: true }, { tick: 16, key: 'jump', down: false },
+    { tick: 200, key: 'jump', down: true }, { tick: 224, key: 'jump', down: false },
+  ])
+  assert.deepEqual(atoms.map(a => a.kind), ['jump-short', 'jump-long'])
+})
+
+test('atomizeEvents：紧接的同类动作只算一个模板', () => {
+  const { atoms, dropped } = atomizeEvents([
+    { tick: 10, key: 'jump', down: true }, { tick: 16, key: 'jump', down: false },
+    { tick: 18, key: 'jump', down: true }, { tick: 24, key: 'jump', down: false },
+  ])
+  assert.equal(atoms.length, 1)
+  assert.equal(dropped.loop, 1)
+})
+
+test('atomizeEvents：缺一半的事件不猜，另行计数', () => {
+  const { atoms, unmatched } = atomizeEvents([
+    { tick: 10, key: 'mouseLeft', down: false },
+    { tick: 20, key: 'mouseLeft', down: true },
+  ])
+  assert.equal(atoms.length, 0)
+  assert.equal(unmatched, 2)
+})
+
+test('atomizeEvents：按住不放超过上限不算单次动作', () => {
+  const { atoms, dropped } = atomizeEvents([
+    { tick: 0, key: 'mouseLeft', down: true },
+    { tick: 200, key: 'mouseLeft', down: false },
+  ])
+  assert.equal(atoms.length, 0)
+  assert.ok(dropped.loop >= 1)
 })

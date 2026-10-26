@@ -135,3 +135,61 @@ export function formatAtoms(atoms = []) {
   if (!atoms.length) return '（没有可入库的原子动作）'
   return atoms.map(a => `${ATOMIC_KINDS[a.kind]?.label || a.kind} ${a.holdMs}ms`).join('；')
 }
+
+/** 一个 tick 的近似毫秒数（60 tick/s）。只用于把“按住几个 tick”翻译成人能读的毫秒。 */
+export const TICK_MS = 1000 / 60
+
+/** 事件流里的键名 → 原子动作。方向键按“一次按住”算一次移动动作。 */
+const EVENT_KEY_KIND = {
+  jump: 'jump',
+  mouseLeft: 'mine-swing',
+  mouseRight: 'place-swing',
+  left: 'move',
+  right: 'move',
+  up: 'move',
+  down: 'move',
+}
+
+/**
+ * 从**事件流**抽原子动作模板（比帧轮询准：时长直接由 up/down 两个 tick 相减）。
+ *
+ * events 形如 [{tick, key, down}]，必须按 tick 升序；同键按下在前、松开在后。
+ * 返回 { atoms:[{kind, holdMs, ticks}], dropped, unmatched }：
+ *  - 只有配成对的按下/松开才算一个完整动作；缺一半的丢进 unmatched，不猜。
+ *  - 超过 MAX_ATOM_MS 的按住算“一直按着”，丢进 dropped.loop。
+ */
+export function atomizeEvents(events = [], opts = {}) {
+  const tickMs = Number(opts.tickMs) || TICK_MS
+  const jumpTapMs = Number(opts.jumpTapMs) || JUMP_TAP_MS
+  const maxAtomMs = Number(opts.maxAtomMs) || MAX_ATOM_MS
+  const list = Array.isArray(events) ? events.filter(e => e && Number.isFinite(Number(e.tick))) : []
+  const atoms = []
+  const dropped = { loop: 0, sequence: 0, branch: 0, spatial: 0 }
+  let unmatched = 0
+  const open = new Map()
+  // 只有"紧接上一次同类动作"才算循环重复；中间隔了一会儿的是两次独立动作，两次都要留。
+  let lastKind = null
+  let lastEndTick = -100000
+  const loopGapTicks = Number(opts.loopGapTicks) || 6
+  for (const e of list) {
+    const key = String(e.key || '')
+    const baseKind = EVENT_KEY_KIND[key]
+    if (!baseKind) continue
+    const tick = Number(e.tick)
+    if (e.down) { open.set(key, tick); continue }
+    if (!open.has(key)) { unmatched += 1; continue }
+    const start = open.get(key)
+    open.delete(key)
+    const ticks = Math.max(0, tick - start)
+    const holdMs = Math.round(ticks * tickMs)
+    if (holdMs > maxAtomMs) { dropped.loop += 1; continue }
+    let kind = baseKind
+    if (kind === 'jump') kind = holdMs < jumpTapMs ? 'jump-short' : 'jump-long'
+    if (!ATOMIC_KINDS[kind]) { dropped.sequence += 1; continue }
+    if (atoms.length && atoms[atoms.length - 1].kind === kind && start - lastEndTick <= loopGapTicks) { dropped.loop += 1; lastEndTick = tick; continue }
+    atoms.push({ kind, holdMs, ticks })
+    lastEndTick = tick
+  }
+  for (const _ of open.values()) unmatched += 1
+  return { atoms, dropped, unmatched }
+}
