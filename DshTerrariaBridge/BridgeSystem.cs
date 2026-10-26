@@ -1579,7 +1579,7 @@ namespace DshTerrariaBridge
             // 只按 controlUp 实测**一格都爬不动**（onRope:true、1.6 秒升高 0 格）：
             // 原版爬绳读的是"人已挂在绳上"这个状态（Player.pulley），不是单纯的方向键。
             // 这里连同挂绳状态一起置位，等于替玩家做了一个"按上键抓住绳子"的动作。
-            if (ClimbUpUntil > now && OnRopeNow(p)) { p.controlUp = true; GrabRope(p); }
+            if (ClimbUpUntil > now) { p.controlUp = true; GrabRope(p); }
             if (ClimbDownUntil > now && OnRopeNow(p)) { p.controlDown = true; GrabRope(p); }
             if (DownUntil > now)
             {
@@ -1800,7 +1800,7 @@ namespace DshTerrariaBridge
                 Main.mouseLeft = true;
                 p.controlUseItem = true;
             }
-            if (ClimbUpUntil > now) { p.controlUp = true; if (OnRopeNow(p)) GrabRope(p); }
+            if (ClimbUpUntil > now) { p.controlUp = true; GrabRope(p); }   // lay 模式下绳子是自己铺的，不能等"已在绳上"才使劲
             if (ClimbDownUntil > now) { p.controlDown = true; if (OnRopeNow(p)) GrabRope(p); }
             if (HookHeld && HookUntil > now)
             {
@@ -2362,6 +2362,7 @@ namespace DshTerrariaBridge
         // 攀爬：只按 controlUp/controlDown，让原版的绳子物理自己抬人。
         // 不复用 UpUntil/DownUntil —— 那两个会直接写 velocity，等于"悬停"，不是原版行为。
         internal static ulong ClimbUpUntil, ClimbDownUntil, LayRopeUntil;
+        internal static int ClimbTargetY;
         // 抓钩：原版是 Player.controlHook（真人按住左键时由输入层置位）驱动的。
         // 之前只置 mouseLeft 没用——钩子根本不会飞出去（实测 grapCount 一直 0）。
         // 自动防守：真持武器、真瞄准、真松开，伤害全部由原版弹幕/挥击产生。
@@ -2420,7 +2421,7 @@ namespace DshTerrariaBridge
             if (JumpUntil > now) player.controlJump = true;
             if (UseUntil > now) player.controlUseItem = true;
             if (UseTileUntil > now) player.controlUseTile = true;
-            if (ClimbUpUntil > now) { player.controlUp = true; if (OnRopeNow(player)) GrabRope(player); }
+            if (ClimbUpUntil > now) { player.controlUp = true; GrabRope(player); }
             if (ClimbDownUntil > now) { player.controlDown = true; if (OnRopeNow(player)) GrabRope(player); }
         }
 
@@ -2453,6 +2454,12 @@ namespace DshTerrariaBridge
         // （实测：升 1.4 格后钉死不动）。所以要主动把这个吸附状态按住，
         // 让我们写的竖直速度成为唯一来源。
         p.pulley = false;
+        // 到目标高度就停住：只给固定时长的话，超了就一直冲、绳子一断就自由落体。
+        if (ClimbTargetY > 0)
+        {
+            int py = (int)(p.Center.Y / 16f);
+            if (py <= ClimbTargetY) { p.velocity.Y = 0f; ClimbUpUntil = 0; return; }
+        }
         p.velocity.Y = p.controlUp ? -1.7f : 1.7f;
     }
 
@@ -2468,7 +2475,7 @@ namespace DshTerrariaBridge
     internal static void ClearControls()
     {
         LeftUntil = RightUntil = UpUntil = DownUntil = JumpUntil = UseUntil = UseTileUntil = 0;
-        ClimbUpUntil = ClimbDownUntil = LayRopeUntil = 0;
+        ClimbUpUntil = ClimbDownUntil = LayRopeUntil = 0; ClimbTargetY = 0;
         // 抓钩也算"会自己动"的状态：不清的话松手后角色还被挂在钩上。
         HookHeld = false; HookUntil = 0; HookForceDetachAt = 0; HookReleasePending = true;
         ClearAttack();

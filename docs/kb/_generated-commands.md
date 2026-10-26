@@ -21,7 +21,7 @@
 | `chatpoll` | `since` `max` |
 | `chatpost` | `text` |
 | `chest` | `action` `slot` `count` `invSlot` |
-| `climb` | `dir` `ms` `lay` |
+| `climb` | `dir` `ms` `tiles` |
 | `craft` | `item` `times` |
 | `down` | — |
 | `down` | `ms` `moveMs` `slot` `right` `x` `y` `item` `off` `r` `action` `player` `guard` `range` `who` `interval` `times` `event` |

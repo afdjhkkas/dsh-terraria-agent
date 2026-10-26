@@ -2436,28 +2436,33 @@ namespace DshTerrariaBridge
             Player pl = P;
             string dir = Json.Str(p, "dir", "up");
             int ms = Json.Int(p, "ms", 1200);
+            double tiles = Json.Float(p, "tiles", 0f);
+            // 爬到指定格数才停：只给固定 ms，时间一到就松手往下掉（实测升 3.4 格后自由落体）。
+            // 实测爬升 4.4 格/秒（1.35 是我瞎猜的，导致要 6 格却冲了 19.5 格）。
+            if (tiles > 0) ms = (int)Math.Max(ms, Math.Ceiling(tiles / 4.4 * 1000));
+            BridgeSystem.ClimbTargetY = tiles > 0 ? (int)(pl.Center.Y / 16f) - (int)Math.Round(tiles) : 0;
             ulong until = BridgeSystem.Now + BridgeSystem.Ticks(ms);
-            // 真人爬绳不是"先在绳子上爬"，是**手持绳按住左键往上放、同时按住上**，
-            // 一边铺一边攀（录像里 31 格用了约 10 秒，绳子从 35 根掉到 0）。
-            // lay 默认开：没有它就只能爬已有的绳，稍高一点就卡住。
-            bool lay = Json.Bool(p, "lay", true);
+            // 只沿**已有绳子**爬：实测没有绳子时硬给竖直速度不生效（原版同 tick 把速度压回 0，
+            // 只弹 0.5 格）；有绳子时同样的速度能一口气升 19.5 格。所以"边铺边爬"是假的，删掉。
             if (dir == "down") { BridgeSystem.ClimbDownUntil = until; BridgeSystem.ClimbUpUntil = 0; }
             else { BridgeSystem.ClimbUpUntil = until; BridgeSystem.ClimbDownUntil = 0; }
             bool holdsRope = pl.HeldItem.type == ItemID.Rope || pl.HeldItem.type == ItemID.RopeCoil
                              || pl.HeldItem.type == ItemID.SilkRope || pl.HeldItem.type == ItemID.SilkRopeCoil
                              || pl.HeldItem.type == ItemID.VineRope || pl.HeldItem.type == ItemID.VineRopeCoil
                              || pl.HeldItem.type == ItemID.WebRope || pl.HeldItem.type == ItemID.WebRopeCoil;
-            bool laying = lay && holdsRope && dir != "down";
-            if (laying) BridgeSystem.LayRopeUntil = Math.Max(BridgeSystem.LayRopeUntil, until);
             int tx = (int)(pl.Center.X / 16f), ty = (int)(pl.Center.Y / 16f);
             bool onRope = BridgeSystem.OnRopeNow(pl);
+            if (!onRope)
+            {
+                BridgeSystem.ClimbUpUntil = 0; BridgeSystem.ClimbDownUntil = 0; BridgeSystem.ClimbTargetY = 0;
+            }
             return Json.Ok(new
             {
-                dir, ms, onRope, laying, holdsRope, ropeCount = pl.ropeCount, held = pl.HeldItem.type,
+                dir, ms, tiles, onRope, holdsRope, ropeCount = pl.ropeCount, held = pl.HeldItem.type,
                 from = new { x = tx, y = ty },
-                note = laying
-                    ? "手持绳按住左键往上放 + 按住上：边铺边爬，速度交给原版"
-                    : "只按方向；没有绳子时不会动（先 select 到绳子，或用 lay:true）",
+                note = onRope
+                    ? "沿已有绳子爬（先有绳才爬得动）"
+                    : "这里没有绳子，爬不了：先在下/上方把绳子铺出来，或改用垫脚方块",
             });
         }
 

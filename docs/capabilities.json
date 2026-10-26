@@ -180,7 +180,7 @@
       "params": [
         "dir",
         "ms",
-        "lay"
+        "tiles"
       ],
       "returns": [
         "ropeCount",

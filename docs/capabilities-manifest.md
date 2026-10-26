@@ -69,7 +69,7 @@
 | `castline` | `x` `y` `ms` | — |
 | `chat` | `text` | — |
 | `chatpost` | — | — |
-| `climb` | `dir` `ms` `lay` | — |
+| `climb` | `dir` `ms` `tiles` | — |
 | `craft` | `item` `times` | — |
 | `down` | — | — |
 | `drop` | `slot` `count` | — |
