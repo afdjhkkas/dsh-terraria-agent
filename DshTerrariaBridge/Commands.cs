@@ -2339,9 +2339,14 @@ namespace DshTerrariaBridge
             string mode = Json.Str(p, "mode", "");
             if (mode == "new") BridgeSystem.ActorUseNew = true;
             else if (mode == "old") BridgeSystem.ActorUseNew = false;
+            // 两套走路执行器并存：reactive=每帧 Sense→Evaluate→Act（不追路点）；
+            // legacy=旧 walkto 节点追踪（隔离保留，供同场景对比）。
+            else if (mode == "reactive") BridgeSystem.WalkReactive = true;
+            else if (mode == "legacy") BridgeSystem.WalkReactive = false;
             return Json.Ok(new Dictionary<string, object>
             {
                 ["useNew"] = BridgeSystem.ActorUseNew,
+                ["reactive"] = BridgeSystem.WalkReactive,
                 ["dual"] = BridgeSystem.ActorDualRun
             });
         }

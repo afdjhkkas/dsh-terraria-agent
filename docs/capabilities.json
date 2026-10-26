@@ -1420,6 +1420,7 @@
       ],
       "returns": [
         "useNew",
+        "reactive",
         "dual"
       ],
       "summary": ""

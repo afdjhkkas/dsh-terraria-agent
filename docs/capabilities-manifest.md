@@ -53,7 +53,7 @@
 | `tiledata` | `name` `hasObjectData` `frameImportant` `width` `height` `originX` `originY` `styleHorizontal` `styleWrapLimit` |
 | `travelstatus` | — |
 | `walkdiff` | `dual` `newRule` `newPriority` `newKind` `oldRule` `oldKind` `same` |
-| `walkmode` | `useNew` `dual` |
+| `walkmode` | `useNew` `reactive` `dual` |
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
 | `down` | `untilTick` `tick` `tiles` `from` `slot` `held` `interact` `after` `method` `off` `note` `radius` `hostileInRange` `weaponSlot` `weapon` `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `mouseWorldTile` `grapCountBefore` `proj` `equipped` `hasWings` `wingTimeMax` `wingTime` `velY` `hint` `activeAfter` `action` `active` `type` `flight` `items` `slots` `follow` `target` `targetIndex` `guard` `range` `dist` `idle` `count` `players` `attacking` `who` `selected` `free` `freeMain` `freeAll` `equipment` `canFly` `item` `name` `reason` `perCraft` `groupsUsed` `npcs` |
 | `mount` | `activeAfter` `held` `action` `active` `type` `flight` `items` |

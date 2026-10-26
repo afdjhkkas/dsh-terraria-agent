@@ -345,6 +345,8 @@ namespace DshTerrariaBridge
             lock (KeyEvents) return KeyEvents.Count > 0 ? KeyEvents[KeyEvents.Count - 1].Tick : 0;
         }
 
+        // 注意：ModSystem 没有 PreUpdateInput 这个可重写钩子（写了会 CS0115 编不过，m17982 实测）。
+        // 注入点只能留在 PostUpdateInput —— 它本身就在 Main.UpdateInput 之后、Player.Update 之前。
         public override void PostUpdateInput()
         {
             if (Main.gameMenu || Main.dedServ) return;
@@ -813,6 +815,10 @@ namespace DshTerrariaBridge
             float g = p.gravity > 0.05f ? p.gravity : 0.4f;
             p.velocity.Y = -(float)Math.Sqrt(2.0 * g * tiles * 16.0);
             p.controlJump = true;
+            // 必须把 controlJump 持续到顶点：原版跳跃是"可变跳"，只给一帧 = 松手，
+            // 角色只升 1~2 格就往下掉。实测 climb-slope 想跳 5 格墙，每次都只到 2.1 格（m17852）。
+            // 按"满跳 6.1 格 ≈ 24 tick"线性折算按住时长。
+            JumpUntil = Now + (ulong)Math.Max(4, (int)(tiles / 6.0f * 24.0f));
             WalkNextJump = Now + 6;
         }
 
@@ -977,12 +983,21 @@ namespace DshTerrariaBridge
                 WalkRepaths++;          // 只有真的算不出路才记一次失败
                 return false;
             }
+            // 只跳过"和脚下同一格"的路点，绝不跳过"往回一格"的路点。
+            // 原实现取"距离 >= 3 格的第一个路点"，会把起跳点/站位点整段吞掉：
+            // 自建房屋顶那段 A* 给的是 (2166,230) → (2167,224)，人站在 (2167,229)，
+            // 起跳点 (2166,230) 只有 2 格距离被判"太近"跳过，于是直接去执行头顶 5 格的路点，
+            // 而正上方是实心屋顶 → 原地卡到超时（m17790 实测）。
+            // ComputePath 的返回值不含起点（回溯循环的条件就是"走到起点就停"），
+            // 所以 path[0] 就是第一步。原来从 i=1 起找，等于把第一步永久丢弃：
+            // 起点 (2167,229) 的第一格是"退回 (2166,230) 的起跳点"，被丢掉后
+            // 人只能去执行头顶 5 格的屋顶路点，而正上方是实心屋顶 → 卡到超时（m17790/m17809 两次实测）。
             int k = 0;
-            for (int i = 1; i < path.Count && i <= 12; i++)
+            for (int i = 0; i < path.Count && i <= 12; i++)
             {
-                if (Math.Abs(path[i].x - px) + Math.Abs(path[i].y - py) >= 3) { k = i; break; }
+                if (path[i].x != px || path[i].y != py) { k = i; break; }
             }
-            if (k == 0) return false;
+            if (k < 0 || k >= path.Count) return false;
             WalkWpX = path[k].x; WalkWpY = path[k].y; WalkHasWp = true;
             // 成功必须清零：以前这里也 ++，结果每成功 3 次就到阈值，之后 TryRepath 永久返回 false
             // （表现为走到半路突然"detour-build"直接停，位置一动不动）。
@@ -1043,7 +1058,7 @@ namespace DshTerrariaBridge
         }
 
         /// <summary>感知层：只读，只输出观测值，不做任何决策。每个检测器互相独立。</summary>
-        private static ActorSense SenseWorld()
+        private static ActorSense SenseWorld(bool ignoreWp = false)
         {
             var s = new ActorSense();
             Player p = Main.LocalPlayer;
@@ -1056,7 +1071,9 @@ namespace DshTerrariaBridge
             s.arrived = Math.Abs(s.px - WalkX) <= WalkTol && Math.Abs(s.py - WalkY) <= WalkTol;
             // 方向必须按"当前路点"算，不能按最终目标：绕路时路点常在人身后（往回走出房门），
             // 用最终目标会算出朝右，于是人顶着右墙一遍遍满跳（m17462 实测 control.right 恒 true、路点却在左边）。
-            s.dir = Math.Sign((WalkHasWp ? WalkWpX : WalkX) - s.px);
+            // 反应式执行器（WalkReactive）不追路点：方向一律按最终目标算，
+            // 否则会继承上一套路点留下的方向，表现成"朝旧方向顶墙"。
+            s.dir = Math.Sign((ignoreWp || !WalkHasWp ? WalkX : WalkWpX) - s.px);
             if (s.dir == 0) s.dir = 1;
             s.blockingSelf = IsBlockingSolid(s.px, s.py) && IsBlockingSolid(s.px, s.py - 1);
             s.onGround = p.velocity.Y == 0f;
@@ -1125,7 +1142,9 @@ namespace DshTerrariaBridge
                 return new ActorAct { rule = "stall-recover", priority = 80, kind = "replan" };
             }
             if (s.cliffAhead && !s.doorAhead) return new ActorAct { rule = "avoid-cliff", priority = 70, kind = "replan" };
-            if (s.doorAhead) return new ActorAct { rule = "pass-door", priority = 60, kind = "go" };
+            // 门：必须显式开门。原版"走过去自动开"依赖真实键盘输入，手写 control 时不会触发，
+            // 所以这里出一个独立动作，由 ActActor 调 WorldGen.OpenDoor（只推门，不改方块）。
+            if (s.doorAhead) return new ActorAct { rule = "pass-door", priority = 60, kind = "open-door" };
             // 只在"没有路点可走"时才因建材绕行。A* 已经算出一条绕开房子的路时，
             // 贴身处是墙是正常的（正走在门口），不能再触发 replan —— 否则每帧重算、
             // 路点被反复改写成"往回退 4 格"，人就永远钉在墙前（m17430 实测）。
@@ -1139,11 +1158,30 @@ namespace DshTerrariaBridge
         private static int StallJumps;   // 同一位置连续“停顿自救”的次数：前两跳满跳，第三跳才重规划
 
         internal static bool ActorUseNew;   // false=旧逻辑驱动，true=四层驱动（重构切换开关）
+        internal static bool WalkReactive;  // true=反应式执行器（不追路点）；false=旧 walkto 节点追踪
+        internal static ActorAct ActReactive;
 
         /// <summary>动作层：只把评估结果翻译成控制，不再做任何环境判断。</summary>
         private static void ActActor(ActorAct a, Player p, int sign)
         {
             if (a.kind == "stop") { StopWalk(a.rule); return; }
+            // 开门后必须继续走：只在开门时 return 会让人站着不动，下一帧又判"前方是门"，
+            // 于是每 20 tick 开一次门、位置永远不动（m17852 实测卡在 2160.4）。
+            if (a.kind == "open-door")
+            {
+                int dpx = (int)(p.Center.X / 16f), dpy = (int)(p.Center.Y / 16f);
+                for (int k = 0; k <= 2; k++)
+                {
+                    Tile t = Main.tile[dpx + sign, dpy + k];
+                    if (t.HasTile && t.TileType == TileID.ClosedDoor && Now > WalkDoorUntil)
+                    {
+                        WorldGen.OpenDoor(dpx + sign, dpy + k, sign);
+                        WalkDoorUntil = Now + 20;
+                        break;
+                    }
+                }
+                // 不 return：继续走下面的横移逻辑，穿过这扇已经推开的门。
+            }
             if (a.kind == "escape") { p.velocity.Y = -6.0f; return; }
             if (a.kind == "upfloat") { p.velocity.Y = Math.Min(p.velocity.Y, -3.0f); return; }
             if (a.kind == "replan")
@@ -1182,8 +1220,25 @@ namespace DshTerrariaBridge
             return a;
         }
 
+        /// <summary>反应式执行器：每帧 Sense → KB检索(Evaluate) → Act，不追路点。
+        /// A* 只在启动时判一次可达性、提供宏观方向，不再把节点序列交给执行层。
+        /// 用户规格（m17835）：旧 walkto 的节点追踪保留隔离、并行开发、同场景对比。</summary>
+        private static void TickWalkReactive()
+        {
+            Player p = Main.LocalPlayer;
+            if (p == null || !p.active || p.dead) { StopWalk(p == null || !p.active ? "no-player" : "dead"); return; }
+            if (Now > WalkDeadline) { StopWalk("timeout"); return; }
+            ActorSense s = SenseWorld(ignoreWp: true);
+            if (Math.Abs(s.px - WalkX) <= WalkTol && Math.Abs(s.py - WalkY) <= WalkTol) { StopWalk("arrived"); return; }
+            ActReactive = Evaluate(s);
+            if (ActReactive.rule == null) { StopWalk("no-rule"); return; }
+            ActActor(ActReactive, p, s.dir);
+        }
+
         private static void TickWalk()
         {
+            // 两套执行器并存：reactive=每帧临场决策（新），否则=追 A* 路点（旧，隔离保留）。
+            if (WalkReactive) { TickWalkReactive(); return; }
             if (!WalkActive) return;
             Player p = Main.LocalPlayer;
             if (p == null || !p.active || p.dead) { StopWalk("dead"); return; }
@@ -1885,6 +1940,9 @@ namespace DshTerrariaBridge
                     hasWp = WalkHasWp,
                     wpX = WalkWpX, wpY = WalkWpY,
                     greedy = PathGreedy,
+                    reactive = WalkReactive,
+                    rule = ActReactive.rule ?? "",
+                    kind = ActReactive.kind ?? "",
                     // 计时器残留是"控制标志与路点反向"的头号嫌疑：这两个值还剩多少 ms 是直接证据。
                     lu = (long)LeftUntil > (long)Main.GameUpdateCount ? (long)LeftUntil - (long)Main.GameUpdateCount : 0,
                     ru = (long)RightUntil > (long)Main.GameUpdateCount ? (long)RightUntil - (long)Main.GameUpdateCount : 0,
