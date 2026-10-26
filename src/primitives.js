@@ -66,14 +66,16 @@ export function createPrimitives({ request, sleep = defaultSleep, now = Date.now
    *
    * @param {{x:number,y:number,ms?:number,tries?:number,signal?:AbortSignal}} args
    */
-  async function mineTile({ x, y, ms = 1300, tries = MAX_SUSTAINED_ATTEMPTS, signal } = {}) {
+  // 真人对照：铁镐挖一格土/石 430-550ms（docs/terraria-mechanics.md「真人对照」）。
+  // 默认按真人节奏给 560ms，不再用 1300（那是实测耗时的 3 倍，每格白等 0.9 秒）。
+  async function mineTile({ x, y, ms = 560, tries = MAX_SUSTAINED_ATTEMPTS, signal } = {}) {
     const before = await readTile(x, y, signal)
     if (isEmptyCell(before)) return { ok: true, removed: false, alreadyEmpty: true, x, y, before: before.type }
 
     const swings = []
     for (let attempt = 1; attempt <= tries; attempt += 1) {
       const armed = (await request('mine', { x, y, ms }, { signal })).data ?? {}
-      await sleep(ms + 350)
+      await sleep(ms + 150)
       const after = await readTile(x, y, signal)
       swings.push({ attempt, held: armed.held ?? null, aimed: armed.onScreen ?? null, type: after.type })
       if (isEmptyCell(after)) {
@@ -129,7 +131,7 @@ export function createPrimitives({ request, sleep = defaultSleep, now = Date.now
       for (const [x, y] of cells) {
         const cell = await readTile(x, y, signal)
         if (cell.solid !== true) continue
-        const swing = await mineTile({ x, y, ms: 1400, tries: 2, signal })
+        const swing = await mineTile({ x, y, ms: 560, tries: 3, signal })
         if (swing.ok) cleared.push(`${x},${y}`)
       }
       if (cleared.length) await sleep(300)

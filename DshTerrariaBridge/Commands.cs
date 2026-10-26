@@ -115,7 +115,10 @@ namespace DshTerrariaBridge
                     BridgeSystem.StopPath("cancelled");
                     BridgeSystem.StopWalk("cancelled");
                     BridgeSystem.ClearControls();
-                    return Json.Ok(new { stopped = true });
+                    // 停手必须连准星一起还回去：残留的 AimTile 会让游戏每帧把鼠标压回旧格子，
+                    // 真人接手后既挖不动也放不下（实测事故）。
+                    BridgeSystem.EndItemUse();
+                    return Json.Ok(new { stopped = true, aimCleared = true });
                 case "wall": return Wall(p);
                 case "inventory": return Inventory();
                 case "craft": return Craft(p);

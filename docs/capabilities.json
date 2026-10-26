@@ -1091,7 +1091,8 @@
       "kind": "act",
       "params": [],
       "returns": [
-        "stopped"
+        "stopped",
+        "aimCleared"
       ],
       "summary": ""
     },

@@ -843,9 +843,13 @@ namespace DshTerrariaBridge
             }
             if (UseUntil > now) p.controlUseItem = true;
             if (UseTileUntil > now) p.controlUseTile = true;
-            // Drop the aim once the action is over, so a stale target does not steer the
-            // next thing the player does.
-            if (AimUntil != 0 && now > AimUntil) { AimTileX = -1; AimTileY = -1; AimUntil = 0; }
+            // 只要有桥的动作还在跑，准星就归桥；一旦全停，立刻把准星还给真人。
+            // 旧写法只在 AimUntil 非 0 时才清理，而大部分调用点（mine/place/hook…）只调
+            // SetAim 不设 AimUntil —— 结果 AimTileX 永久残留，PreItemCheck 每帧把准星压回
+            // 那个旧格子，真人挥镐/放方块全打在空格上，表现为"挖不了、放不了"。这是实测事故。
+            bool bridgeBusy = UseUntil > now || UseTileUntil > now || (HookHeld && HookUntil > now);
+            if (!bridgeBusy && AimTileX >= 0) { AimTileX = -1; AimTileY = -1; AimUntil = 0; }
+            else if (AimUntil != 0 && now > AimUntil) { AimTileX = -1; AimTileY = -1; AimUntil = 0; }
         }
 
         /* ── 拟人瞄准：把游戏内光标指到某个方块 ───────────────────────────
@@ -954,8 +958,11 @@ namespace DshTerrariaBridge
         internal static void ApplySyntheticInput()
         {
             SynthCalls++;
-            if (AimTileX >= 0) ApplyAim();
             ulong now = Now;
+            // 只在桥自己正在挖/放/抓的时候压准星。其余时间一律不碰 Main.mouseX/Y 与
+            // tileTargetX/Y —— 真人接管键盘时，准星必须是他的鼠标，否则挖掘与放置全部失效。
+            bool bridging = UseUntil > now || UseTileUntil > now || (HookHeld && HookUntil > now);
+            if (bridging && AimTileX >= 0) ApplyAim();
             Player p = Main.LocalPlayer;
             if (p == null || !p.active) return;
 
@@ -1564,6 +1571,8 @@ namespace DshTerrariaBridge
     {
         LeftUntil = RightUntil = UpUntil = DownUntil = JumpUntil = UseUntil = UseTileUntil = 0;
         ClimbUpUntil = ClimbDownUntil = 0;
+        // 抓钩也算"会自己动"的状态：不清的话松手后角色还被挂在钩上。
+        HookHeld = false; HookUntil = 0; HookForceDetachAt = 0; HookReleasePending = true;
         ClearAttack();
     }
 
