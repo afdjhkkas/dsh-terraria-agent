@@ -995,7 +995,15 @@ namespace DshTerrariaBridge
                     }
                 }
             }
-            if (UseUntil > now) p.controlUseItem = true;
+            if (UseUntil > now)
+            {
+                p.controlUseItem = true;
+                if (UseStopWhenClear && LastUseX >= 0 && LastUseY >= 0
+                    && !Main.tile[LastUseX, LastUseY].HasTile)
+                {
+                    EndItemUse();
+                }
+            }
             if (UseTileUntil > now) p.controlUseTile = true;
             // 只要有桥的动作还在跑，准星就归桥；一旦全停，立刻把准星还给真人。
             // 旧写法只在 AimUntil 非 0 时才清理，而大部分调用点（mine/place/hook…）只调
@@ -1049,6 +1057,7 @@ namespace DshTerrariaBridge
             UseUntil = 0;
             UseTileUntil = 0;
             LastUseSlot = -1; LastUseX = -1; LastUseY = -1;
+            UseStopWhenClear = false;
             ClearAim();
         }
 
@@ -1680,6 +1689,9 @@ namespace DshTerrariaBridge
         // Written from the bridge thread, read from the main thread: keep the
         // published values volatile instead of relying on x64 store atomicity.
         internal static ulong LeftUntil, RightUntil, UpUntil, DownUntil, JumpUntil, UseUntil, UseTileUntil;
+        // 结果驱动：目标格一挖空就收手，不靠“猜要按多久”。不同方块硬度差很多（土 1 下、
+        // 石头 3 下、更硬的要更多），任何固定时长都必然在某些方块上不够、在另一些上白按。
+        internal static bool UseStopWhenClear;
         // 攀爬：只按 controlUp/controlDown，让原版的绳子物理自己抬人。
         // 不复用 UpUntil/DownUntil —— 那两个会直接写 velocity，等于"悬停"，不是原版行为。
         internal static ulong ClimbUpUntil, ClimbDownUntil, LayRopeUntil;

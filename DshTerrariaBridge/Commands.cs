@@ -824,10 +824,11 @@ namespace DshTerrariaBridge
             return -1;
         }
 
-        private static string StartSwing(int slot, int x, int y, int ms, bool right)
+        private static string StartSwing(int slot, int x, int y, int ms, bool right, bool stopWhenClear = false)
         {
             Player pl = P;
             pl.selectedItem = slot;
+            BridgeSystem.UseStopWhenClear = stopWhenClear;
             BridgeSystem.SetAim(x, y);
             bool onScreen = BridgeSystem.ApplyAim();
             ulong until = BridgeSystem.Now + BridgeSystem.Ticks(ms);
@@ -880,7 +881,7 @@ namespace DshTerrariaBridge
 
             // 唯一通路：合成控制标记 → 原版 ItemCheck 自己挥动。没有 PickTile 捷径，
             // 也不碰操作系统输入（不动用户光标、不抢焦点）。
-            return StartSwing(slot, x, y, ms, false);
+            return StartSwing(slot, x, y, ms, false, true);
         }
 
         /// <summary>
@@ -2513,7 +2514,9 @@ namespace DshTerrariaBridge
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             // 默认 1300ms：丛林草/冰雪/石头在铁镐下要 1.2~1.3 秒，默认 900 会让"看起来挖了其实没掉"
             // 反复踩过三次坑（100ms、800ms 都白挖），所以把默认值调到够用，下限提到 300。
-            string started = BeginPlayerMine(x, y, Math.Clamp(Json.Int(p, "ms", 1300), 300, 4000));
+            // 默认“挖到空为止”：8 秒只是兜底上限，实际由桥每 tick 回读目标格，一挖空立刻收手。
+            // 不同方块硬度差很多（土 1 下、石头 3 下、更硬的更多），固定时长必然有的不够、有的白按。
+            string started = BeginPlayerMine(x, y, Math.Clamp(Json.Int(p, "ms", 8000), 300, 20000));
             if (started != null && started.StartsWith("{")) return started;
             if (started != null) return Json.Error(started);
             return Json.Error("empty player-mode response");
