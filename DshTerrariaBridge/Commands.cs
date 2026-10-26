@@ -2137,7 +2137,10 @@ namespace DshTerrariaBridge
                 light, comfort, flat, doors,
                 missing,
                 gameOk, gameTiles, gameReason,
-                valid = missing.Count == 0,
+                // 以游戏自己的判定为准：WorldGen.roomCheckFailureReason 才是「NPC 会不会进来」的真值。
+                // 旧写法 missing.Count == 0 会因为自家 flood fill 的边角统计（家具/地面格算不算背墙）
+                // 把一间游戏判 ok 的房子判成不合格。
+                valid = gameOk && !leak && seen.Count <= 7500,
             });
         }
 
