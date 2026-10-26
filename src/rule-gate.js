@@ -111,9 +111,15 @@ export const RULES = Object.freeze([
     id: 'no-liquid-mining',
     reason: 'liquid-mining',
     kb: KB_SAFETY,
-    why: '泡在水里开挖＝挖穿满格水体，瞬间灌满通道，几乎没有救援窗口',
+    // 这条原来是"凡在水里就不许挖"，被真人教学推翻：水袋里唯一出来的办法就是在水里往上挖通道，
+    // 再跳出去（实测连续挖了十几秒）。会灌满通道烧死人的是岩浆/微光/蜂蜜，普通水不是。
+    why: '岩浆、微光、蜂蜜灌进通道会立刻烧死或黏住，几乎没有救援窗口；普通水不在此列',
     always: true,
-    check: (action, { snap }) => isActive(action) && ['mine', 'dig'].includes(action.kind) && (snap.wet === true || snap.inLiquid === true),
+    check: (action, { snap }) => {
+      if (!isActive(action) || !['mine', 'dig'].includes(action.kind)) return false
+      const ln = String(snap.liquidName ?? snap.liquid ?? '').toLowerCase()
+      return ln === 'lava' || ln === 'shimmer' || ln === 'honey'
+    },
   },
   {
     id: 'no-uncontrolled-fall',

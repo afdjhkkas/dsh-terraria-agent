@@ -53,8 +53,10 @@ test('checkAction：违规返回条目，不违规返回空', () => {
   assert.equal(low.violations[0].reason, 'below-safety-line')
   assert.equal(low.violations[0].kb, KB_SAFETY)
 
-  const wet = checkAction(human, { snap: { ...snap(), wet: true } })
-  assert.equal(wet.violations[0].reason, 'liquid-mining')
+  // 只有岩浆/微光/蜂蜜拦；普通水允许（真人教学：水里出路就是挖通道）。
+  assert.equal(checkAction(human, { snap: { ...snap(), wet: true } }).ok, true, '水里挖不拦')
+  const lava = checkAction(human, { snap: { ...snap(), liquidName: 'lava' } })
+  assert.equal(lava.violations[0].reason, 'liquid-mining')
 
   const dead = checkAction({ kind: 'move' }, { snap: { ...snap(), dead: true } })
   assert.equal(dead.violations[0].reason, 'player-dead')
