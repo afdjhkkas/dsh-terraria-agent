@@ -124,3 +124,56 @@ WalkHasWp / WalkScan / WalkScanAt / PathGreedy`（职责被三层吸收）。
   - 文件：`DshTerrariaBridge/BridgeSystem.cs`（`SenseWorld`）、`src/sense-model.js`。
 - **信号定义未变**：`blockingSelf / onGround / stalled / cliffAhead / doorAhead / buildAhead / gapAhead / wallH` 字段名与含义保持不变，`Evaluate`、知识库、行为规则一行未动。
 - **前后对比**：改前 13 例中 3 例红（坑、上坡、平台尽头；后两例是用例自身写错，已改正并注明）；改后 **13/13 绿**。
+
+---
+
+## 四、实施结果（2026-10-26/27 这一轮做完的）
+
+三层已落地，`TickWalk` 不再是一条"谁先命中谁 return"的链，而是：
+
+```
+SenseWorld()       感知：算 WalkScan（8 列地面 + 落差 + 墙高 + 是否建材 + 是否门 + 是否坑）
+ActorDecide()      决策：按优先级返回一条 ActorAct{rule, priority, kind}
+ActActor()         执行：只写 controlLeft/Right/Jump，必要时 WalkJump(高度)
+```
+
+优先级从高到低（`DshTerrariaBridge/BridgeSystem.cs` 约 1069 行起）：
+
+| 规则 | 何时命中 | 动作 |
+|---|---|---|
+| `unstick-blocked` | 身体两格都实心 | 满跳把它挤出来 |
+| `stall-jump` | 位置 6 帧不动 | 满跳 |
+| `climb-slope` | 前方墙高 1~6 | 跳 `min(6, 墙高+1.2)` 格 |
+| `jump-gap` | 前方是坑 | 跳 4 格 |
+| `open-door` | 前方是门 | 放开门的控制，等它自己开 |
+| `move-waypoint` | 其余 | 朝路点走 |
+
+**关键修正（都是真机上量出来的）**
+
+1. **平台不是空气也不是实心**：`TileSolid` 只查 `Main.tileSolid`，平台（19）在里面是 `false`，
+   于是被当成"能穿过去"，人一走到平台上就掉下去。新增 `TileStand()`（实心 **或** 平台），
+   地面判定全部改用它 —— 这一条把 `walkto` 从"走 11 格"提到"走 68 格"。
+2. **门格可以站**：门的 `tileSolid` 是 true，但人站在门口时会踩空判成悬崖。A* 的
+   `PathFloorAt` 对门格返回"可站"。
+3. **横移只查落点那一层**：从平台边跳到屋顶时，头顶和脚下都在平台行上，横向判定若把
+   整个身体高度都算进去就会被自己的平台挡住。
+4. **跳跃按高度差取时长**：`JumpCurve`/`MsForTiles` 已有，默认改满跳 400ms（6.1 格），
+   只有"只差一格"才故意短跳。
+5. **走的时候不跳、不挖**：用户连着纠正三次（"明明走就可以为什么要边走边跳"、
+   "万一遇到更大的坑你不是需要大跳吗怎么会写死"、"为什么会莫名其妙挥镐子"）。
+   现在只有 `wallH>=1` 或 `gapAhead` 才跳，`PathAllowDig=false` 时一律不挖。
+
+**A* 与滚动局部路点**
+
+- `ComputePath` 是离线镜像 `src/path-model.js` 的 C# 版：四类边（走 / 跨 / 跳 / 落）。
+- 跳边受 `JUMP_VERT_MAX`（6.1 格）、`JUMP_HORIZ_MAX`（4 格）、`JUMP_VERT_DOWN_MAX` 约束。
+- 固定场景集 `test/path.test.js` 15 例（平地/台阶/高台/坑/实心墙/门/平台/建材/水…），
+  改任何常量必须先跑这套再提交；期间靠它抓出一个真缺陷：`JUMP_HORIZ_MAX` 3 是错的，
+  满跳滞空时间足够横移 4 格。
+
+**还没解决的**
+
+- 从地面跳上"实心屋顶 + 平台边缘"这种组合，需要先退回平台下方再起跳；
+  现在会规划出这条路径但执行时容易错过起跳点（冲过头），属于**执行层时序问题**。
+- `fill`/`place` 在"完全悬空的一整排"上仍然放不住：需要逐格从有支撑的一侧连续铺，
+  且看不到支撑时会静默失败（回包 `armed:true` 但回读是空的）。

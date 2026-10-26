@@ -97,6 +97,26 @@ minions,minionSlots,grapCount,hookType,mounted,wingTime,hasWings,itemAnimation }
 ### `items {r}` / `grab {r}`
 `items` 读地上掉落物 `{count,items[]}`；`grab` 走原版拾取路径 `Player.GetItem`，**半径默认 8 格，物品必须靠近脚下**才能捡到。
 
+### `roomcheck {x,y}` — **游戏自己的**房屋判定
+直接调 `WorldGen.StartRoomCheck` / `CheckRoom` / `RoomNeeds`，回 `{ok, needs, reason, reasonValue, tiles, box, steps[]}`。
+这是「NPC 到底会不会住进来」的唯一真值；自家 `housediag` 只用来解释差在哪。
+
+### `housediag {x,y}` — 自己的房屋诊断
+flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / leftRatio / rightRatio / doors` 与 `missing[]`。
+`valid` 以 `gameOk`（游戏判定）为准 —— 早期用自家 `missing.Count==0`，会把一间游戏判 ok 的房子误判成不合格。
+
+### `screentoTile {sx,sy}` — 屏幕坐标 → 瓦片
+回 `{screen, world, tile}`，用来把截图里看到的东西对准到格子。
+
+### `humaninput` — 真人输入原样读回
+`{tick, keys, control{left,right,jump,up,down,mouseLeft,mouseRight}, player{tile,velocity,grounded,life}, mouse{left,right,x,y,tileX,tileY,os,source,inClient}}`。
+`mouse.source` = `os`（Win32 `GetCursorPos`+`ClientToScreen` 实测，窗口失焦也准）或 `xna`（`Main.mouseX/Y`，窗口不活跃时会冻在最后一次有效值）。
+录示范时必须用它，否则学到的是"操作者为了配合测试而改变的操作"。
+
+### `keyevents {since,clear}` — tick 级按键事件
+回 `{events[{tick,key,kind}], latest}`。配合 `keystream.mjs` 能把真人操作切成原子动作（`src/atom-model.js`）。
+**坑**：增量拉取要用"上一批的最大 tick 不减一"，否则同一 tick 的事件会重复。
+
 ### 其余
 `players` 多人列表、`boss {active,bosses}`、`event`（血月/日食/雨）、`housing {x,y}`（房间判定 + 无家可归人数）、`needs {x,y}`（房间差什么：门/椅/桌/火把/墙）、`help` 命令清单。
 
@@ -109,8 +129,10 @@ minions,minionSlots,grapCount,hookType,mounted,wingTime,hasWings,itemAnimation }
 | `move {dir,ms}` | 逐帧写速度（真人按住方向键的效果） | 1.4 秒顶墙位置不变，证明碰撞生效 |
 | `jump {ms}` | 置跳跃标志 | 起跳/上台阶 |
 | `climb {dir,ms}` | **只在绳子上**才生效 | 301→291、455→307；绳道分段 28 格 |
-| `walkto {x,y,tol,ms}` | 直线走到坐标 | 平地可用；有坑会失败 |
-| `path {x,y,ms,dig}` | A* 寻路 + 可选挖掘 | ⚠️ 空腔竖井会「跳一分钟原地不动」，判据需再修 |
+| `walkto {x,y,tol,ms}` | 走到坐标。内部是 **感知→决策→执行** 三层：每 tick 扫 8 列地面（落差/墙高/是否建材/是否门/是否坑），按优先级出一条例，执行层只写 `controlLeft/Right/Jump` | 已能穿过自建房的关门（`WorldGen.OpenDoor`，不挥镐）、跳过 1~6 格台阶、跨 ≤3 格坑；实测 2105→2194 往返。⚠️「地面→实心屋顶」这种组合会规划出路径但执行时冲过起跳点 |
+| `walkmode {mode}` | `legacy` / `reactive` / `new` 切换走路实现，用来同场景对比两套 | 回包带当前模式；层级为首次改动的隔离用 |
+| `path {x,y,ms,dig}` | A* 寻路（离线镜像 `src/path-model.js` 的 C# 版，四类边：走/跨/跳/落） | 失败时回 `why`（含起点终点是否可站、`opened` 计数）。⚠️ 兜底包围盒 ±10 |
+| `travelstatus` | 走路的实时内部状态（`active/stop/rule/kind/wp/lu/ru/greedy`） | 诊断"路点在左、控制却向右"这类问题的唯一手段 |
 | `travel {dir,distance,dig}` | 定向掘进循环 | ⚠️ **只用水平方向**：`down` 会沿斜坡漂移十几格并淹死过人 |
 | `mirror` | 魔镜回城 | 任意位置 → 出生点 |
 | `interact {x,y}` | 右键交互：开门 / 开箱 / 和 NPC 对话。走引擎自己的 `Player.TileInteractionsUse`，带 8 格距离检查，不改任何格子 | 回读 `before/after` 方块类型；开箱后 `chest` 可读内容 |
