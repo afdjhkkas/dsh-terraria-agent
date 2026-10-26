@@ -108,3 +108,26 @@ test('formatAtoms 输出人话摘要', () => {
   assert.ok(s.includes('400'))
   assert.equal(formatAtoms([]), '（没有可入库的原子动作）')
 })
+test('recallAtoms 只回节奏参考，坐标与次数根本不进库', () => {
+  const lib = new DemoLibrary({ file: 'C:/Windows/Temp/trtest/atom-test4.jsonl' })
+  lib.clear()
+  // 干净的单次动作：放行
+  lib.record({
+    snap: { zone: 'surface', grounded: true },
+    human: { kind: 'mine-swing', digHoldMs: 92 },
+    agent: { kind: 'mine-swing', digHoldMs: 40 },
+  })
+  const atoms = lib.recallAtoms({ zone: 'surface', grounded: true })
+  assert.equal(atoms.length, 1)
+  assert.deepEqual(Object.keys(atoms[0]).sort(), ['grounded', 'holdMs', 'kind', 'sim'])
+  assert.equal(atoms[0].holdMs, 92)
+  // 带次数的样本在入口就被拒，检索里自然查不到它
+  const rej = lib.record({
+    snap: { zone: 'surface', grounded: true },
+    human: { kind: 'mine-swing', digHoldMs: 300, count: 9 },
+  })
+  assert.equal(rej.ok, false)
+  assert.equal(rej.reason, 'loop')
+  assert.equal(lib.recallAtoms({ zone: 'surface', grounded: true }).length, 1)
+  lib.clear()
+})

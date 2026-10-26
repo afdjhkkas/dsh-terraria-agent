@@ -214,6 +214,21 @@ export class DemoLibrary {
   }
 
   /**
+   * 规则 5：检索只产出「单个原子动作的节奏参考」。
+   * 这里刻意不返回 rec.human/rec.scene——上层拿到的东西里没有分支、没有坐标、没有次数，
+   * 想覆盖状态判断也无从下手。要完整样本请直接用 recall()，那是给日志和人工核查用的。
+   */
+  recallAtoms(snap = {}, { minSim = 0.72, limit = 6 } = {}) {
+    const hits = this.recall(snap, { minSim, limit })
+    const out = []
+    for (const { rec, sim } of hits) {
+      const atom = rec.atom || atomFromAction(rec.human)
+      if (!atom) continue
+      out.push({ kind: atom.kind, holdMs: atom.holdMs ?? null, grounded: atom.grounded, sim })
+    }
+    return out
+  }
+  /**
    * 能真的拿来调时序的样本：人的那一侧至少给出过一个按住时长。
    * 只记了"动作选错"、没给时长的样本仍然有价值（纠正动作类），但进不了 tuneTiming。
    */
