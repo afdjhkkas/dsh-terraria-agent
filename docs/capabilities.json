@@ -497,6 +497,28 @@
       "summary": ""
     },
     {
+      "name": "humaninput",
+      "kind": "read",
+      "params": [],
+      "returns": [
+        "inWorld",
+        "tick",
+        "paused",
+        "focus",
+        "control",
+        "left",
+        "right",
+        "up",
+        "down",
+        "jump",
+        "useItem",
+        "useTile",
+        "grapple",
+        "mount"
+      ],
+      "summary": ""
+    },
+    {
       "name": "idle",
       "kind": "act",
       "params": [],

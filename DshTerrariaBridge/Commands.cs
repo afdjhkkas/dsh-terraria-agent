@@ -30,6 +30,7 @@ namespace DshTerrariaBridge
             {
                 case "ping": return Ping();
                 case "state": return State();
+                case "humaninput": return HumanInput();
                 case "scan": return Scan(p);
                 case "tile": return TileAt(p);
                 case "gravity": return Gravity(p);
@@ -209,11 +210,78 @@ namespace DshTerrariaBridge
             hasFocus = Main.hasFocus,
         });
 
+        /// <summary>
+        /// 人类输入观测：只读游戏自己维护的输入状态（Main.keyState / Player.control* /
+        /// Main.mouseLeft），不碰任何 OS 级输入 API。观摩模式靠它拿到"这一帧人按了什么、
+        /// 朝哪瞄、手持什么"——和主线程同一帧读数，时序以 Main.GameUpdateCount 为准。
+        /// </summary>
+        private static string HumanInput()
+        {
+            if (Main.gameMenu || Main.LocalPlayer == null) return Json.Ok(new { inWorld = false });
+            Player pl = P;
+            var ks = Main.keyState;
+            bool k(Microsoft.Xna.Framework.Input.Keys key) => ks.IsKeyDown(key);
+            var raw = new List<string>();
+            if (k(Microsoft.Xna.Framework.Input.Keys.A)) raw.Add("A");
+            if (k(Microsoft.Xna.Framework.Input.Keys.D)) raw.Add("D");
+            if (k(Microsoft.Xna.Framework.Input.Keys.W)) raw.Add("W");
+            if (k(Microsoft.Xna.Framework.Input.Keys.S)) raw.Add("S");
+            if (k(Microsoft.Xna.Framework.Input.Keys.Space)) raw.Add("Space");
+            if (k(Microsoft.Xna.Framework.Input.Keys.LeftShift)) raw.Add("Shift");
+            if (k(Microsoft.Xna.Framework.Input.Keys.LeftControl)) raw.Add("Ctrl");
+            for (int i = 1; i <= 10; i++)
+            {
+                if (k(Microsoft.Xna.Framework.Input.Keys.D0 + (i % 10))) raw.Add("D" + (i % 10));
+            }
+
+            return Json.Ok(new
+            {
+                inWorld = true,
+                tick = (long)Main.GameUpdateCount,
+                paused = Main.gamePaused,
+                focus = Main.hasFocus,
+                control = new Dictionary<string, object>
+                {
+                    ["left"] = pl.controlLeft,
+                    ["right"] = pl.controlRight,
+                    ["up"] = pl.controlUp,
+                    ["down"] = pl.controlDown,
+                    ["jump"] = pl.controlJump,
+                    ["useItem"] = pl.controlUseItem,
+                    ["useTile"] = pl.controlUseTile,
+                    ["grapple"] = pl.controlHook,
+                    ["mount"] = pl.controlMount,
+                },
+                mouse = new
+                {
+                    left = Main.mouseLeft,
+                    right = Main.mouseRight,
+                    x = Main.mouseX,
+                    y = Main.mouseY,
+                    tileX = (int)(Main.MouseWorld.X / 16f),
+                    tileY = (int)(Main.MouseWorld.Y / 16f),
+                },
+                keys = raw,
+                player = new
+                {
+                    tile = new[] { MathF.Round(pl.Center.X / 16f, 1), MathF.Round(pl.Center.Y / 16f, 1) },
+                    velocity = new[] { MathF.Round(pl.velocity.X, 2), MathF.Round(pl.velocity.Y, 2) },
+                    grounded = pl.velocity.Y == 0f,
+                    wet = pl.wet,
+                    dead = pl.dead,
+                    life = pl.statLife,
+                    lifeMax = pl.statLifeMax2,
+                    selected = pl.selectedItem,
+                    heldType = pl.HeldItem.type,
+                },
+            });
+        }
+
         private static string Help() => Json.Ok(new
         {
             commands = new[]
             {
-                "ping", "state", "scan{x,y,r}", "tile{x,y}", "mine{x,y,noItem}", "items{r}", "grab{r}",
+                "ping", "state", "humaninput", "scan{x,y,r}", "tile{x,y}", "mine{x,y,noItem}", "items{r}", "grab{r}",
                 "place{x,y,type,style,forced}", "move{dir,ms}", "jump{ms}", "use{slot,right,ms}",
                 "attack{who,r,ms,interval,slot}", "spawn_npc{type,x,y}",
                 "stop", "teleport{x,y}", "inventory", "craft{item,times}", "give{type,stack}",
