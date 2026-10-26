@@ -824,11 +824,12 @@ namespace DshTerrariaBridge
             return -1;
         }
 
-        private static string StartSwing(int slot, int x, int y, int ms, bool right, bool stopWhenClear = false)
+        private static string StartSwing(int slot, int x, int y, int ms, bool right, bool stopWhenClear = false, bool stopWhenPlaced = false)
         {
             Player pl = P;
             pl.selectedItem = slot;
             BridgeSystem.UseStopWhenClear = stopWhenClear;
+            BridgeSystem.UseStopWhenPlaced = stopWhenPlaced;
             BridgeSystem.SetAim(x, y);
             bool onScreen = BridgeSystem.ApplyAim();
             ulong until = BridgeSystem.Now + BridgeSystem.Ticks(ms);
@@ -2534,7 +2535,7 @@ namespace DshTerrariaBridge
             if (!InWorld(out string err)) return Json.Error(err);
             int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
             int type = Json.Int(p, "type", -1);
-            int ms = Json.Int(p, "ms", 300);
+            int ms = Json.Int(p, "ms", 3000);
             if (x < 0 || y < 0) return Json.Error("place 需要 x,y");
             if (type < 0) return Json.Error("place 需要 type（方块类型 ID）");
             if (!ValidTileType(type)) return Json.Error($"invalid tile type {type} (0..{TileID.Count - 1}; 0 is Dirt)");
@@ -2633,7 +2634,7 @@ namespace DshTerrariaBridge
             }
             int ms = Math.Clamp(Json.Int(p, "ms", 320), 100, 2000);
             // Walls are placed (and hammered away) with the LEFT button in vanilla.
-            return StartSwing(slot, x, y, ms, false);
+            return StartSwing(slot, x, y, ms, false, false, true);
         }
 
 
