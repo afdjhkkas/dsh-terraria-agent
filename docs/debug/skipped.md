@@ -186,3 +186,27 @@ NullReferenceException
 4. 回工作台/熔炉：`craft {item:704,times:1}` → 铅锭 5 → `craft {item:716}` → 铅砧；放下后用砧造 锡短剑(3501)/锡镐(3503) 把 K07 补成整链。
 
 **结论**：不是能力缺失，是位置问题（铅矿带在 x≈2192、y≈313），阻断项只有“走过去 + 挖 3 格”。
+
+## S9 专用服务端反复抢占世界 —— 本档最耗时的环境冲突
+
+**现象（出现两次，表现完全一样）**：
+- `state.player.grounded` 恒 `true`，但脚下 4 行都是 `hasTile:false` 的空气；
+- `mine` 返回 `mode:"player"` + 正确 `held`，但坐标一格不动；
+- `travel` 返回 `targetX` 已到、`steps:0`；
+- `tile` 对同一格前后两次调用可以给出不同答案（先 `#` 后空）。
+
+**根因**：机器上同时有两个 tModLoader 进程：
+```
+70848  "…dotnet.exe" tModLoader.dll                      ← 客户端（deploy2.ps1 启的）
+26968  "…dotnet.exe" tModLoader.dll -server -autoshutdown ← 专用服务端（不是我启的）
+```
+世界归服务端，客户端只是连上去的画面进程：**玩家物理不在本地进程里**，本地 tile 读取也不可靠。
+单进程 host&play 时一切正常（本轮前半段：`travel 2097→2117`、`jump 273→268→271`、`mine` 真的挖掉格子）。
+
+**判定办法（3 秒）**：`Get-CimInstance Win32_Process | ? { $_.CommandLine -like '*tModLoader.dll*' }`，
+多于一个 `-server` 行就是本问题。
+
+**两个可选修法**：
+1. 测试期间只跑单进程（`deploy2.ps1` 会自动杀掉所有 tModLoader 进程再起客户端 host&play）；
+2. 让桥接同时持有服务端连接（47778），把"动作类"命令发给服务端、把"观察类"命令留给客户端。
+   代价：两边的 tile 视图可能不一致，需要额外做一致性校验。
