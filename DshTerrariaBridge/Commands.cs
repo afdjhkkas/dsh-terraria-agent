@@ -400,7 +400,7 @@ namespace DshTerrariaBridge
             commands = CommandNames,
             notes = new[]
             {
-                "jump{ms,tiles,native}：默认走原生输入层（Triggers.Jump），高度随按住时长 1.8~6.1 格；tiles 指定目标高度，native:false 才用自算冲量",
+                "jump{ms,tiles,native,dir,moveMs}：默认走原生输入层（Triggers.Jump），高度随按住时长 1.8~6.1 格；tiles 指定目标高度；native:false 才用自算冲量；dir=left/right 时同帧带横向输入（跳远必须用这个，否则只会原地垂直跳）",
                 "hook/grapple{x,y,slot,ms}：抓钩，真人键位语义；unhook 脱钩",
                 "humaninput{samples,ms}：观察模式采集口（控制标志+位置+按键），只读",
                 "keyevents{since,max,clear}：按键边沿事件（tick 级），示范采集算真实按住时长用；不含本模组自己下发的输入",
@@ -2759,6 +2759,13 @@ namespace DshTerrariaBridge
             var hp = p.TryGetProperty("height", out var hv) ? hv : default;
             if (hp.ValueKind == JsonValueKind.Number) height = (float)hp.GetDouble();
             BridgeSystem.BeginJump(BridgeSystem.Now + BridgeSystem.Ticks(ms), height, native);
+            // 真人跳远是起跳的同时按住方向：两个 control 位在同一帧一起置上。
+            // 之前只能先 jump 再 left/right，跳跃 400ms 内发出的横移会和落地后的输入抢，
+            // 结果永远是原地垂直跳。这里把横移并进同一条命令，保证空中每帧都有横向输入。
+            string? dir = p.TryGetProperty("dir", out var dv) && dv.ValueKind == JsonValueKind.String ? dv.GetString() : null;
+            int moveMs = Json.Int(p, "moveMs", ms);
+            if (dir == "left") BridgeSystem.LeftUntil = BridgeSystem.Now + BridgeSystem.Ticks(moveMs);
+            else if (dir == "right") BridgeSystem.RightUntil = BridgeSystem.Now + BridgeSystem.Ticks(moveMs);
             return Json.Ok(new
             {
                 ms,
