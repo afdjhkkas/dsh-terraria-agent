@@ -385,8 +385,21 @@ namespace DshTerrariaBridge
         internal static string PathStop = "";
         internal static ulong PathDeadline;
         internal static bool PathAllowDig = true;
+        // 自己造的东西不拿去当路挖（实测事故：从自建的 NPC 房出来时，寻路直接把墙挖穿，房子当场漏气）。
+        // 做法是先把这些方块当不可通行，让 A* 绕路；真绕不过去再由调用方显式放开。
+        internal static bool PathProtectBuilds = true;
+        private static readonly HashSet<int> ProtectTiles = new() { 4, 10, 11, 15, 16, 17, 18, 19, 21, 26, 30, 31, 50, 51, 63, 72, 73, 77, 85, 86 };
+
+        internal static bool IsProtectedBuild(int x, int y)
+        {
+            Tile t = Main.tile[x, y];
+            return t.HasTile && ProtectTiles.Contains(t.TileType);
+        }
         private static ulong PathNextAct;
         private static int PathLastIndex = -1, PathIdxStuck;
+        // 位置连续若干 tick 没变才算“真被挡住”。实测教训：无条件往前挥镐，
+        // 人还在自建房里走的时候就把地板、墙一起刨了。
+        private static int PathStillPx, PathStillPy, PathStillTicks;
 
         private static bool TileAir(int x, int y)
         {
@@ -425,7 +438,11 @@ namespace DshTerrariaBridge
             float StepCost(int x, int y)
             {
                 if (TileLiquid(x, y)) return float.MaxValue;
-                if (!TileAir(x, y)) return PathAllowDig ? 8f : float.MaxValue;   // 要挖（禁挖时不可通行）
+                if (!TileAir(x, y))
+                {
+                    if (PathProtectBuilds && IsProtectedBuild(x, y)) return float.MaxValue;   // 自己造的：绕路
+                    return PathAllowDig ? 8f : float.MaxValue;   // 要挖（禁挖时不可通行）
+                }
                 return FloorWithin(x, y, 2) ? 1f : 20f;        // 有地=1；悬空=20（代价高到会主动绕开，只有别无选择才用）
             }
 
@@ -503,6 +520,9 @@ namespace DshTerrariaBridge
 
             int px = (int)(p.Center.X / 16f), py = (int)(p.Center.Y / 16f);
 
+            if (px == PathStillPx && py == PathStillPy) PathStillTicks++;
+            else { PathStillTicks = 0; PathStillPx = px; PathStillPy = py; }
+
             // 死锁看门狗：实测在空腔竖井里 A* 会原地上下跳 60 秒、一格不动，
             // 而 timeout 要等满 60 秒才触发。
             // 用"路径下标不再前进"当判据，而不是坐标：人在原地上下抖 1 格时
@@ -526,9 +546,14 @@ namespace DshTerrariaBridge
             if (dx != 0)
             {
                 int sign = Math.Sign(dx);
-                if (PathAllowDig) for (int k = -2; k <= 1; k++) if (!TileAir(px + sign, py + k)) WalkMine(px + sign, py + k);
+                // 只在“真被挡住”（位置连续几 tick 没变）时才挖：实测无条件挥镐会在自建房里把地板和墙刨掉。
+                bool blocked = !TileAir(px + sign, py) || !TileAir(px + sign, py + 1);
+                if (blocked && PathStillTicks >= 5 && PathAllowDig)
+                    for (int k = -2; k <= 1; k++) if (!TileAir(px + sign, py + k)) WalkMine(px + sign, py + k);
                 if (TileAir(px + sign, py + 2) && TileAir(px + sign, py + 3)) PlaceWalkBlock(px + sign, py + 2);
-                if (TileAir(px + sign, py + 2)) WalkJump(2.4f);      // 台阶就跳
+                // 跳之前先比高度：满跳只有 6 格左右，目标高出一大截时跳也是白跳（实测会贴墙原地弹）。
+                int rise = py - next.y;
+                if (TileAir(px + sign, py + 2) && rise <= 5) WalkJump(2.4f);      // 台阶就跳
                 p.controlLeft |= sign < 0;
                 p.controlRight |= sign > 0;
                 p.velocity.X = sign * 2.9f;

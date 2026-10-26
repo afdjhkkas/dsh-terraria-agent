@@ -2275,7 +2275,14 @@ namespace DshTerrariaBridge
             int px = (int)(pl.Center.X / 16f), py = (int)(pl.Center.Y / 16f);
             bool allowDig = !Json.Bool(p, "dig", true).Equals(false);
             if (!allowDig) BridgeSystem.PathAllowDig = false;
+            // 先按“不拆自建物”找路；确实绕不过去才放开拆（否则困在自建房里出不来）。
+            BridgeSystem.PathProtectBuilds = true;
             var path = BridgeSystem.ComputePath(px, py, x, y, out string why);
+            if (path == null)
+            {
+                BridgeSystem.PathProtectBuilds = false;
+                path = BridgeSystem.ComputePath(px, py, x, y, out why);
+            }
             BridgeSystem.PathAllowDig = true;
             if (path == null) return Json.Error(why);
             BridgeSystem.BeginPath(path, BridgeSystem.Now + BridgeSystem.Ticks(ms), allowDig);
