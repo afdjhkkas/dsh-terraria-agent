@@ -4,7 +4,7 @@
 > 元自检的第 4、5 维（动作原语 / 状态读取）就是拿这张表对照的：
 > 表里没有的接口和命令，一律视为不存在，不许在计划里使用。
 
-## 一、状态读取能力（40 个命令）
+## 一、状态读取能力（41 个命令）
 
 | 命令 | 能读到什么（返回值顶层字段） |
 |---|---|
@@ -46,6 +46,7 @@
 | `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `world` `player` `guard` `attack` `path` `walk` `input` `hint` |
 | `tile` | `hasTile` `type` `name` `wall` `liquid` `liquidName` `slope` `halfBlock` `actuator` |
 | `tiledata` | `name` `hasObjectData` `frameImportant` `width` `height` `originX` `originY` `styleHorizontal` `styleWrapLimit` |
+| `travelstatus` | — |
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
 | `mount` | `activeAfter` `held` `action` `active` `type` `flight` `items` |
 

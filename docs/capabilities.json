@@ -1148,6 +1148,13 @@
       "summary": ""
     },
     {
+      "name": "travelstatus",
+      "kind": "read",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
       "name": "unhook",
       "kind": "act",
       "params": [],
