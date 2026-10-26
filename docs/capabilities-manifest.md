@@ -4,7 +4,7 @@
 > 元自检的第 4、5 维（动作原语 / 状态读取）就是拿这张表对照的：
 > 表里没有的接口和命令，一律视为不存在，不许在计划里使用。
 
-## 一、状态读取能力（46 个命令）
+## 一、状态读取能力（47 个命令）
 
 | 命令 | 能读到什么（返回值顶层字段） |
 |---|---|
@@ -53,9 +53,10 @@
 | `tiledata` | `name` `hasObjectData` `frameImportant` `width` `height` `originX` `originY` `styleHorizontal` `styleWrapLimit` |
 | `travelstatus` | — |
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
+| `down` | `untilTick` `tick` `tiles` `from` `slot` `held` `interact` `after` `method` `off` `note` `radius` `hostileInRange` `weaponSlot` `weapon` `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `mouseWorldTile` `grapCountBefore` `proj` `equipped` `hasWings` `wingTimeMax` `wingTime` `velY` `hint` `activeAfter` `action` `active` `type` `flight` `items` `slots` `follow` `target` `targetIndex` `guard` `range` `dist` `idle` `count` `players` `attacking` `who` `selected` `free` `freeMain` `freeAll` `equipment` `canFly` `item` `name` `reason` `perCraft` `groupsUsed` `npcs` |
 | `mount` | `activeAfter` `held` `action` `active` `type` `flight` `items` |
 
-## 二、动作能力（55 个命令）
+## 二、动作能力（59 个命令）
 
 | 命令 | 参数 | 干什么 |
 |---|---|---|
@@ -85,16 +86,18 @@
 | `idle` | — | — |
 | `jump` | `ms` | — |
 | `left` | — | — |
+| `left` | — | — |
 | `liquidop` | `x` `y` `ms` | — |
 | `martian` | — | — |
 | `mine` | `x` `y` `ms` | — |
 | `minion` | `slot` | — |
 | `mirror` | — | — |
-| `move` | `dir` `ms` | — |
+| `move` | `dir` `ms` `tiles` | — |
 | `pirate` | — | — |
 | `place` | `x` `y` `type` `ms` | — |
 | `reel` | `ms` | — |
 | `removeblock` | `x` `y` `ms` | — |
+| `right` | — | — |
 | `right` | — | — |
 | `save` | — | — |
 | `select` | `slot` `item` | — |
@@ -109,10 +112,12 @@
 | `travel` | `stop` `dir` `distance` `ms` `dig` | — |
 | `unhook` | — | — |
 | `up` | — | — |
+| `up` | — | — |
 | `use` | `slot` `right` `ms` `x` `y` | — |
 | `walkto` | `x` `y` `tol` `ms` | — |
 | `wall` | `x` `y` `type` `remove` `ms` | — |
 | `chest` | `action` `slot` `count` `invSlot` | — |
+| `down` | `ms` `slot` `right` `x` `y` `item` `off` `r` `action` `player` `guard` `range` `who` `interval` `times` `event` | 按住跳跃键时长 → 跳跃顶点高度（格） |
 | `mount` | `action` `slot` | — |
 
 ## 三、明确做不到的（做计划前先看这里）

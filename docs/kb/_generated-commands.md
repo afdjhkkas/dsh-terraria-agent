@@ -3,7 +3,7 @@
 > 本文件由 `node scripts/kb-sync.mjs` 从 `DshTerrariaBridge/Commands.cs` 与
 > `index.js` 生成。**不要手改**；要改就改代码再重新生成。
 
-## mod 桥命令（99 个）
+## mod 桥命令（103 个）
 
 | 命令 | 参数 |
 |---|---|
@@ -24,6 +24,7 @@
 | `climb` | `dir` `ms` `lay` |
 | `craft` | `item` `times` |
 | `down` | — |
+| `down` | `ms` `slot` `right` `x` `y` `item` `off` `r` `action` `player` `guard` `range` `who` `interval` `times` `event` |
 | `drop` | `slot` `count` |
 | `duplicate` | `item` `count` |
 | `eclipse` | — |
@@ -56,6 +57,7 @@
 | `jump` | `ms` |
 | `keyevents` | `since` `max` `clear` |
 | `left` | — |
+| `left` | — |
 | `liquidop` | `x` `y` `ms` |
 | `map` | `step` |
 | `martian` | — |
@@ -63,7 +65,7 @@
 | `minion` | `slot` |
 | `mirror` | — |
 | `mount` | `action` `slot` |
-| `move` | `dir` `ms` |
+| `move` | `dir` `ms` `tiles` |
 | `needs` | `x` `y` |
 | `nodig` | `action` `x1` `y1` `x2` `y2` |
 | `npc` | `r` |
@@ -79,6 +81,7 @@
 | `reel` | `ms` |
 | `removeblock` | `x` `y` `ms` |
 | `research` | `slot` |
+| `right` | — |
 | `right` | — |
 | `roomcheck` | `x` `y` `npc` `mode` |
 | `save` | — |
@@ -102,6 +105,7 @@
 | `travel` | `stop` `dir` `distance` `ms` `dig` |
 | `travelstatus` | — |
 | `unhook` | — |
+| `up` | — |
 | `up` | — |
 | `use` | `slot` `right` `ms` `x` `y` |
 | `walkto` | `x` `y` `tol` `ms` |

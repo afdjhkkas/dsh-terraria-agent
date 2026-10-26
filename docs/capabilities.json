@@ -213,6 +213,99 @@
       "summary": ""
     },
     {
+      "name": "down",
+      "kind": "both",
+      "params": [
+        "ms",
+        "slot",
+        "right",
+        "x",
+        "y",
+        "item",
+        "off",
+        "r",
+        "action",
+        "player",
+        "guard",
+        "range",
+        "who",
+        "interval",
+        "times",
+        "event"
+      ],
+      "returns": [
+        "untilTick",
+        "tick",
+        "tiles",
+        "from",
+        "slot",
+        "held",
+        "interact",
+        "after",
+        "method",
+        "off",
+        "note",
+        "radius",
+        "hostileInRange",
+        "weaponSlot",
+        "weapon",
+        "controlHook",
+        "releaseHook",
+        "mouseLeft",
+        "mouseLeftRelease",
+        "mouseInterface",
+        "grapCount",
+        "grappling0",
+        "pulley",
+        "dead",
+        "selectedSlot",
+        "heldName",
+        "hookEquip",
+        "hookShoot",
+        "isProjHook",
+        "mouseWorldTile",
+        "grapCountBefore",
+        "proj",
+        "equipped",
+        "hasWings",
+        "wingTimeMax",
+        "wingTime",
+        "velY",
+        "hint",
+        "activeAfter",
+        "action",
+        "active",
+        "type",
+        "flight",
+        "items",
+        "slots",
+        "follow",
+        "target",
+        "targetIndex",
+        "guard",
+        "range",
+        "dist",
+        "idle",
+        "count",
+        "players",
+        "attacking",
+        "who",
+        "selected",
+        "free",
+        "freeMain",
+        "freeAll",
+        "equipment",
+        "canFly",
+        "item",
+        "name",
+        "reason",
+        "perCraft",
+        "groupsUsed",
+        "npcs"
+      ],
+      "summary": "按住跳跃键时长 → 跳跃顶点高度（格）"
+    },
+    {
       "name": "drop",
       "kind": "act",
       "params": [
@@ -649,6 +742,13 @@
       "summary": ""
     },
     {
+      "name": "left",
+      "kind": "act",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
       "name": "liquidop",
       "kind": "act",
       "params": [
@@ -742,7 +842,8 @@
       "kind": "act",
       "params": [
         "dir",
-        "ms"
+        "ms",
+        "tiles"
       ],
       "returns": [
         "untilTick",
@@ -930,6 +1031,13 @@
         "have",
         "unlocked"
       ],
+      "summary": ""
+    },
+    {
+      "name": "right",
+      "kind": "act",
+      "params": [],
+      "returns": [],
       "summary": ""
     },
     {
@@ -1257,6 +1365,13 @@
       "returns": [
         "grapCountBefore"
       ],
+      "summary": ""
+    },
+    {
+      "name": "up",
+      "kind": "act",
+      "params": [],
+      "returns": [],
       "summary": ""
     },
     {
