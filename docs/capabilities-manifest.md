@@ -4,7 +4,7 @@
 > 元自检的第 4、5 维（动作原语 / 状态读取）就是拿这张表对照的：
 > 表里没有的接口和命令，一律视为不存在，不许在计划里使用。
 
-## 一、状态读取能力（43 个命令）
+## 一、状态读取能力（44 个命令）
 
 | 命令 | 能读到什么（返回值顶层字段） |
 |---|---|
@@ -21,6 +21,7 @@
 | `frostmoon` | — |
 | `help` | — |
 | `hook` | — |
+| `hookdebug` | `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `mouseWorldTile` |
 | `housediag` | `x` `y` `tiles` `box` |
 | `housing` | `townNPCs` |
 | `humaninput` | `inWorld` `tick` `paused` `focus` `control` `left` `right` `up` `down` `jump` `useItem` `useTile` `grapple` `mount` |
@@ -74,7 +75,7 @@
 | `follow` | `off` `player` `guard` `range` | — |
 | `goblin` | — | — |
 | `grab` | `r` | — |
-| `grapple` | `x` `y` `slot` `ms` | — |
+| `grapple` | `x` `y` `ms` | — |
 | `gravity` | — | — |
 | `guard` | `off` `ms` `r` | — |
 | `heal` | — | — |

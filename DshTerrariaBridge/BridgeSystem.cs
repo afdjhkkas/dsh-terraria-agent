@@ -1003,8 +1003,30 @@ namespace DshTerrariaBridge
             if (ClimbDownUntil > now) { p.controlDown = true; if (OnRopeNow(p)) GrabRope(p); }
             if (HookHeld && HookUntil > now)
             {
+                // 只置 controlHook。以前这里顺手把 Main.mouseLeft 也置真，结果原版把这一帧
+                // 当成"使用当前物品"，抓钩一次都没飞出去（实测 grapCount 连续 3 秒停在 0）。
                 p.controlHook = true;
+                // 光写 controlHook 没用：Player.Update 里会用输入层结果重建它
+                // （`controlHook = Main.mouseLeft`），写在 SetControls 的值当场被覆盖。
+                // 所以按住左键本身也要在输入层为真——抓钩在装备槽，此时手上不是攻击物品，
+                // 不会像以前那样把这一帧变成"使用当前物品"。
                 Main.mouseLeft = true;
+                Main.mouseLeftRelease = false;
+                // 鼠标屏幕坐标 = 世界坐标 - 屏幕左上角；输入层每帧重建，所以每帧都要写。
+                // 换算实测过：Main.MouseWorld = screenPosition + (mouse - 屏幕中心)，zoom=1。
+                // 只写 mouse = world - screenPosition 会差半个屏幕（读到 2044 而不是 2096）。
+                Main.mouseX = (int)(HookAimWorld.X - Main.screenPosition.X + Main.screenWidth / 2f);
+                Main.mouseY = (int)(HookAimWorld.Y - Main.screenPosition.Y + Main.screenHeight / 2f);
+                // 抓钩发射要「刚按下」这一沿。这里必须是 releaseHook=false：原版 QuickGrapple
+                // 开头就是 `if (releaseHook) return;`，置 true 等于自己把发射挡掉。
+                if (HookJustStarted)
+                {
+                    p.releaseHook = false;
+                    HookJustStarted = false;
+                }
+                // releaseHook 是每帧从输入层重建的，只在这一沿清一次会被下一帧的 true 盖回去
+                // （实测：controlHook/mouseLeft/isProjHook 全对，唯独 releaseHook 恒 true → QuickGrapple 第一行就 return）。
+                p.releaseHook = false;
             }
             if (HookReleasePending)
             {
@@ -1523,10 +1545,16 @@ namespace DshTerrariaBridge
         internal static volatile bool GuardDefault = false;
         internal static bool GuardEngaged;
         internal static volatile bool HookHeld;
+        // 钩子弹幕朝**鼠标世界坐标**飞（原版用 Main.MouseWorld 算方向），不是朝 tileTargetX/Y。
+        // 之前只 SetAim 不改鼠标，光标还停在别处，钩子永远没有合法落点。
+        internal static Vector2 HookAimWorld;
+        // 诊断：Player.Update 跑完之后这些控制位到底是什么——抓钩逻辑看到的就是这份。
+        internal static volatile bool DbgPostControlHook, DbgPostReleaseHook, DbgPostMouseLeft;
+        internal static volatile int DbgProjHookCount;
         internal static ulong HookUntil;
         // 脱钩要走原版的 releaseHook 一帧标志（和 mouseLeftRelease 同类的机制）。
         // 只清 controlHook 不够：实测 grapCount 一直停在 1，角色被钉在原地。
-        internal static volatile bool HookReleasePending;
+        internal static volatile bool HookReleasePending, HookJustStarted;
         internal static ulong HookForceDetachAt;
         internal static ulong AttackUntil, AttackNextTick;
         internal static volatile int AttackTarget = -1, AttackRadius = 40, AttackIntervalTicks = 10;
@@ -1806,6 +1834,17 @@ namespace DshTerrariaBridge
             if (Player.whoAmI != Main.myPlayer) return;
             BridgeSystem.ApplyMovement();
             BridgeSystem.ApplyAttack();
+            // 诊断：Update 跑完之后这些控制位是什么——抓钩逻辑看到的正是这份
+            BridgeSystem.DbgPostControlHook = Player.controlHook;
+            BridgeSystem.DbgPostReleaseHook = Player.releaseHook;
+            BridgeSystem.DbgPostMouseLeft = Main.mouseLeft;
+            int hookProj = 0;
+            for (int i = 0; i < Main.projectile.Length; i++)
+            {
+                Projectile pr = Main.projectile[i];
+                if (pr != null && pr.active && pr.owner == Player.whoAmI && pr.type > 0 && pr.type < Main.projHook.Length && Main.projHook[pr.type]) hookProj++;
+            }
+            BridgeSystem.DbgProjHookCount = hookProj;
         }
     }
 }

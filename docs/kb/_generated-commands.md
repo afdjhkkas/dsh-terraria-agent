@@ -3,7 +3,7 @@
 > 本文件由 `node scripts/kb-sync.mjs` 从 `DshTerrariaBridge/Commands.cs` 与
 > `index.js` 生成。**不要手改**；要改就改代码再重新生成。
 
-## mod 桥命令（96 个）
+## mod 桥命令（97 个）
 
 | 命令 | 参数 |
 |---|---|
@@ -37,13 +37,14 @@
 | `frostmoon` | — |
 | `goblin` | — |
 | `grab` | `r` |
-| `grapple` | `x` `y` `slot` `ms` |
+| `grapple` | `x` `y` `ms` |
 | `gravity` | — |
 | `guard` | `off` `ms` `r` |
 | `heal` | — |
 | `help` | — |
 | `homeroom` | `x` `y` `who` |
 | `hook` | — |
+| `hookdebug` | — |
 | `housediag` | `x` `y` |
 | `housing` | `x` `y` |
 | `humaninput` | — |

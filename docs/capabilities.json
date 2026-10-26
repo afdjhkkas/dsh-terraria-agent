@@ -399,12 +399,12 @@
       "params": [
         "x",
         "y",
-        "slot",
         "ms"
       ],
       "returns": [
         "grapCountBefore",
-        "held"
+        "proj",
+        "equipped"
       ],
       "summary": ""
     },
@@ -476,6 +476,29 @@
       "kind": "read",
       "params": [],
       "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "hookdebug",
+      "kind": "read",
+      "params": [],
+      "returns": [
+        "controlHook",
+        "releaseHook",
+        "mouseLeft",
+        "mouseLeftRelease",
+        "mouseInterface",
+        "grapCount",
+        "grappling0",
+        "pulley",
+        "dead",
+        "selectedSlot",
+        "heldName",
+        "hookEquip",
+        "hookShoot",
+        "isProjHook",
+        "mouseWorldTile"
+      ],
       "summary": ""
     },
     {

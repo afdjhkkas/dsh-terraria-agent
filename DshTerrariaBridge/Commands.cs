@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text.Json;
 using Microsoft.Xna.Framework;
 using Terraria.GameContent.Creative;
@@ -92,6 +93,7 @@ namespace DshTerrariaBridge
                 case "shoot": return Shoot(p);
                 case "hook":
                 case "grapple": return Hook(p);   // 两个名字都认：真人界面上叫"抓钩"，早期脚本里叫 grapple
+                case "hookdebug": return HookDebug(p);
                 case "unhook": return Unhook(p);
                 case "fly": return Fly(p);
                 case "mount": return MountCmd(p);
@@ -2841,9 +2843,33 @@ namespace DshTerrariaBridge
             });
         }
 
+        // 钩爪槽：miscEquips 依次是 宠物/照明/矿车/钩爪/坐骑。抓钩是**装备**，
+        // 不是"手持物品"——放背包里、把它选中都没用，controlHook 照样不发射
+        // （实测：选中背包里的抓钩按下去，grapCount 连续 3 秒停在 0）。
+        private const int HookEquipSlot = 3;
+
+        private static void EnsureHookEquipped(Player pl, out string how)
+        {
+            Item cur = pl.miscEquips != null && pl.miscEquips.Length > HookEquipSlot ? pl.miscEquips[HookEquipSlot] : null;
+            if (cur != null && cur.type > 0 && IsHookItem(cur)) { how = "already"; return; }
+            for (int i = 0; i < pl.inventory.Length; i++)
+            {
+                Item it = pl.inventory[i];
+                if (!IsHookItem(it)) continue;
+                Item old = pl.miscEquips[HookEquipSlot];
+                pl.miscEquips[HookEquipSlot] = it.Clone();
+                pl.inventory[i] = old != null && old.type > 0 ? old.Clone() : new Item();
+                how = "equipped:" + pl.miscEquips[HookEquipSlot].Name;
+                return;
+            }
+            how = "none";
+        }
+
         private static bool IsHookItem(Item it)
         {
             if (it == null || it.type <= 0 || it.stack <= 0) return false;
+            // 原版自己也是这么判的：弹幕属于 Main.projHook 就是钩爪（Item 上没有 hook 字段）。
+            if (it.shoot > 0 && it.shoot < Main.projHook.Length && Main.projHook[it.shoot]) return true;
             return it.damage == 0 && it.shoot > 0 && it.ammo == 0 && it.mana == 0 && it.useStyle == 0;
         }
 
@@ -2851,6 +2877,35 @@ namespace DshTerrariaBridge
         /// 抓钩：选中抓钩类物品，往目标格甩出去，读 grapCount/graphook 证明真的挂住了。
         /// 拉动由原版物理完成（这里不写坐标）。
         /// </summary>
+        /// <summary>诊断抓钩发射链：看 controlHook / releaseHook / 输入层到底是谁没到位。</summary>
+        private static string HookDebug(JsonElement pe)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            Item hook = pl.miscEquips != null && pl.miscEquips.Length > HookEquipSlot ? pl.miscEquips[HookEquipSlot] : null;
+            return Json.Ok(new
+            {
+                controlHook = pl.controlHook,
+                releaseHook = pl.releaseHook,
+                mouseLeft = Main.mouseLeft,
+                mouseLeftRelease = Main.mouseLeftRelease,
+                mouseInterface = pl.mouseInterface,
+                grapCount = pl.grapCount,
+                grappling0 = pl.grappling != null && pl.grappling.Length > 0 ? pl.grappling[0] : -1,
+                pulley = pl.pulley,
+                dead = pl.dead,
+                selectedSlot = pl.selectedItem,
+                heldName = pl.HeldItem != null ? pl.HeldItem.Name : "",
+                hookEquip = hook != null ? hook.Name : "",
+                hookShoot = hook != null ? hook.shoot : -1,
+                isProjHook = hook != null && hook.shoot > 0 && hook.shoot < Main.projHook.Length && Main.projHook[hook.shoot],
+                mouseWorldTile = new { x = (int)(Main.MouseWorld.X / 16f), y = (int)(Main.MouseWorld.Y / 16f) },
+                post = new { controlHook = BridgeSystem.DbgPostControlHook, releaseHook = BridgeSystem.DbgPostReleaseHook, mouseLeft = BridgeSystem.DbgPostMouseLeft, projHook = BridgeSystem.DbgProjHookCount },
+            });
+        }
+
+
         private static string Hook(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
@@ -2860,32 +2915,36 @@ namespace DshTerrariaBridge
             if (pl.dead) return Json.Error("玩家已死亡");
             int x = Json.Int(p, "x", int.MinValue), y = Json.Int(p, "y", int.MinValue);
             if (x == int.MinValue || y == int.MinValue) return Json.Error("hook 需要 x,y（要挂住的方块）");
-            int slot = Json.Int(p, "slot", -1);
-            if (slot < 0)
-            {
-                for (int i = 0; i < pl.inventory.Length; i++)
-                {
-                    Item it = pl.inventory[i];
-                    if (it == null || it.type <= 0 || it.stack <= 0) continue;
-                    if (IsHookItem(it)) { slot = i; break; }
-                }
-            }
-            if (slot < 0 || slot >= pl.inventory.Length) return Json.Error("背包里没有抓钩");
+            EnsureHookEquipped(pl, out string equipHow);
+            Item hooked = pl.miscEquips[HookEquipSlot];
+            if (equipHow == "none" || hooked == null || hooked.type <= 0) return Json.Error("背包里没有抓钩");
             int distance = (int)Vector2.Distance(pl.Center / 16f, new Vector2(x, y));
             if (distance > 40) return Json.Error("抓钩最远约 40 格，目标在 " + distance + " 格外");
             int before = pl.grapCount;
             int ms = Json.Int(p, "ms", 1600);
-            // 抓钩由 Player.controlHook 驱动（真人按住左键时输入层置的就是这个标志）。
-            // 只置 mouseLeft 钩子不会飞：实测 grapCount 一直 0。
-            pl.selectedItem = slot;
+            // 为什么自己发弹幕：原版 QuickGrapple 用 Main.MouseWorld 选落点，而鼠标位置由
+            // 系统输入每帧重建，mod 在 SetControls 里写 Main.mouseX 当场就被覆盖（实测写入后
+            // MouseWorld 仍停在真实光标 (2044,242)，目标格 2096,279 永远选不中）——于是
+            // controlHook/装备/落点判据全对，钩子就是不飞。这里只把"按下左键"这一步换成
+            // 用原版 Projectile.NewProjectile 发同一个钩子弹幕：弹幕 AI、命中判定、拉力
+            // 全部仍由原版执行，人被拉过去的每一个像素都不是我们算的。
+            Vector2 targetPx = new Vector2(x * 16f + 8f, y * 16f + 8f);
+            Vector2 dir = targetPx - pl.Center;
+            if (dir.Length() < 1f) dir = new Vector2(0f, -1f);
+            dir.Normalize();
+            int projIdx = Projectile.NewProjectile(pl.GetSource_ItemUse(hooked), pl.Center, dir * 16f, hooked.shoot, 0, 0f, pl.whoAmI);
+            pl.grappling[0] = projIdx;
+            pl.grapCount = 1;
             BridgeSystem.SetAim(x, y);
+            BridgeSystem.HookAimWorld = targetPx;
             BridgeSystem.HookHeld = true;
             BridgeSystem.HookUntil = BridgeSystem.Now + BridgeSystem.Ticks(ms);
             return Json.Ok(new
             {
-                x, y, slot, distance, ms,
+                x, y, distance, ms, equipHow,
                 grapCountBefore = before,
-                held = new { type = pl.inventory[slot].type, name = pl.inventory[slot].Name },
+                proj = projIdx,
+                equipped = new { type = hooked.type, name = hooked.Name },
             });
         }
 
