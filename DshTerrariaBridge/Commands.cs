@@ -43,6 +43,8 @@ namespace DshTerrariaBridge
                 case "walkto": return WalkTo(p);
                 case "travel": return TravelCmd(p);
                 case "travelstatus": return TravelStatusCmd();
+                case "walkdiff": return WalkDiffCmd();
+                case "walkmode": return WalkModeCmd(p);
                 case "path": return PathTo(p);
                 case "research": return Research(p);
                 case "find": return FindTile(p);
@@ -2330,6 +2332,36 @@ namespace DshTerrariaBridge
         /// 只读查询 travel 任务状态。原来只能靠再调一次 travel 来“看”状态，
         /// 而那会重新 StartTravel 把 steps/mine/swings 清零，导致我误判成“travel 坏了、根本不动”。
         /// </summary>
+        /// <summary>只读：新旧两套走路逻辑在同一帧各自算出的行为，用于重构期对比。</summary>
+        /// <summary>切换走路驱动：new=四层行为系统，old=旧逻辑（重构期对照用）。</summary>
+        private static string WalkModeCmd(JsonElement p)
+        {
+            string mode = Json.Str(p, "mode", "");
+            if (mode == "new") BridgeSystem.ActorUseNew = true;
+            else if (mode == "old") BridgeSystem.ActorUseNew = false;
+            return Json.Ok(new Dictionary<string, object>
+            {
+                ["useNew"] = BridgeSystem.ActorUseNew,
+                ["dual"] = BridgeSystem.ActorDualRun
+            });
+        }
+
+        private static string WalkDiffCmd()
+        {
+            var nw = BridgeSystem.ActorNew;
+            var od = BridgeSystem.ActorOld;
+            return Json.Ok(new Dictionary<string, object>
+            {
+                ["dual"] = BridgeSystem.ActorDualRun,
+                ["newRule"] = nw.rule ?? "",
+                ["newPriority"] = nw.priority,
+                ["newKind"] = nw.kind ?? "",
+                ["oldRule"] = od.rule ?? "",
+                ["oldKind"] = od.kind ?? "",
+                ["same"] = (nw.kind ?? "") == (od.kind ?? "")
+            });
+        }
+
         private static string TravelStatusCmd()
         {
             if (!InWorld(out string err)) return Json.Error(err);

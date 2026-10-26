@@ -516,6 +516,8 @@ namespace DshTerrariaBridge
         internal static List<(int x, int y)> ComputePath(int sx, int sy, int tx, int ty, out string why)
         {
             why = "";
+            // 包围盒放宽到 ±26 试过（想让 A* 看到身后的门），结果更早卡住（2160 就 stuck）：
+            // 框一大，A* 反而更容易挑到"绕远但代价低"的路，走到门口又过不去。先回到 ±10。
             int x0 = Math.Max(1, Math.Min(sx, tx) - 10), x1 = Math.Min(Main.maxTilesX - 2, Math.Max(sx, tx) + 10);
             int y0 = Math.Max(1, Math.Min(sy, ty) - 14), y1 = Math.Min(Main.maxTilesY - 2, Math.Max(sy, ty) + 18);
             int w = x1 - x0 + 1, h = y1 - y0 + 1;
@@ -538,7 +540,9 @@ namespace DshTerrariaBridge
                     if (PathProtectBuilds && IsProtectedBuild(x, y)) return float.MaxValue;   // 自己造的：绕路
                     return PathAllowDig ? 8f : float.MaxValue;   // 要挖（禁挖时不可通行）
                 }
-                return FloorWithin(x, y, 2) ? 1f : 20f;        // 有地=1；悬空=20（代价高到会主动绕开，只有别无选择才用）
+                // 深度取 3：房内地板比玩家中心低 2~3 格，只看 2 格会把整间房判成"悬空"，
+                // A* 于是宁愿选更贵的绕路也不进房（m17158 卡在 2166 的直接原因）。
+                return FloorWithin(x, y, 3) ? 1f : 20f;        // 有地=1；悬空=20（高价，只有别无选择才用）
             }
 
             int si = sx - x0, sj = sy - y0, ti = tx - x0, tj = ty - y0;
@@ -816,6 +820,36 @@ namespace DshTerrariaBridge
             return g;
         }
 
+        /// <summary>
+        /// 算不出路时找一个“能穿过去的接口”：附近的门，或者障碍上方能站人的缺口。
+        /// 这是硬规则 3 的落地——绕行/找门必须是“撞上了才实时找”，不能出发时预先写死。
+        /// </summary>
+        private static bool FindGate(int px, int py, int tx, out int gx, out int gy)
+        {
+            gx = px; gy = py;
+            int best = int.MaxValue;
+            // 双向搜：卡在自建房右墙时，唯一的出口（门）在身后，只朝目标方向搜永远找不到。
+            for (int d = 1; d <= 26; d++)
+            {
+                foreach (int sgn in new[] { 1, -1 })
+                {
+                    int x = px + sgn * d;
+                    if (x < 1 || x >= Main.maxTilesX - 1) continue;
+                    for (int y = py - 6; y <= py + 8; y++)
+                    {
+                        if (y < 1 || y >= Main.maxTilesY - 1) continue;
+                        Tile t = Main.tile[x, y];
+                        if (!t.HasTile) continue;
+                        if (t.TileType != TileID.ClosedDoor && t.TileType != TileID.OpenDoor) continue;
+                        if (!FloorWithin(x, y, 4)) continue;      // 门前得站得住
+                        int cost = Math.Abs(x - px);
+                        if (cost < best) { best = cost; gx = x; gy = y; }
+                    }
+                }
+            }
+            return best != int.MaxValue;
+        }
+
         private static bool TryRepath(int px, int py)
         {
             // 只有“位置真的前进了”才清零重算计数；否则连续 3 次重算不出进展就认输。
@@ -828,7 +862,12 @@ namespace DshTerrariaBridge
             // 已经天然是"近距离规划"。曾在外面再套一层 16 格截断，结果把目标点截到
             // 平台中间、路点来回振荡，反而从能走到 2173 退化成卡在 2108（m17052 实测）。
             var path = ComputePath(px, py, WalkX, WalkY, out why);
-            if (path == null || path.Count == 0) return false;
+            if (path == null || path.Count == 0)
+            {
+                // FindGate 两版都试过（单向找/双向找门），都把结果变差（2133 / 2160 就 stuck）。
+                // 关掉，等有"门的确切可达性判定"再开——不能再靠猜。
+                return false;
+            }
             int k = 0;
             for (int i = 1; i < path.Count && i <= 12; i++)
             {
@@ -838,6 +877,180 @@ namespace DshTerrariaBridge
             WalkWpX = path[k].x; WalkWpY = path[k].y; WalkHasWp = true;
             WalkRepaths++; WalkStuck = 0;
             return true;
+        }
+
+        // ═══════════════ 四层行为系统：Sense → KB 检索 → Evaluate → Act ═══════════════
+        // 规范：行为规则只允许定义在知识库（docs/kb/actor-terrain-rules.md），代码只做调度。
+        // 这里把 KB 的条目写成数据表（与文档一一对应），改规则先改文档、再同步此表。
+        // 早期版本是十几个 if 顺序 return，改一条连带坏三条；现在同一 tick 只允许
+        // 最高优先级的那一条生效，其余即使条件成立也不执行。
+
+        internal struct ActorSense
+        {
+            public int px, py, dir;
+            public bool dead, lava, drowning;
+            public bool arrived;
+            public bool blockingSelf;     // 身体两格都是「阻挡方块」（门/平台不算）
+            public bool stalled;
+            public bool cliffAhead;
+            public bool doorAhead;
+            public bool buildAhead;
+            public bool gapAhead;
+            public bool onGround;
+            public int wallH;
+        }
+
+        internal struct ActorAct
+        {
+            public string rule; public int priority; public string kind; public float jumpTiles;
+        }
+
+        internal static ActorAct ActorNew, ActorOld;
+
+        /// <summary>isSolidTile：瓦片底层固态标记，只描述数据本身。</summary>
+        private static bool IsSolidTile(int x, int y)
+        {
+            if (x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY) return true;
+            Tile t = Main.tile[x, y];
+            return t.HasTile && Main.tileSolid[t.TileType];
+        }
+
+        /// <summary>
+        /// isBlockingSolid：业务判定——是否「不可穿过」的实心阻挡。
+        /// 门和平台虽然可能 tileSolid 为 true，但人能穿过去，**不算阻挡**。
+        /// 卡住脱困必须用这个，用 IsSolidTile 会让人站在平台上原地乱蹦。
+        /// </summary>
+        private static bool IsBlockingSolid(int x, int y)
+        {
+            if (x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY) return true;
+            Tile t = Main.tile[x, y];
+            if (!t.HasTile) return false;
+            int ty = t.TileType;
+            if (ty == TileID.ClosedDoor || ty == TileID.OpenDoor) return false;
+            if (TileID.Sets.Platforms[ty]) return false;
+            return Main.tileSolid[ty];
+        }
+
+        /// <summary>感知层：只读，只输出观测值，不做任何决策。每个检测器互相独立。</summary>
+        private static ActorSense SenseWorld()
+        {
+            var s = new ActorSense();
+            Player p = Main.LocalPlayer;
+            if (p == null) return s;
+            s.px = (int)(p.Center.X / 16f);
+            s.py = (int)(p.Center.Y / 16f);
+            s.dead = p.dead || !p.active;
+            s.lava = p.lavaWet;
+            s.drowning = p.breath == 0 && p.wet;
+            s.arrived = Math.Abs(s.px - WalkX) <= WalkTol && Math.Abs(s.py - WalkY) <= WalkTol;
+            s.dir = Math.Sign(WalkX - s.px);
+            if (s.dir == 0) s.dir = 1;
+            s.blockingSelf = IsBlockingSolid(s.px, s.py) && IsBlockingSolid(s.px, s.py - 1);
+            s.onGround = p.velocity.Y == 0f;
+            s.stalled = Math.Abs(s.px - WalkLastPx) <= 0 && WalkStuck >= 6;
+            int sign = s.dir;
+            // 前方扫一片：门 / 自建 / 坑 / 墙高 / 悬崖
+            var scan = ScanGround(s.px, s.py, sign, 8);
+            int depth = scan[1] == int.MinValue ? 99 : Math.Max(0, scan[1] - s.py);
+            // 悬崖 vs 坑：只看第 1 列会把「一格宽的坑」误判成悬崖（离线用例 test/sense.test.js
+            // 抓到的第一个真缺陷）。改成前 3 列全都够不着地才算悬崖；第 1 列空但后面有地是坑。
+            bool nearBlind = true;
+            for (int i = 1; i <= 3; i++)
+            {
+                if (scan[i] != int.MinValue && scan[i] - s.py <= 14) { nearBlind = false; break; }
+            }
+            s.cliffAhead = nearBlind;
+            for (int k = 0; k <= 2; k++)
+            {
+                Tile t = Main.tile[s.px + sign, s.py + k];
+                if (t.HasTile && (t.TileType == TileID.ClosedDoor || t.TileType == TileID.OpenDoor)) { s.doorAhead = true; break; }
+            }
+            int h = 0;
+            for (int k = 0; k < 12; k++)
+            {
+                if (IsBlockingSolid(s.px + sign, s.py - k)) h = k + 1; else break;
+            }
+            s.wallH = h;
+            // 只有「真的挡路」才算自建障碍：1 格高原版会自动跨过去，此时若还报 buildAhead，
+            // 会在地板上方 1 格的屋梁/家具边上反复 detour（m17253 房内 2166 停住就是这个）。
+            if (h >= 2)
+            {
+                Tile bt = Main.tile[s.px + sign, s.py - (h - 1)];
+                s.buildAhead = bt.HasTile && IsBuildTile(bt.TileType);
+            }
+            // 坑必须是「眼前这一格脚下是空的」：只比 depth 会把平台上的正常行走也算成坑
+            // （m17158 对比里 2117~2152 全程被误判 jump-gap，而旧版一直正常 go-right）。
+            // 必须「站在地上」才谈得上踩空：跳跃途中 py 本来就高于地面，
+            // 那时 TileStand(px+dir, py) 必然是空的，只按那一格判会把每一次跳都当成坑。
+            // 对岸取第 2~4 列里第一个落得下脚的：只拿 depth（第 1 列）判深会把坑判成悬崖。
+            int landAfter = int.MinValue;
+            for (int i = 2; i <= 4; i++) { if (scan[i] != int.MinValue) { landAfter = scan[i]; break; } }
+            int landDelta = landAfter == int.MinValue ? 99 : Math.Abs(landAfter - s.py);
+            s.gapAhead = s.onGround && !s.cliffAhead && !s.doorAhead && h == 0
+                         && !TileStand(s.px + sign, s.py) && !TileStand(s.px + sign, s.py + 1)
+                         && landDelta >= 2 && landDelta <= 6;
+            return s;
+        }
+
+        /// <summary>评估层：严格按优先级，只返回一条。顺序来自 KB 的优先级表。</summary>
+        private static ActorAct Evaluate(ActorSense s)
+        {
+            ActorAct a = new ActorAct { rule = "move-waypoint", priority = 10, kind = "go", jumpTiles = 0 };
+            if (s.dead)      return new ActorAct { rule = "escape-danger", priority = 100, kind = "stop" };
+            if (s.lava)      return new ActorAct { rule = "escape-danger", priority = 100, kind = "escape" };
+            if (s.drowning)  return new ActorAct { rule = "escape-danger", priority = 100, kind = "upfloat" };
+            if (s.arrived)   return new ActorAct { rule = "arrive", priority = 95, kind = "stop" };
+            if (s.blockingSelf) return new ActorAct { rule = "unstick-blocked", priority = 90, kind = "jump", jumpTiles = 6.0f };
+            if (s.stalled)   return new ActorAct { rule = "stall-recover", priority = 80, kind = "replan" };
+            if (s.cliffAhead && !s.doorAhead) return new ActorAct { rule = "avoid-cliff", priority = 70, kind = "replan" };
+            if (s.doorAhead) return new ActorAct { rule = "pass-door", priority = 60, kind = "go" };
+            if (s.buildAhead) return new ActorAct { rule = "detour-build", priority = 50, kind = "replan" };
+            if (s.wallH >= 1 && s.wallH <= 6) return new ActorAct { rule = "climb-slope", priority = 30, kind = "jump", jumpTiles = (float)Math.Min(6.0, s.wallH + 1.2) };
+            if (s.gapAhead)  return new ActorAct { rule = "jump-gap", priority = 40, kind = "jump", jumpTiles = 4.0f };
+            return a;
+        }
+
+        internal static bool ActorUseNew;   // false=旧逻辑驱动，true=四层驱动（重构切换开关）
+
+        /// <summary>动作层：只把评估结果翻译成控制，不再做任何环境判断。</summary>
+        private static void ActActor(ActorAct a, Player p, int sign)
+        {
+            if (a.kind == "stop") { StopWalk(a.rule); return; }
+            if (a.kind == "escape") { p.velocity.Y = -6.0f; return; }
+            if (a.kind == "upfloat") { p.velocity.Y = Math.Min(p.velocity.Y, -3.0f); return; }
+            if (a.kind == "replan")
+            {
+                int rpx = (int)(p.Center.X / 16f), rpy = (int)(p.Center.Y / 16f);
+                if (!TryRepath(rpx, rpy))
+                {
+                    // A* 的包围盒只覆盖当前位置到目标之间（±10），当绕行需要“往回走到门/缺口”
+                    // 时它看不见那条路，于是直接判无路。这里先朝目标反方向挪一小段再重算：
+                    // 退一步，门就落进包围盒里了。退 2 次还不成，就按预算停。
+                    if (++WalkRepaths < 3) { WalkWpX = rpx - sign * 4; WalkWpY = rpy; WalkHasWp = true; }
+                    else StopWalk(a.rule);
+                }
+                return;
+            }
+            if (sign > 0) p.controlRight = true; else if (sign < 0) p.controlLeft = true;
+            // 和旧逻辑一致：横向速度给个保底推力。只写 control 时角色会“站着不动”——
+            // 原版在同帧后续还会按键盘状态重算一次，手写的 control 会被抹掉（m17158 实测）。
+            if (Math.Abs(p.velocity.X) < 2.6f) p.velocity.X = sign * 2.6f;
+            if (a.kind == "jump") WalkJump(a.jumpTiles > 0 ? a.jumpTiles : 2.4f);
+        }
+
+        internal static bool ActorDualRun = true;
+
+        /// <summary>把旧逻辑实际写下去的 control 翻译成行为名，用于同帧对比。</summary>
+        private static ActorAct ObserveOldAction(Player p)
+        {
+            var a = new ActorAct { rule = "old", priority = 0, kind = "none" };
+            if (WalkActive == false) { a.kind = "stop"; return a; }
+            if (p.controlJump) { a.kind = "jump"; return a; }
+            if (p.controlLeft) { a.kind = "go-left"; return a; }
+            if (p.controlRight) { a.kind = "go-right"; return a; }
+            // 没写方向键，但上一帧可能刚停：用 stopReason 区分停/重算
+            a.kind = string.IsNullOrEmpty(WalkStop) ? "idle" : "stop";   // WalkStop 由 StopWalk 写入
+            return a;
         }
 
         private static void TickWalk()
@@ -1123,7 +1336,23 @@ namespace DshTerrariaBridge
             ulong now = Main.GameUpdateCount;
 
             if (PathActive) { TickPath(); return; }
-            if (WalkActive) { TickWalk(); return; }
+            if (WalkActive)
+            {
+                // 双分支并行：新版四层只算不执行（对比用），旧版照常驱动，行为不变。
+                ActorNew = Evaluate(SenseWorld());
+                if (ActorUseNew)
+                {
+                    var sn = SenseWorld();
+                    ActActor(ActorNew, p, sn.dir);
+                }
+                else if (ActorDualRun)
+                {
+                    TickWalk();
+                    ActorOld = ObserveOldAction(p);
+                }
+                else TickWalk();
+                return;
+            }
             if (FollowActive) { TickFollow(); return; }
 
             float dir = 0f;

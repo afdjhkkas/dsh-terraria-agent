@@ -1398,6 +1398,33 @@
       "summary": ""
     },
     {
+      "name": "walkdiff",
+      "kind": "read",
+      "params": [],
+      "returns": [
+        "dual",
+        "newRule",
+        "newPriority",
+        "newKind",
+        "oldRule",
+        "oldKind",
+        "same"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "walkmode",
+      "kind": "read",
+      "params": [
+        "mode"
+      ],
+      "returns": [
+        "useNew",
+        "dual"
+      ],
+      "summary": ""
+    },
+    {
       "name": "walkto",
       "kind": "act",
       "params": [

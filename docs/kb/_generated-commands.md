@@ -3,7 +3,7 @@
 > 本文件由 `node scripts/kb-sync.mjs` 从 `DshTerrariaBridge/Commands.cs` 与
 > `index.js` 生成。**不要手改**；要改就改代码再重新生成。
 
-## mod 桥命令（103 个）
+## mod 桥命令（105 个）
 
 | 命令 | 参数 |
 |---|---|
@@ -108,6 +108,8 @@
 | `up` | — |
 | `up` | — |
 | `use` | `slot` `right` `ms` `x` `y` |
+| `walkdiff` | — |
+| `walkmode` | `mode` |
 | `walkto` | `x` `y` `tol` `ms` `dig` |
 | `wall` | `x` `y` `type` `remove` `ms` |
 
