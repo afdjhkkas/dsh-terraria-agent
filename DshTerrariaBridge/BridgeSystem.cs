@@ -10,6 +10,7 @@ using System.Threading;
 using Terraria;
 using Terraria.ID;
 using Terraria.Localization;
+using Terraria.GameInput;
 using Terraria.ModLoader;
 using Microsoft.Xna.Framework;
 
@@ -284,6 +285,18 @@ namespace DshTerrariaBridge
                 catch { /* game not ready */ }
                 Thread.Sleep(8);
             }
+        }
+
+        /// <summary>
+        /// 把"按住跳跃"写进**输入层**（Triggers.Current.Jump），而不是 player.controlJump。
+        /// 原因：引擎的变高跳跃由输入上升沿驱动（releaseJump / Triggers），只在 PreUpdate 里
+        /// 覆盖 controlJump 时引擎根本不跳（实测 4 次 jump 全 0 格），而直接写 velocity 又只能
+        /// 恒 5.2 格。写 Triggers 才是"按下跳跃键"，引擎自己算出 1.4~6.1 格的变高。
+        /// </summary>
+        public override void PostUpdateInput()
+        {
+            if (Main.gameMenu || Main.dedServ) return;
+            if (JumpUntil > Main.GameUpdateCount) PlayerInput.Triggers.Current.Jump = true;
         }
 
         public override void PostUpdateEverything()
@@ -821,7 +834,8 @@ namespace DshTerrariaBridge
                 // One impulse per command, and only from the ground. The old code
                 // re-impulsed at every apex, which turned a 2 s jump into an
                 // unpowered climb; wings and auto-jump are left to vanilla.
-                if (!JumpIssued && p.velocity.Y == 0f && p.oldVelocity.Y == 0f)
+                // 原生模式下这里一个字都不写：引擎自己的 Player.Jump() 才是"按住更高"的来源。
+                if (!JumpNative && !JumpIssued && p.velocity.Y == 0f && p.oldVelocity.Y == 0f)
                 {
                     p.velocity.Y = JumpImpulse;
                     JumpIssued = true;
@@ -1240,10 +1254,14 @@ namespace DshTerrariaBridge
         }
 
         /// <summary>Arm one jump for the given deadline (a single ground impulse).</summary>
-        internal static void BeginJump(ulong until, float heightTiles = 5.5f)
+        internal static void BeginJump(ulong until, float heightTiles = 5.5f, bool native = false)
         {
             JumpUntil = until;
             JumpIssued = false;
+            JumpNative = native;
+            // 原生跳跃：不碰 velocity，交给引擎按 controlJump 起跳——真人的变高跳就是这么来的
+            // （实测按住顶到 6.1 格，短按 1.4~2.7 格）。只有明确要"跳多高"时才用冲量。
+            if (native) { JumpImpulse = 0f; return; }
             // A fixed impulse made every jump identical (measured 2.30 tiles no matter how long
             // the key was held, because the game's variable jump height is never driven).
             // Solve the impulse for the requested apex instead: h = v^2 / (2g).
@@ -1253,6 +1271,8 @@ namespace DshTerrariaBridge
         }
 
         internal static float JumpImpulse = -8.4f;
+        /// <summary>true = 只保持 controlJump 让引擎起跳（与真人一致）；false = 自算冲量。</summary>
+        internal static bool JumpNative = true;
 
         /// <summary>
         /// Performs a real player-owned hit against a hostile NPC.  This uses

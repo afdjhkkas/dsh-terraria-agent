@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -90,7 +90,8 @@ namespace DshTerrariaBridge
                 case "attack": return Attack(p);
                 case "select": return SelectSlot(p);
                 case "shoot": return Shoot(p);
-                case "hook": return Hook(p);
+                case "hook":
+                case "grapple": return Hook(p);   // 两个名字都认：真人界面上叫"抓钩"，早期脚本里叫 grapple
                 case "unhook": return Unhook(p);
                 case "fly": return Fly(p);
                 case "mount": return MountCmd(p);
@@ -121,7 +122,7 @@ namespace DshTerrariaBridge
                 case "npc": return Npcs(p);
                 case "chat": return Chat(p);
                 case "help": return Help();
-                default: return Json.Error($"unknown command: {cmd}（可用 ping/state/scan/tile/mine/place/move/jump/use/attack/follow/idle/players/stop/wall/inventory/craft/npc/chat）");
+                default: return Json.Error("unknown command: " + cmd + "（可用：" + string.Join("/", CommandNames) + "）");
             }
         }
 
@@ -277,15 +278,22 @@ namespace DshTerrariaBridge
             });
         }
 
+        /// <summary>命令名清单：help 与 unknown 提示都从这里生成，
+        /// 免得再出现"实现了但提示里没有、调用方以为不存在"的误导。</summary>
+        internal static readonly string[] CommandNames = new[]
+        {
+            "accessory", "api", "attack", "blood", "bloodmoon", "bobber", "boss", "buy", "capture", "castline", "chat", "chatpoll", "chatpost", "chest", "climb", "craft", "down", "drop", "duplicate", "eclipse", "equip", "event", "fill", "find", "fly", "follow", "frost", "frostmoon", "goblin", "grab", "gravity", "guard", "grapple", "heal", "help", "homeroom", "hook", "housediag", "housing", "humaninput", "idle", "idmap", "interact", "inventory", "items", "jump", "left", "liquidop", "map", "martian", "mine", "minion", "mirror", "mount", "move", "needs", "npc", "path", "ping", "pirate", "place", "players", "pumpkin", "pumpkinmoon", "quest", "recipes", "reel", "removeblock", "research", "right", "roomcheck", "save", "scan", "select", "sell", "shoot", "shop", "shopdebug", "shops", "snowman", "snowmoon", "splitstack", "startevent", "state", "stop", "talk", "tile", "tiledata", "trash", "travel", "travelstatus", "unhook", "up", "use", "walkto", "wall"
+        };
+
         private static string Help() => Json.Ok(new
         {
-            commands = new[]
+            // 命令名一律从 CommandNames 出，避免"提示里的清单"和"真正能调的"再分叉。
+            commands = CommandNames,
+            notes = new[]
             {
-                "ping", "state", "humaninput", "scan{x,y,r}", "tile{x,y}", "mine{x,y,noItem}", "items{r}", "grab{r}",
-                "place{x,y,type,style,forced}", "move{dir,ms}", "jump{ms}", "use{slot,right,ms}",
-                "attack{who,r,ms,interval,slot}", "spawn_npc{type,x,y}",
-                "stop", "teleport{x,y}", "inventory", "craft{item,times}", "give{type,stack}",
-                "npc{r}", "chat{text}",
+                "jump{ms,tiles,native}：默认走原生输入层（Triggers.Jump），高度随按住时长 1.8~6.1 格；tiles 指定目标高度，native:false 才用自算冲量",
+                "hook/grapple{x,y,slot,ms}：抓钩，真人键位语义；unhook 脱钩",
+                "humaninput{samples,ms}：观察模式采集口（控制标志+位置+按键），只读",
             },
         });
 
@@ -2490,20 +2498,62 @@ namespace DshTerrariaBridge
             if (!CanTick(out string perr2)) return Json.Error(perr2);
             Player pl = P;
             int ms = Math.Clamp(Json.Int(p, "ms", 150), 1, 2000);
-            // Optional height in tiles: the bridge solves the impulse, because the game's
-            // variable-height jump cannot be driven without real key input.
+            // 真人实测：按住跳跃键顶到 6.1 格，短按只有 1.4~2.7 格——高度是靠"按住多久"走出来的。
+            // 所以默认改成**原生跳跃**：只保持 controlJump，让引擎自己起跳并做变高，
+            // 不再替它设竖直速度（旧做法恒 5.2 格，且有天花板时与真人差得更远）。
+            // 需要精确某个高度（跨越指定深坑）时再传 native:false + height。
+            bool native = !(p.TryGetProperty("native", out var nv) && nv.ValueKind == JsonValueKind.False);
+            // 便利参数：直接说"要跳几格"，按住时长由实测表反查（真人同样按这两列对应）。
+            double? wantTiles = null;
+            if (p.TryGetProperty("tiles", out var tv) && tv.ValueKind == JsonValueKind.Number)
+            {
+                wantTiles = tv.GetDouble();
+                ms = MsForTiles(wantTiles.Value);
+                native = true;
+            }
             float height = 5.5f;
             var hp = p.TryGetProperty("height", out var hv) ? hv : default;
             if (hp.ValueKind == JsonValueKind.Number) height = (float)hp.GetDouble();
-            BridgeSystem.BeginJump(BridgeSystem.Now + BridgeSystem.Ticks(ms), height);
+            BridgeSystem.BeginJump(BridgeSystem.Now + BridgeSystem.Ticks(ms), height, native);
             return Json.Ok(new
             {
                 ms,
+                native,
+                tiles = wantTiles,
                 from = new[] { MathF.Round(pl.Center.X / 16f, 1), MathF.Round(pl.Center.Y / 16f, 1) },
                 grounded = pl.velocity.Y == 0f && pl.oldVelocity.Y == 0f,
                 untilTick = BridgeSystem.JumpUntil,
                 tick = BridgeSystem.Now,
             });
+        }
+
+        /// <summary>
+        /// 按住跳跃键时长 → 跳跃顶点高度（格）。数值全部来自真机逐帧实测（同一块地面反复跳）：
+        /// 20ms→1.8、40→2.1、60→2.4、100→3.0、150→3.8、200→4.7、250→5.6、400→6.1（封顶）。
+        /// 原版无增益配件时按住更久不会超过 6.1 格，所以上界直接压在 400ms。
+        /// </summary>
+        private static readonly (int ms, double tiles)[] JumpCurve =
+        {
+            (20, 1.8), (40, 2.1), (60, 2.4), (100, 3.0), (150, 3.8), (200, 4.7), (250, 5.6), (400, 6.1),
+        };
+
+        private static int MsForTiles(double tiles)
+        {
+            if (tiles <= JumpCurve[0].tiles) return JumpCurve[0].ms;
+            if (tiles >= JumpCurve[JumpCurve.Length - 1].tiles) return JumpCurve[JumpCurve.Length - 1].ms;
+            for (int i = 1; i < JumpCurve.Length; i++)
+            {
+                var (m1, t1) = JumpCurve[i];
+                var (m0, t0) = JumpCurve[i - 1];
+                if (tiles <= t1)
+                {
+                    double f = (tiles - t0) / (t1 - t0);
+                    // 加一 tick 余量：实测 2 格档插值给 33ms 只跳出 1.8 格，差 0.2 格就会撞，
+                    // 宁可多按住 16ms 顶到目标高度。
+                    return Math.Min(JumpCurve[JumpCurve.Length - 1].ms, (int)Math.Round(m0 + f * (m1 - m0)) + 16);
+                }
+            }
+            return JumpCurve[JumpCurve.Length - 1].ms;
         }
 
         private static string Use(JsonElement p)
@@ -2540,7 +2590,16 @@ namespace DshTerrariaBridge
                 // a short bridge request visibly performs one use.
                 pl.controlUseItem = true;
                 Item held = pl.HeldItem;
-                if (held != null && held.type > 0 && held.useAnimation > 0)
+                // 只有"挥/射"类物品才需要替引擎起动画：镐斧锤剑弓与投掷物都是靠动画驱动的。
+                // 消耗品（生命水晶/药水/召唤物）恰好相反——引擎 ItemCheck 要求 itemAnimation == 0
+                // 才走"吃掉并生效"那条分支。之前无差别强行播动画，导致 `use` 对消耗品永远只是空挥：
+                // 回 ok、水晶还在背包、上限一点没涨。对照证据：同一套 use 能把手里剑从 60 打到 58。
+                bool swings = held != null && held.type > 0
+                    && (held.damage > 0 || held.pick > 0 || held.axe > 0 || held.hammer > 0
+                        || held.shoot > 0 || held.ammo > 0 || held.useStyle == 1
+                        // 钩爪 useStyle == 7：漏了它，抓钩的 anim 恒 0、永远射不出去。
+                        || held.useStyle == 7);
+                if (swings && held.useAnimation > 0)
                 {
                     pl.direction = Main.MouseWorld.X >= pl.Center.X ? 1 : -1;
                     pl.SetItemAnimation(Math.Max(1, held.useAnimation));
@@ -2553,6 +2612,9 @@ namespace DshTerrariaBridge
                 right,
                 ms,
                 held = new { type = pl.HeldItem.type, name = pl.HeldItem.Name },
+                // 命令回 ok 不等于事情发生了：把"动手之前"的血量/上限/持有数一并带回去，
+                // 脚本拿它跟回读值比，才知道这次 use 到底吃掉了没有（消耗品最典型）。
+                before = new { life = pl.statLife, lifeMax = pl.statLifeMax2, stack = pl.HeldItem.stack },
                 // Evidence that something actually started, instead of just "ok".
                 anim = pl.itemAnimation,
             });
@@ -2800,6 +2862,7 @@ namespace DshTerrariaBridge
             BridgeSystem.HookForceDetachAt = BridgeSystem.Now + BridgeSystem.Ticks(250);
             BridgeSystem.JumpUntil = BridgeSystem.Now + BridgeSystem.Ticks(160);
             BridgeSystem.JumpIssued = false;
+            BridgeSystem.JumpNative = true;
             return Json.Ok(new { grapCountBefore = before });
         }
 
@@ -2819,6 +2882,8 @@ namespace DshTerrariaBridge
             bool mounted = pl.mount != null && pl.mount.Active;
             BridgeSystem.JumpUntil = BridgeSystem.Now + BridgeSystem.Ticks(ms);
             BridgeSystem.JumpIssued = false;
+            // 飞/脱钩都是"按住跳跃键"的语义：走原生，别让上一颗冲量在这里弹一下。
+            BridgeSystem.JumpNative = true;
             return Json.Ok(new
             {
                 ms,

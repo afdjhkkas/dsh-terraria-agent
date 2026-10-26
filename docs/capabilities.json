@@ -392,6 +392,21 @@
       "summary": ""
     },
     {
+      "name": "grapple",
+      "kind": "act",
+      "params": [
+        "x",
+        "y",
+        "slot",
+        "ms"
+      ],
+      "returns": [
+        "grapCountBefore",
+        "held"
+      ],
+      "summary": ""
+    },
+    {
       "name": "gravity",
       "kind": "act",
       "params": [],
@@ -456,17 +471,9 @@
     },
     {
       "name": "hook",
-      "kind": "act",
-      "params": [
-        "x",
-        "y",
-        "slot",
-        "ms"
-      ],
-      "returns": [
-        "grapCountBefore",
-        "held"
-      ],
+      "kind": "read",
+      "params": [],
+      "returns": [],
       "summary": ""
     },
     {
@@ -588,6 +595,7 @@
         "ms"
       ],
       "returns": [
+        "tiles",
         "from"
       ],
       "summary": ""
