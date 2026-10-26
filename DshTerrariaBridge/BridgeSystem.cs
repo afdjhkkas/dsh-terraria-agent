@@ -513,12 +513,15 @@ namespace DshTerrariaBridge
             return false;
         }
 
-        internal static List<(int x, int y)> ComputePath(int sx, int sy, int tx, int ty, out string why)
+        /// <summary>最近一次寻路的诊断串（只读，path/travelstatus 回传）</summary>
+        internal static string LastPathWhy = "";
+
+        internal static List<(int x, int y)> ComputePath(int sx, int sy, int tx, int ty, out string why, int margin = 10)
         {
             why = "";
             // 包围盒放宽到 ±26 试过（想让 A* 看到身后的门），结果更早卡住（2160 就 stuck）：
             // 框一大，A* 反而更容易挑到"绕远但代价低"的路，走到门口又过不去。先回到 ±10。
-            int x0 = Math.Max(1, Math.Min(sx, tx) - 10), x1 = Math.Min(Main.maxTilesX - 2, Math.Max(sx, tx) + 10);
+            int x0 = Math.Max(1, Math.Min(sx, tx) - margin), x1 = Math.Min(Main.maxTilesX - 2, Math.Max(sx, tx) + margin);
             int y0 = Math.Max(1, Math.Min(sy, ty) - 14), y1 = Math.Min(Main.maxTilesY - 2, Math.Max(sy, ty) + 18);
             int w = x1 - x0 + 1, h = y1 - y0 + 1;
             if (w <= 0 || h <= 0) { why = "包围盒无效"; return null; }
@@ -547,17 +550,21 @@ namespace DshTerrariaBridge
 
             int si = sx - x0, sj = sy - y0, ti = tx - x0, tj = ty - y0;
             if (si < 0 || sj < 0 || si >= w || sj >= h || ti < 0 || tj < 0 || ti >= w || tj >= h) { why = "起点/终点在包围盒外"; return null; }
+            // 失败诊断：把起点/终点/目标格的判定一次性回传，不然只能靠猜（m17649 no-path 反复排查）。
+            LastPathWhy = $"s=({sx},{sy}) t=({tx},{ty}) box=[{x0},{x1}]x[{y0},{y1}] "
+                        + $"bodyS={PathBodyFree(sx, sy)} floorS={PathFloorAt(sx, sy)} standS={TileStand(sx, sy + 1)} "
+                        + $"bodyT={PathBodyFree(tx, ty)} floorT={PathFloorAt(tx, ty)} standT={TileStand(tx, ty + 1)}";
 
             var open = new List<(int i, int j)>();
             cost[si, sj] = 0;
             open.Add((si, sj));
-            int guard = 0;
-            while (open.Count > 0 && guard++ < 200000)
+            int guard = 0, openedCount = 0;
+            while (open.Count > 0 && guard++ < 600000)
             {
                 int bi = 0; float best = float.MaxValue;
                 for (int k = 0; k < open.Count; k++)
                 {
-                    float f = cost[open[k].i, open[k].j] + Math.Abs(open[k].i - ti) + Math.Abs(open[k].j - tj);
+                    float f = cost[open[k].i, open[k].j] + Math.Abs(open[k].i - ti) + Math.Abs(open[k].j - tj) * 0.5f;
                     if (f < best) { best = f; bi = k; }
                 }
                 var (ci, cj) = open[bi];
@@ -565,18 +572,69 @@ namespace DshTerrariaBridge
                 if (ci == ti && cj == tj) break;
                 if (done[ci, cj]) continue;
                 done[ci, cj] = true;
+                openedCount++;
 
-                foreach (var (di, dj) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+                // ── 垂直层：走 / 跨 / 跳 / 落 四类边 ──────────────────────────
+                // 只有「走」和「下坠」时 A* 才看不见"跳上屋顶再下来"这条路：
+                // 自建房一旦把地面通道堵死，平面图上就成了完全封闭（m17291 卡在房 A 右墙前）。
+                int cx = x0 + ci, cy = y0 + cj;
+                void TryEdge(int nx, int ny, float w8)
                 {
-                    int ni = ci + di, nj = cj + dj;
-                    if (ni < 0 || nj < 0 || ni >= w || nj >= h) continue;
-                    float sc = StepCost(x0 + ni, y0 + nj);
-                    if (sc >= float.MaxValue) continue;
-                    float nc = cost[ci, cj] + sc;
+                    int ni = nx - x0, nj = ny - y0;
+                    if (ni < 0 || nj < 0 || ni >= w || nj >= h) return;
+                    float sc = StepCost(nx, ny);
+                    if (sc >= float.MaxValue) return;
+                    float nc = cost[ci, cj] + w8;
                     if (nc < cost[ni, nj]) { cost[ni, nj] = nc; prev[ni, nj] = (ci, cj); open.Add((ni, nj)); }
                 }
+                for (int d = -1; d <= 1; d += 2)
+                {
+                    // 走 / 跨（原版能自己上的 1~2 格台阶）
+                    for (int up = 0; up <= 2; up++)
+                    {
+                        int nx = cx + d, ny = cy - up;
+                        if (!PathBodyFree(nx, ny)) continue;
+                        if (!PathFloorAt(nx, ny)) continue;
+                        TryEdge(nx, ny, up == 0 ? 1f : 1.2f * up);
+                    }
+                    // 跳：水平 1~3、上升 0~6（满跳 6.1 格）；同高横跳只允许跨 2 格以上
+                    // 水平跨距 4 格：3 格宽的坑要"从左沿跳到右沿"，正好 4 格；
+                    // 上限定 3 时这类坑在图上就是死路（离线用例 gap3 抓到）。
+                    for (int step = 1; step <= 4; step++)
+                    {
+                        int jx = cx + d * step;
+                        for (int up = 0; up <= 6; up++)
+                        {
+                            if (up == 0 && step == 1) continue;
+                            int jy = cy - up;
+                            if (!PathColumnClear(cx, cy, jy)) break;
+                            if (!PathBodyFree(jx, jy)) continue;
+                            if (!PathFloorAt(jx, jy)) continue;
+                            // 横移发生在最高点（落点高度），只查那一层的身体两格。
+                            // 查 cy..jy 整段会把"门框上方留了空、人可以跳过去再从屋顶横移"直接判死：
+                            // 门框 226/227 是实心，2174 那面墙从地面到屋顶，从屋外只能靠"跳到屋顶高度再横移"绕过去（m17619）。
+                            if (!PathHorizClear(cx, jx, jy - 1, jy)) continue;
+                            TryEdge(jx, jy, 4f + step + up * 0.3f);
+                            break;
+                        }
+                    }
+                    // 落：水平 1~3、下降 1~14（超过 14 格按摔伤处理，不当通路）
+                    for (int step = 1; step <= 4; step++)
+                    {
+                        int jx = cx + d * step;
+                        for (int down = 1; down <= 14; down++)
+                        {
+                            int jy = cy + down;
+                            if (!PathBodyFree(jx, jy)) break;
+                            if (!PathFloorAt(jx, jy)) continue;
+                            if (!PathHorizClear(cx, jx, cy, jy)) continue;
+                            TryEdge(jx, jy, 2f + step * 0.5f + down * 0.2f);
+                            break;
+                        }
+                    }
+                }
             }
-            if (cost[ti, tj] >= float.MaxValue) { why = "没有可行路径"; return null; }
+            if (cost[ti, tj] >= float.MaxValue) { why = "没有可行路径 | " + LastPathWhy + $" opened={openedCount}"; return null; }
 
             var path = new List<(int x, int y)>();
             var cur = (i: ti, j: tj);
@@ -728,7 +786,7 @@ namespace DshTerrariaBridge
             WalkActive = true; WalkX = x; WalkY = y;
             WalkTol = Math.Max(0, tol); WalkDeadline = until;
             WalkStop = ""; WalkNextJump = 0; WalkNextMine = 0; WalkStuck = 0; WalkLastPx = -99999;
-            WalkRepaths = 0; WalkStuckHard = 0; WalkRepathSame = 0; WalkRepathPx = -99999; WalkHasWp = false; WalkWpX = 0; WalkWpY = 0;
+            WalkRepaths = 0; WalkStuckHard = 0; WalkRepathSame = 0; WalkRepathPx = -99999; WalkHasWp = false; WalkWpX = 0; WalkWpY = 0; WalkDetour = 0;
         }
 
         internal static void StopWalk(string reason)
@@ -804,6 +862,52 @@ namespace DshTerrariaBridge
             return Main.tileSolid[ty] || Main.tileSolidTop[ty] || TileID.Sets.Platforms[ty];
         }
 
+        // ── 寻路的四个判定（与 src/path-model.js 一一对应，改一处必须同步改另一处） ──
+        /// <summary>身体两格都能站人（门算能过）</summary>
+        private static bool PathBodyFree(int x, int y)
+        {
+            bool ok(int yy)
+            {
+                if (TileAir(x, yy)) return true;
+                Tile t = Main.tile[x, yy];
+                return t.HasTile && (t.TileType == TileID.ClosedDoor || t.TileType == TileID.OpenDoor);
+            }
+            return ok(y) && ok(y - 1);
+        }
+
+        /// <summary>脚下有地板（平台也算）。
+        /// 门必须单独放行：门占 3 格高且自身不算可站立面，站在门格里时
+        /// 脚下 1~2 格都还是门，真正的地板在门下方 —— 只查 y+1 会让所有门口
+        /// 变成"无地可站"，于是 A* 连"从房里原路走出门"都算不出来（m17619 离线复现 NO PATH）。</summary>
+        private static bool PathFloorAt(int x, int y)
+        {
+            for (int k = 1; k <= 4; k++)
+            {
+                if (TileStand(x, y + k)) return true;
+                Tile t = Main.tile[x, y + k];
+                bool isDoor = t.HasTile && (t.TileType == TileID.ClosedDoor || t.TileType == TileID.OpenDoor);
+                if (!isDoor) return false;
+            }
+            return false;
+        }
+
+        /// <summary>从 y 往上到 ny 的竖直通道是否清空</summary>
+        private static bool PathColumnClear(int x, int y, int ny)
+        {
+            for (int yy = y - 1; yy >= ny; yy--) if (IsBlockingSolid(x, yy)) return false;
+            return true;
+        }
+
+        /// <summary>横跨时中间格必须过得去（否则会算出"跳过一堵墙"的假路）</summary>
+        private static bool PathHorizClear(int x0, int x1, int yTop, int yBot)
+        {
+            int dir = Math.Sign(x1 - x0);
+            for (int x = x0 + dir; x != x1; x += dir)
+                for (int y = yTop - 1; y <= yBot; y++)
+                    if (IsBlockingSolid(x, y)) return false;
+            return true;
+        }
+
         private static int[] ScanGround(int px, int py, int sign, int w)
         {
             var g = new int[w + 1];
@@ -861,11 +965,16 @@ namespace DshTerrariaBridge
             // 滚动局部规划：ComputePath 的包围盒本身只覆盖 ±10/±14/±18 格（见其内部实现），
             // 已经天然是"近距离规划"。曾在外面再套一层 16 格截断，结果把目标点截到
             // 平台中间、路点来回振荡，反而从能走到 2173 退化成卡在 2108（m17052 实测）。
-            var path = ComputePath(px, py, WalkX, WalkY, out why);
+            // 先用窄框（±10）：它快、也不会挑"绕远但便宜"的怪路。
+            // 窄框算不出时再放一次宽框（±28）—— 唯一出口（比如自家房子的门）常在 10 格之外，
+            // 窄框会把"必须往回走才出得去"直接判成无路（m17400 卡在房 A 右墙前就是这个）。
+            var path = ComputePath(px, py, WalkX, WalkY, out why)
+                       ?? ComputePath(px, py, WalkX, WalkY, out why, 28);
             if (path == null || path.Count == 0)
             {
                 // FindGate 两版都试过（单向找/双向找门），都把结果变差（2133 / 2160 就 stuck）。
                 // 关掉，等有"门的确切可达性判定"再开——不能再靠猜。
+                WalkRepaths++;          // 只有真的算不出路才记一次失败
                 return false;
             }
             int k = 0;
@@ -875,7 +984,9 @@ namespace DshTerrariaBridge
             }
             if (k == 0) return false;
             WalkWpX = path[k].x; WalkWpY = path[k].y; WalkHasWp = true;
-            WalkRepaths++; WalkStuck = 0;
+            // 成功必须清零：以前这里也 ++，结果每成功 3 次就到阈值，之后 TryRepath 永久返回 false
+            // （表现为走到半路突然"detour-build"直接停，位置一动不动）。
+            WalkRepaths = 0; WalkStuck = 0;
             return true;
         }
 
@@ -943,11 +1054,15 @@ namespace DshTerrariaBridge
             s.lava = p.lavaWet;
             s.drowning = p.breath == 0 && p.wet;
             s.arrived = Math.Abs(s.px - WalkX) <= WalkTol && Math.Abs(s.py - WalkY) <= WalkTol;
-            s.dir = Math.Sign(WalkX - s.px);
+            // 方向必须按"当前路点"算，不能按最终目标：绕路时路点常在人身后（往回走出房门），
+            // 用最终目标会算出朝右，于是人顶着右墙一遍遍满跳（m17462 实测 control.right 恒 true、路点却在左边）。
+            s.dir = Math.Sign((WalkHasWp ? WalkWpX : WalkX) - s.px);
             if (s.dir == 0) s.dir = 1;
             s.blockingSelf = IsBlockingSolid(s.px, s.py) && IsBlockingSolid(s.px, s.py - 1);
             s.onGround = p.velocity.Y == 0f;
             s.stalled = Math.Abs(s.px - WalkLastPx) <= 0 && WalkStuck >= 6;
+            // 停顿持续计数：位置一变就归零，所以这个数只在"卡住"期间增长。
+            if (s.stalled) StallJumps++; else StallJumps = 0;
             int sign = s.dir;
             // 前方扫一片：门 / 自建 / 坑 / 墙高 / 悬崖
             var scan = ScanGround(s.px, s.py, sign, 8);
@@ -1001,14 +1116,27 @@ namespace DshTerrariaBridge
             if (s.drowning)  return new ActorAct { rule = "escape-danger", priority = 100, kind = "upfloat" };
             if (s.arrived)   return new ActorAct { rule = "arrive", priority = 95, kind = "stop" };
             if (s.blockingSelf) return new ActorAct { rule = "unstick-blocked", priority = 90, kind = "jump", jumpTiles = 6.0f };
-            if (s.stalled)   return new ActorAct { rule = "stall-recover", priority = 80, kind = "replan" };
+            // 停顿自救：先按满跳跳一次（高差在满跳范围内的路点只有靠跳才上得去；
+            // 直接重规划会算出同一个路点，位置照旧不动，于是无限重规划、人永远站着 —— m17558 实测 70 帧零控制）。
+            if (s.stalled)
+            {
+                // 8 帧 ≈ 260ms 长按，正好是满跳；太短就只到两三格，根本够不着屋顶。
+                if (StallJumps <= 8) return new ActorAct { rule = "stall-jump", priority = 80, kind = "jump", jumpTiles = 6.0f };
+                return new ActorAct { rule = "stall-recover", priority = 80, kind = "replan" };
+            }
             if (s.cliffAhead && !s.doorAhead) return new ActorAct { rule = "avoid-cliff", priority = 70, kind = "replan" };
             if (s.doorAhead) return new ActorAct { rule = "pass-door", priority = 60, kind = "go" };
-            if (s.buildAhead) return new ActorAct { rule = "detour-build", priority = 50, kind = "replan" };
+            // 只在"没有路点可走"时才因建材绕行。A* 已经算出一条绕开房子的路时，
+            // 贴身处是墙是正常的（正走在门口），不能再触发 replan —— 否则每帧重算、
+            // 路点被反复改写成"往回退 4 格"，人就永远钉在墙前（m17430 实测）。
+            if (s.buildAhead && !WalkHasWp) return new ActorAct { rule = "detour-build", priority = 50, kind = "replan" };
             if (s.wallH >= 1 && s.wallH <= 6) return new ActorAct { rule = "climb-slope", priority = 30, kind = "jump", jumpTiles = (float)Math.Min(6.0, s.wallH + 1.2) };
             if (s.gapAhead)  return new ActorAct { rule = "jump-gap", priority = 40, kind = "jump", jumpTiles = 4.0f };
             return a;
         }
+
+        private static int WalkDetour;   // detour-build 自己的重试预算（与 TryRepath 的 WalkRepaths 分开）
+        private static int StallJumps;   // 同一位置连续“停顿自救”的次数：前两跳满跳，第三跳才重规划
 
         internal static bool ActorUseNew;   // false=旧逻辑驱动，true=四层驱动（重构切换开关）
 
@@ -1026,7 +1154,8 @@ namespace DshTerrariaBridge
                     // A* 的包围盒只覆盖当前位置到目标之间（±10），当绕行需要“往回走到门/缺口”
                     // 时它看不见那条路，于是直接判无路。这里先朝目标反方向挪一小段再重算：
                     // 退一步，门就落进包围盒里了。退 2 次还不成，就按预算停。
-                    if (++WalkRepaths < 3) { WalkWpX = rpx - sign * 4; WalkWpY = rpy; WalkHasWp = true; }
+                    // 独立计数：不能和 TryRepath 的 WalkRepaths 共用，否则一次卡住 3 帧就用光预算。
+                    if (++WalkDetour < 8) { WalkWpX = rpx - sign * 4; WalkWpY = rpy; WalkHasWp = true; }
                     else StopWalk(a.rule);
                 }
                 return;
@@ -1065,7 +1194,28 @@ namespace DshTerrariaBridge
             int px = (int)(p.Center.X / 16f), py = (int)(p.Center.Y / 16f);
             if (Math.Abs(WalkX - px) <= WalkTol && Math.Abs(WalkY - py) <= WalkTol) { StopWalk("arrived"); return; }
             // 有路点时朝路点走；走到就丢掉，回到朝总目标走
-            if (WalkHasWp && Math.Abs(WalkWpX - px) <= 1 && Math.Abs(WalkWpY - py) <= 1) WalkHasWp = false;
+            // 用浮点中心比较、阈值 0.6 格：以前用整数格 + "<=1" 判到达，人在 2170.0 就把
+            // 2169 的路点当成已到达并丢掉，下一个路点还是 2169 → 原地死循环（m17490 实测）。
+            float fpx = p.Center.X / 16f, fpy = p.Center.Y / 16f;
+            // 横向阈值必须紧：0.8 格时人在 2167.1 就把 2166 的路点判成到达，于是"从平台起跳"
+            // 那一步被吞掉，下一个路点在头顶 5 格、正下方是实心屋顶 → 只能原地卡到超时（m17686 实测）。
+            // 纵向可以松（下落/上升本来就有惯性），横向必须先把人摆到起跳点那一格上。
+            if (WalkHasWp && Math.Abs(WalkWpX + 0.5f - fpx) <= 0.42f && Math.Abs(WalkWpY + 0.5f - fpy) <= 1.2f)
+            {
+                // 到点必须刹车：路点常常是"起跳点"，带着 2.9 格/秒的惯性冲过去 3 格，
+                // 下一个路点就变成头顶正上方、而正上方是实心屋顶 —— 规划好的起跳点白算了（m17699 实测冲到 2167.9 后卡死）。
+                if (Math.Abs(p.velocity.X) > 0.6f) p.velocity.X *= 0.25f;
+                WalkHasWp = false;
+            }
+            // 没有路点就立刻重算，绝不"直接朝最终目标顶墙"：
+            // 贪心回退不走路点：路点由 A* 生成，贪心模式下两者方向会打架。
+            if (PathGreedy) WalkHasWp = false;
+            // 以前会在路点用完后拿 WalkX 当方向，于是人在自建房右墙前一遍遍朝右满跳（m17436 实测 30 秒原地跳）。
+            if (!WalkHasWp)
+            {
+                if (!TryRepath(px, py)) { StopWalk("no-path"); return; }
+                if (!WalkHasWp) { StopWalk("no-path"); return; }
+            }
             int gx = WalkHasWp ? WalkWpX : WalkX;
             int gy = WalkHasWp ? WalkWpY : WalkY;
             int dx = gx - px, dy = gy - py;
@@ -1073,7 +1223,9 @@ namespace DshTerrariaBridge
             if (py > WalkY + 2) { StopWalk("overshoot"); return; }
 
             int sign = Math.Sign(dx);
-            if (PathGreedy) sign = Math.Sign(WalkX - px);   // 贪心模式：不跟路径点，直接朝终点
+            // 贪心模式以前单独拿 WalkX 算方向，但同一次 tick 里路点仍指向身后 → 控制标志左右互搏
+            // （m17466 实测 control 在 right/left 间来回切、x 卡死在 2170.0）。贪心就干脆不用路点，
+            // 让 gx 已经等于 WalkX，后面所有分支共用一个方向。
             if (sign == 0) return;
 
             // 卡进实心格（跳跃落进墙里）：原地怎么走都出不来，先往上跳并清掉身内那一格
@@ -1732,6 +1884,10 @@ namespace DshTerrariaBridge
                     repaths = WalkRepaths,
                     hasWp = WalkHasWp,
                     wpX = WalkWpX, wpY = WalkWpY,
+                    greedy = PathGreedy,
+                    // 计时器残留是"控制标志与路点反向"的头号嫌疑：这两个值还剩多少 ms 是直接证据。
+                    lu = (long)LeftUntil > (long)Main.GameUpdateCount ? (long)LeftUntil - (long)Main.GameUpdateCount : 0,
+                    ru = (long)RightUntil > (long)Main.GameUpdateCount ? (long)RightUntil - (long)Main.GameUpdateCount : 0,
                 },
                 hp = p == null ? 0 : (int)(100f * p.statLife / Math.Max(1, p.statLifeMax2)),
             });
