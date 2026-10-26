@@ -765,25 +765,30 @@ namespace DshTerrariaBridge
             });
         }
 
+        /* Terraria 的 inventory 有 59 格：0-49 主背包，50-53 货币，54-57 弹药，58 垃圾桶。
+         * 找"能拿在手里的东西"、找"能塞新物品的空位"只能在主背包里找。
+         * 实测事故：合成把工作台塞进 58（垃圾桶），place 又把 selectedItem 设成 58，
+         * 原版手里拿到的是一格垃圾 —— 回包 armed:true，格子却怎么都放不上。*/
+        private const int MainBagSlots = 50;
         /* ── 拟人操作：找工具/材料，掏出来，瞄准，挥动 ─────────────────── */
 
         private static int FindPickaxe(Player pl)
         {
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
                 if (pl.inventory[i] != null && pl.inventory[i].type > 0 && pl.inventory[i].pick > 0) return i;
             return -1;
         }
 
         private static int FindAxe(Player pl)
         {
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
                 if (pl.inventory[i] != null && pl.inventory[i].type > 0 && pl.inventory[i].axe > 0) return i;
             return -1;
         }
 
         private static int FindItemForTile(Player pl, int tileType)
         {
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
             {
                 Item it = pl.inventory[i];
                 if (it != null && it.type > 0 && it.stack > 0 && it.createTile == tileType) return i;
@@ -793,7 +798,7 @@ namespace DshTerrariaBridge
 
         private static int FindItemForWall(Player pl, int wallType)
         {
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
             {
                 Item it = pl.inventory[i];
                 if (it != null && it.type > 0 && it.stack > 0 && it.createWall == wallType) return i;
@@ -1013,14 +1018,14 @@ namespace DshTerrariaBridge
                 taken.stack = n;
                 // 手工放进背包：同类型可叠加的优先，其次空格
                 int target = -1;
-                for (int i = 0; i < pl.inventory.Length; i++)
+                for (int i = 0; i < MainBagSlots; i++)
                 {
                     Item inv = pl.inventory[i];
                     if (inv == null) continue;
                     if (inv.type == taken.type && inv.stack + n <= inv.maxStack) { target = i; break; }
                 }
                 if (target < 0)
-                    for (int i = 0; i < pl.inventory.Length; i++)
+                    for (int i = 0; i < MainBagSlots; i++)
                         if (pl.inventory[i] != null && pl.inventory[i].type == 0) { target = i; break; }
                 if (target < 0) return Json.Error("背包放不下");
                 if (pl.inventory[target].type == taken.type) pl.inventory[target].stack += n;
@@ -1471,13 +1476,13 @@ namespace DshTerrariaBridge
             long price = ShopPrice(stock);
             // 先找同类可叠加的堆（否则每次买都塞新槽，容易互相覆盖/丢东西）
             int slotInBag = -1;
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
             {
                 Item it = pl.inventory[i];
                 if (it != null && it.type == stock.type && it.stack < it.maxStack) { slotInBag = i; break; }
             }
             if (slotInBag < 0)
-                for (int i = 0; i < pl.inventory.Length; i++)
+                for (int i = 0; i < MainBagSlots; i++)
                     if (pl.inventory[i] != null && pl.inventory[i].type == 0) { slotInBag = i; break; }
             if (slotInBag < 0) return Json.Error("背包没有空位");
             if (!pl.BuyItem(price))
@@ -1513,13 +1518,13 @@ namespace DshTerrariaBridge
                 {
                     int chunk = (int)Math.Min(n, 999);
                     int slot2 = -1;
-                    for (int i = 0; i < pl.inventory.Length; i++)
+                    for (int i = 0; i < MainBagSlots; i++)
                     {
                         Item inv = pl.inventory[i];
                         if (inv != null && inv.type == coinType && inv.stack + chunk <= inv.maxStack) { slot2 = i; break; }
                     }
                     if (slot2 < 0)
-                        for (int i = 0; i < pl.inventory.Length; i++)
+                        for (int i = 0; i < MainBagSlots; i++)
                             if (pl.inventory[i] != null && pl.inventory[i].type == 0) { slot2 = i; break; }
                     if (slot2 < 0) return;   // 背包满就少给，不凭空生成
                     if (pl.inventory[slot2].type == coinType) pl.inventory[slot2].stack += chunk;
@@ -1672,7 +1677,7 @@ namespace DshTerrariaBridge
             if (pl.dead) return Json.Error("玩家已死亡，请先复活");
             if (!BridgeSystem.InReach(pl, x, y)) return Json.Error("够不到：离这一格超过 7 格，先走过去");
             int slot = -1;
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
                 if (pl.inventory[i] != null && pl.inventory[i].hammer > 0) { slot = i; break; }
             if (slot < 0) return Json.Error("背包里没有锤子，拆方块需要锤子");
             int before = Main.tile[x, y].HasTile ? (int)Main.tile[x, y].TileType : -1;
@@ -1954,6 +1959,11 @@ namespace DshTerrariaBridge
             if (WorldGen.SolidTile(sx, sy, false)) return Json.Error($"({sx},{sy}) 是实心格子，房间扫描要从空气格出发");
 
             int wX = Main.maxTilesX, hY = Main.maxTilesY;
+            // 房屋边界必须和游戏判定一致：平台(tileSolidTop)在原版房屋检查里算“挡住”，
+            // 但 WorldGen.SolidTile 只认 tileSolid，于是平台屋顶的房间会被误判成漏水 9001 格。
+            // 实测：屋顶换平台后 roomcheck ok:true（游戏认可），housediag 却报 9001。
+            bool Edge(int x, int y) { Tile tt = Main.tile[x, y]; return tt.HasTile && (Main.tileSolid[tt.TileType] || Main.tileSolidTop[tt.TileType]); }
+
             var seen = new HashSet<int>();
             var stack = new Stack<Point>();
             int minX = sx, hiX = sx, minY = sy, hiY = sy;
@@ -1962,7 +1972,7 @@ namespace DshTerrariaBridge
             void Push(int x, int y)
             {
                 if (x < 1 || y < 1 || x >= wX - 1 || y >= hY - 1) { leak = true; return; }
-                if (!WorldGen.SolidTile(x, y, false)) stack.Push(new Point(x, y));
+                if (!Edge(x, y)) stack.Push(new Point(x, y));
             }
 
             stack.Push(new Point(sx, sy));
@@ -1992,14 +2002,14 @@ namespace DshTerrariaBridge
             int fY = Math.Min(hY - 2, hiY + 1), cY = Math.Max(1, minY - 1);
             for (int x = minX; x <= hiX; x++)
             {
-                if (WorldGen.SolidTile(x, fY, false)) floorSolid++;
-                if (WorldGen.SolidTile(x, cY, false)) ceilSolid++;
+                if (Edge(x, fY)) floorSolid++;
+                if (Edge(x, cY)) ceilSolid++;
             }
             int lX = Math.Max(1, minX - 1), rX = Math.Min(wX - 2, hiX + 1);
             for (int y = minY; y <= hiY; y++)
             {
-                if (WorldGen.SolidTile(lX, y, false)) leftSolid++;
-                if (WorldGen.SolidTile(rX, y, false)) rightSolid++;
+                if (Edge(lX, y)) leftSolid++;
+                if (Edge(rX, y)) rightSolid++;
             }
 
             // 漏水点：把房间矩形四条边上"非实心"的格子列出来。
@@ -2009,7 +2019,7 @@ namespace DshTerrariaBridge
             {
                 if (leaks.Count >= 12) return;
                 if (x < 1 || y < 1 || x >= wX - 1 || y >= hY - 1) return;
-                if (WorldGen.SolidTile(x, y, false)) return;
+                if (Edge(x, y)) return;
                 Tile lt = Main.tile[x, y];
                 leaks.Add(new { x, y, name = lt.HasTile ? TileID.Search.GetName(lt.TileType) : "AIR" });
             }
@@ -2046,9 +2056,23 @@ namespace DshTerrariaBridge
             double leftR = spanY > 0 ? (double)leftSolid / spanY : 0;
             double rightR = spanY > 0 ? (double)rightSolid / spanY : 0;
 
+            // 以游戏为准绳：CheckRoom + RoomNeeds 才是选中房屋 UI 时走的那条路。
+            // 实测把屋顶换成平台后 roomcheck ok:true、三个 NPC 正常入住，而本命令用“内部空气格≥60”
+            // 的口径给出 58 判不合格 —— 两套口径算的不是同一个量，valid 不能再自己拍。
+            bool gameOk = false; int gameTiles = 0; string gameReason = "?";
+            try
+            {
+                WorldGen.roomCheckFailureReason = 0;
+                WorldGen.StartRoomCheck(sx, sy);
+                WorldGen.CheckRoom(sx, sy);
+                gameTiles = WorldGen.numRoomTiles;
+                gameReason = WorldGen.roomCheckFailureReason.ToString();
+                gameOk = gameTiles > 0 && WorldGen.roomCheckFailureReason == 0;
+            }
+            catch (Exception e) { gameReason = e.GetType().Name; }
             var missing = new List<string>();
             if (leak) missing.Add("房间没封住（洪水跑到边界外/超过 9000 格）");
-            if (seen.Count < 60) missing.Add($"空间太小：{seen.Count} < 60");
+            if (!gameOk) missing.Add($"游戏判定不合格：{gameReason}");
             if (seen.Count > 7500) missing.Add($"空间太大：{seen.Count} > 7500");
             if (walled < seen.Count) missing.Add($"背墙不全：{walled}/{seen.Count} 格有墙");
             if (floorR < 0.9) missing.Add($"地板不连续：{floorSolid}/{spanX}");
@@ -2075,6 +2099,7 @@ namespace DshTerrariaBridge
                 rightRatio = Math.Round(rightR, 2),
                 light, comfort, flat, doors,
                 missing,
+                gameOk, gameTiles, gameReason,
                 valid = missing.Count == 0,
             });
         }
@@ -2110,7 +2135,7 @@ namespace DshTerrariaBridge
             if (area > 400) return Json.Error($"区域太大（{area} 格，上限 400）");
 
             int slot = -1;
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
             {
                 Item it = pl.inventory[i];
                 if (it != null && it.type > 0 && it.stack > 0 && it.createTile == type) { slot = i; break; }
@@ -2223,13 +2248,13 @@ namespace DshTerrariaBridge
             {
                 int chunk = Math.Min(remaining, proto.maxStack);
                 int slot = -1;
-                for (int i = 0; i < pl.inventory.Length; i++)
+                for (int i = 0; i < MainBagSlots; i++)
                 {
                     Item inv = pl.inventory[i];
                     if (inv != null && inv.type == type && inv.stack + chunk <= inv.maxStack) { slot = i; break; }
                 }
                 if (slot < 0)
-                    for (int i = 0; i < pl.inventory.Length; i++)
+                    for (int i = 0; i < MainBagSlots; i++)
                         if (pl.inventory[i] != null && pl.inventory[i].type == 0) { slot = i; break; }
                 if (slot < 0) break;
                 if (pl.inventory[slot].type == type) pl.inventory[slot].stack += chunk;
@@ -2364,7 +2389,7 @@ namespace DshTerrariaBridge
                     Item it = pl.armor[a];
                     if (it == null || it.type <= 0) continue;
                     if (want >= 0 && a != want) continue;
-                    for (int i = 0; i < pl.inventory.Length; i++)
+                    for (int i = 0; i < MainBagSlots; i++)
                     {
                         if (pl.inventory[i] != null && pl.inventory[i].type > 0) continue;
                         pl.inventory[i] = it.Clone();
@@ -2407,7 +2432,7 @@ namespace DshTerrariaBridge
             if (pl.dead) return Json.Error("玩家已死亡，请先复活");
 
             int slot = -1;
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
             {
                 Item it = pl.inventory[i];
                 if (it == null || it.type <= 0) continue;
@@ -2552,7 +2577,7 @@ namespace DshTerrariaBridge
             {
                 // Removing a wall in vanilla needs a hammer.
                 slot = -1;
-                for (int i = 0; i < pl.inventory.Length; i++)
+                for (int i = 0; i < MainBagSlots; i++)
                     if (pl.inventory[i] != null && pl.inventory[i].hammer > 0) { slot = i; break; }
                 if (slot < 0) return Json.Error("背包里没有锤子，拆墙需要锤子");
             }
@@ -2669,7 +2694,7 @@ namespace DshTerrariaBridge
             Player pl = P;
             if (pl.dead) return Json.Error("玩家已死亡，请先复活");
             int slot = Json.Int(p, "slot", -1);
-            if (slot >= 0 && slot < pl.inventory.Length) pl.selectedItem = slot;
+            if (slot >= 0 && slot < MainBagSlots) pl.selectedItem = slot;
             bool right = Json.Bool(p, "right", false);
             int ms = Math.Clamp(Json.Int(p, "ms", 220), 1, 5000);
             // Optional aim: point the in-game cursor at a tile first, so a swing/shoot has
@@ -2781,7 +2806,7 @@ namespace DshTerrariaBridge
             int item = Json.Int(p, "item", -1);
             if (slot < 0 && item > 0)
             {
-                for (int i = 0; i < pl.inventory.Length; i++)
+                for (int i = 0; i < MainBagSlots; i++)
                     if (pl.inventory[i] != null && pl.inventory[i].type == item && pl.inventory[i].stack > 0) { slot = i; break; }
             }
             if (slot < 0 || slot >= pl.inventory.Length) return Json.Error("没有这个槽位，也没找到该物品");
@@ -2832,7 +2857,7 @@ namespace DshTerrariaBridge
             if (held == null || held.type <= 0) return Json.Error("这个槽位是空的");
             int before = OwnProjectiles(pl);
             int ammoBefore = 0;
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
                 if (pl.inventory[i] != null && pl.inventory[i].ammo > 0) ammoBefore += pl.inventory[i].stack;
             BridgeSystem.BeginItemUse(slot, x, y, ms);
             return Json.Ok(new
@@ -2914,7 +2939,7 @@ namespace DshTerrariaBridge
         {
             Item cur = pl.miscEquips != null && pl.miscEquips.Length > HookEquipSlot ? pl.miscEquips[HookEquipSlot] : null;
             if (cur != null && cur.type > 0 && IsHookItem(cur)) { how = "already"; return; }
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
             {
                 Item it = pl.inventory[i];
                 if (!IsHookItem(it)) continue;
@@ -3081,7 +3106,7 @@ namespace DshTerrariaBridge
                 int slot = Json.Int(p, "slot", -1);
                 if (slot < 0)
                 {
-                    for (int i = 0; i < pl.inventory.Length; i++)
+                    for (int i = 0; i < MainBagSlots; i++)
                     {
                         Item it = pl.inventory[i];
                         if (it != null && it.type > 0 && it.stack > 0 && it.mountType > 0) { slot = i; break; }
@@ -3114,7 +3139,7 @@ namespace DshTerrariaBridge
             int slot = Json.Int(p, "slot", -1);
             if (slot < 0)
             {
-                for (int i = 0; i < pl.inventory.Length; i++)
+                for (int i = 0; i < MainBagSlots; i++)
                 {
                     Item it = pl.inventory[i];
                     if (it != null && it.type > 0 && it.stack > 0 && it.DamageType == DamageClass.Summon) { slot = i; break; }
@@ -3240,7 +3265,7 @@ namespace DshTerrariaBridge
             int duration = Math.Clamp(Json.Int(p, "ms", 3000), 100, 15000);
             int interval = Math.Clamp(Json.Int(p, "interval", 180), 30, 2000);
             int slot = Json.Int(p, "slot", -1);
-            if (slot >= 0 && slot < pl.inventory.Length) pl.selectedItem = slot;
+            if (slot >= 0 && slot < MainBagSlots) pl.selectedItem = slot;
 
             Item weapon = pl.HeldItem;
             if (weapon == null || weapon.damage <= 0)
@@ -3291,7 +3316,7 @@ namespace DshTerrariaBridge
             if (!InWorld(out string err)) return Json.Error(err);
             Player pl = P;
             var slots = new List<object>();
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
             {
                 Item it = pl.inventory[i];
                 if (it == null || it.type <= 0 || it.stack <= 0) continue;
@@ -3325,7 +3350,7 @@ namespace DshTerrariaBridge
             }
             // 空位数量：背包满时掉落物会静默丢失，调用方必须能提前看到。
             int freeMain = 0, freeAll = 0;
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
             {
                 Item it = pl.inventory[i];
                 bool empty = it == null || it.type <= 0 || it.stack <= 0;
@@ -3402,7 +3427,7 @@ namespace DshTerrariaBridge
             }
             foreach (int want in order)
             {
-                for (int i = 0; i < pl.inventory.Length && left > 0; i++)
+                for (int i = 0; i < MainBagSlots && left > 0; i++)
                 {
                     Item it = pl.inventory[i];
                     if (it.type != want) continue;
@@ -3421,7 +3446,7 @@ namespace DshTerrariaBridge
             int maxStack = 9999;
             try { Item sample = ContentSamples.ItemsByType[type]; if (sample != null && sample.maxStack > 0) maxStack = sample.maxStack; } catch { }
             int added = 0;
-            for (int i = 0; i < pl.inventory.Length && stack > 0; i++)
+            for (int i = 0; i < MainBagSlots && stack > 0; i++)
             {
                 Item it = pl.inventory[i];
                 if (it.type == type && it.stack > 0 && it.stack < maxStack)
@@ -3430,7 +3455,7 @@ namespace DshTerrariaBridge
                     it.stack += can; stack -= can; added += can;
                 }
             }
-            for (int i = 0; i < pl.inventory.Length && stack > 0; i++)
+            for (int i = 0; i < MainBagSlots && stack > 0; i++)
             {
                 Item it = pl.inventory[i];
                 if (it.type <= 0)
@@ -3750,7 +3775,7 @@ namespace DshTerrariaBridge
             if (src.stack < 2) return Json.Error("只有 1 个，拆不开");
             int half = Math.Clamp(Json.Int(p, "count", src.stack / 2), 1, src.stack - 1);
             int to = -1;
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
             {
                 if (pl.inventory[i] != null && pl.inventory[i].type == 0) { to = i; break; }
             }
@@ -3766,7 +3791,7 @@ namespace DshTerrariaBridge
 
         private static int FindFishingPole(Player pl)
         {
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
             {
                 Item it = pl.inventory[i];
                 if (it != null && it.type > 0 && it.fishingPole > 0) return i;
@@ -3776,7 +3801,7 @@ namespace DshTerrariaBridge
 
         private static int FindBugNet(Player pl)
         {
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
             {
                 Item it = pl.inventory[i];
                 if (it == null || it.type <= 0) continue;
@@ -3895,7 +3920,7 @@ namespace DshTerrariaBridge
             if (!InBounds(x, y)) return Json.Error("坐标超出世界范围");
 
             int empty = -1, filled = -1;
-            for (int i = 0; i < pl.inventory.Length; i++)
+            for (int i = 0; i < MainBagSlots; i++)
             {
                 Item it = pl.inventory[i];
                 if (it == null || it.type <= 0) continue;

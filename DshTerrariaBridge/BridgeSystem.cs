@@ -614,6 +614,10 @@ namespace DshTerrariaBridge
             WalkNextJump = Now + 6;
         }
 
+        // 用户实测：我在自己盖的 NPC 房里用 walkto 脱困，寻路“看到挡路就挖”，把墙挖穿了（m15575）。
+        // 玩家造物一律不进挖掘清单——宁可绕路或报 stuck，也不能拆自己盖的房子。
+        private static readonly HashSet<int> BuildTiles = new HashSet<int> { 4, 10, 11, 15, 16, 17, 18, 19, 21, 30 };
+        private static bool IsBuildTile(int type) => BuildTiles.Contains(type);
         private static void WalkMine(int x, int y)
         {
             if (Now < WalkNextMine) return;
@@ -628,6 +632,7 @@ namespace DshTerrariaBridge
             if (slot < 0) return;
             Tile t = Main.tile[x, y];
             if (!t.HasTile) return;
+            if (IsBuildTile(t.TileType)) return;   // 自家建材/家具/门/平台/火把/箱子：不挖
             // 砍树和锤墙也走原版使用路径（原来这里是 WorldGen.KillTile 直接删格子）。
             BeginItemUse(slot, x, y, 140);
             p.direction = x * 16f >= p.Center.X ? 1 : -1;
