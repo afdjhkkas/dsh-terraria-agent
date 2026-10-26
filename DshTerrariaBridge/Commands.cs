@@ -37,6 +37,7 @@ namespace DshTerrariaBridge
                 case "accessory": return Accessory(p);
                 case "walkto": return WalkTo(p);
                 case "travel": return TravelCmd(p);
+                case "travelstatus": return TravelStatusCmd();
                 case "path": return PathTo(p);
                 case "research": return Research(p);
                 case "find": return FindTile(p);
@@ -2039,6 +2040,16 @@ namespace DshTerrariaBridge
             var head = new List<object>();
             for (int i = 0; i < Math.Min(6, path.Count); i++) head.Add(new { x = path[i].x, y = path[i].y });
             return Json.Ok(new { from = new { x = px, y = py }, to = new { x, y }, length = path.Count, head });
+        }
+
+        /// <summary>
+        /// 只读查询 travel 任务状态。原来只能靠再调一次 travel 来“看”状态，
+        /// 而那会重新 StartTravel 把 steps/mine/swings 清零，导致我误判成“travel 坏了、根本不动”。
+        /// </summary>
+        private static string TravelStatusCmd()
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            return BridgeSystem.TravelStatus();
         }
 
         /// <summary>
