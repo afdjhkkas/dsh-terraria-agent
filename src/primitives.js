@@ -208,6 +208,15 @@ export function createPrimitives({ request, sleep = defaultSleep, now = Date.now
    */
   async function craftItem({ item, times = 1, deadlineMs = 5000, signal } = {}) {
     const before = await countItem(item, signal)
+    // 背包满时原版会先扣材料、再把产物丢掉（实测 15 铅矿 → 0 铅锭，地上也没有）。
+    // 所以开工前先看空位：一个都没有就直接拒绝，别白烧材料。
+    const bag = (await request('inventory', {}, { signal })).data ?? {}
+    if (bag.free === 0) {
+      return {
+        ok: false, item, times, before, after: before, gained: 0, expected: times, crafted: 0, dropped: 0,
+        reason: '背包没有空位（free:0）：先用 trash/drop 清格再合成，否则材料会被消耗而产物消失',
+      }
+    }
     const result = (await request('craft', { item, times }, { signal })).data ?? {}
     const perCraft = result.perCraft ?? result.crafted ?? 1
     const expected = perCraft * times

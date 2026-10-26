@@ -19,6 +19,7 @@ function makeFakeBridge({
   craftGain = null,
   equipWorks = true,
   offScreen = false,
+  freeSlots = null,
 } = {}) {
   const clock = { t: 0 }
   const pending = []
@@ -26,6 +27,7 @@ function makeFakeBridge({
     tiles: { ...tiles },
     inventory: inventory.map(it => ({ ...it })),
     chest: chest.map(it => ({ ...it })),
+    free: freeSlots === null ? 50 - inventory.length : freeSlots,
     calls: [],
   }
   const key = (x, y) => `${x},${y}`
@@ -88,6 +90,7 @@ function makeFakeBridge({
         return {
           data: {
             items: state.inventory.filter(it => it.stack > 0).map((it, i) => ({ slot: it.slot ?? i, type: it.type, name: it.name ?? `item-${it.type}`, stack: it.stack })),
+            free: state.free,
             equipment: state.equipment ?? [],
             defense: state.defense ?? 0,
           },
@@ -263,6 +266,14 @@ test('craftItem warns when the products fell on the floor because the bag is ful
   const result = await fake.primitives.craftItem({ item: 34, times: 1 })
   assert.equal(result.ok, true)
   assert.match(result.warning, /背包放不下/)
+})
+
+test('craftItem refuses to start when the bag has no free slot (materials would burn)', async () => {
+  const fake = makeFakeBridge({ freeSlots: 0, craftGain: { crafted: 1, dropped: 0, perCraft: 1, name: 'lead bar' } })
+  const result = await fake.primitives.craftItem({ item: 704, times: 5 })
+  assert.equal(result.ok, false)
+  assert.match(result.reason, /free:0/)
+  assert.equal(fake.state.calls.some(c => c.command === 'craft'), false)
 })
 
 test('craftItem explains a craft that produced nothing', async () => {
