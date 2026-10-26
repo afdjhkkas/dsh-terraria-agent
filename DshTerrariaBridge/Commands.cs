@@ -1687,7 +1687,9 @@ namespace DshTerrariaBridge
             try { started = WorldGen.StartRoomCheck(x, y); } catch { }
             if (started)
             {
-                try { WorldGen.moveRoom(x, y, who); } catch { }
+                // 第三个参数是 NPC 的**类型**（NPC.type），不是数组下标 —— 传 who 会去找
+                // "类型等于这个下标"的 NPC，于是一个都不会动（表现为 via:"fields"）。
+                try { WorldGen.moveRoom(x, y, n.type); } catch { }
                 if (n.homeless != wasHomeless || n.homeTileX != oldX || n.homeTileY != oldY) via = "moveRoom";
             }
 

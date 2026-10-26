@@ -99,3 +99,16 @@
 1. **存盘必须发给世界宿主**：Host&Play 会开两个进程（无参客户端 + `-server` 持世界）。客户端 `netMode:1`，它存不了盘；服务端 `netMode:2` 才能 `SaveWorld()`。所以桥要按 `Main.dedServ`/`-server` 参数分端口（客户端 47777、服务端 47778），存盘走服务端。
 2. **`WorldFile.CreateMetadata` 的第一个参数是"世界名"，不是路径**：把全路径塞进去会被净化成 `C--Users-...-蒸汽_险境_wld.wld`，于是"存盘返回 true、真文件没动"。判定存盘是否成功，必须看**目标 .wld 的 mtime**，不能只看返回值。
 3. **`OpenDoor` 不是实心方块**：开着的门会让洪水填充漏出去（`box` 涨到 9001 格、`valid:false`），必须先把开着的门拆掉、再用石/门封上；`ClosedDoor` 才算围合。
+
+## 第 15 轮（房子可达性 + 门 + NPC 归属）
+
+| 用例 | 结果 | 证据 |
+|---|---|---|
+| S6b 房子可进 | PASS | 装回 `ClosedDoor` 后 `housediag` 仍 `valid:true, doors:3`；`walkto {x:2126,y:277}` 异步执行后玩家从 (2119.3,274.0) 到 **屋内 (2122.2,276.4)** |
+| S6c 门可开 | 部分 | `interact` 返回 `interact:true, before:10, after:10`（没变化）——原因是门另一侧紧贴悬崖，开门需要两侧都有落脚空间，这次西侧只补了 x2120 的落脚地面，空间仍不足 |
+| S2 NPC 归属 | PASS（归属）/ GAP（物理） | `housing` 读到 `homes:[{who:1,name:"向导Kyle",homeless:false,home:{2125,274}}]`；`moveRoom` 第三个参数是 **NPC.type 不是下标**（已修），但向导仍卡在 (2137,337) 未传送 |
+
+### 本轮三条硬规则
+1. **`walkto` 是异步任务**：命令立刻返回目标配置，必须轮询 `state.player.pos` 才知道走到哪；容差 1 格，卡住时会停在最近可行点。
+2. **开门要求门两侧都有空间**：`OpenDoor` 会把三格门格变成非实心，若一侧是深坑/无落脚点，`TileInteractionsUse` 会返回 `interact:true` 但门纹丝不动。
+3. **`place` 在脚下两格内会失败**（返回 `no:-1`）：角色身体占着那几格时不能放方块，铺路要先走开再回填。

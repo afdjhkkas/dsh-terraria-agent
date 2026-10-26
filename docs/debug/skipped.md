@@ -152,3 +152,8 @@ NullReferenceException
 
 - `api {type:"WorldGen",member:"Save"}` 里有 `WorldGen.saveAndPlay()` / `saveAndPlayCallBack` / `saveToonWhilePlaying()` —— 这是 Host&Play 自己的存盘链路，可能是唯一能走通的路（但要确认它不会把 `Main.gameMenu` 置真把玩家踢回主菜单）。
 - 也可以尝试把 `Main.ActiveWorldFileData` 的每个字段（Seed / GameMode / CreationTime / WorldGeneratorVersion / UniqueId）逐项打印出来，看 line 925 到底在读哪个 null 成员。
+
+### S2 更新（第 15 轮）
+- `WorldGen.moveRoom(x, y, who)` 的第三个参数是 **NPC 类型 id**，不是数组下标；代码已按 `n.type` 传参并部署。
+- 但 `homeroom` 仍然走 `via:"fields"` 兜底：说明 `moveRoom` 在这个世界没把 NPC 挪过去（向导仍在 (2137,337) 的坑里）。归属字段已经生效（`homeless:false`、`home:{2125,274}`），引擎不认。
+- 下一步可查：`moveRoom` 内部是否要求 NPC 当前 `homeless == true`（它第一件事就是把 homeless 置 false 再找床），以及是否需要先在“住房菜单”里打开过该房间。
