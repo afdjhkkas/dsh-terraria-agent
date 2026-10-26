@@ -845,10 +845,21 @@ namespace DshTerrariaBridge
                 // re-impulsed at every apex, which turned a 2 s jump into an
                 // unpowered climb; wings and auto-jump are left to vanilla.
                 // 原生模式下这里一个字都不写：引擎自己的 Player.Jump() 才是"按住更高"的来源。
-                if (!JumpNative && !JumpIssued && p.velocity.Y == 0f && p.oldVelocity.Y == 0f)
+                if (!JumpIssued && p.velocity.Y == 0f && p.oldVelocity.Y == 0f)
                 {
-                    p.velocity.Y = JumpImpulse;
-                    JumpIssued = true;
+                    if (!JumpNative)
+                    {
+                        p.velocity.Y = JumpImpulse;
+                        JumpIssued = true;
+                    }
+                    else if (Now >= JumpFallbackAt)
+                    {
+                        // 实测事故：control.jump 连续两帧为 true，引擎却一帧都没起跳（vy 恒 0）。
+                        // 真值参照：真人按住 Space 一帧就能升 1.2 格。所以引擎不接管时自己给初速，
+                        // 宁可丢掉“短按变矮”的细节，也不能站着不动。
+                        p.velocity.Y = -7.5f;
+                        JumpIssued = true;
+                    }
                 }
             }
             if (UseUntil > now) p.controlUseItem = true;
@@ -1316,7 +1327,7 @@ namespace DshTerrariaBridge
             JumpNative = native;
             // 原生跳跃：不碰 velocity，交给引擎按 controlJump 起跳——真人的变高跳就是这么来的
             // （实测按住顶到 6.1 格，短按 1.4~2.7 格）。只有明确要"跳多高"时才用冲量。
-            if (native) { JumpImpulse = 0f; return; }
+            if (native) { JumpImpulse = 0f; JumpFallbackAt = Now + 5; return; }
             // A fixed impulse made every jump identical (measured 2.30 tiles no matter how long
             // the key was held, because the game's variable jump height is never driven).
             // Solve the impulse for the requested apex instead: h = v^2 / (2g).
@@ -1326,6 +1337,8 @@ namespace DshTerrariaBridge
         }
 
         internal static float JumpImpulse = -8.4f;
+        /// <summary>原生跳跃的兜底时刻：过了这个 tick 还没离地，就自己给初速。</summary>
+        internal static ulong JumpFallbackAt;
         /// <summary>true = 只保持 controlJump 让引擎起跳（与真人一致）；false = 自算冲量。</summary>
         internal static bool JumpNative = true;
 
