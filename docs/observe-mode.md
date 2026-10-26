@@ -8,12 +8,43 @@
 ## 优先级（硬规矩）
 
 ```
-知识库（docs/kb/**，静态规则）
+知识库（docs/kb/**，静态规则）→ 编译成 src/rule-gate.js 的 RULES
   > 五维自检（prompts/meta-check.md）
     > 示范案例（data/demo-cases.jsonl，只影响时序/瞄准/等待）
 ```
 
-示范案例**只能**微调下面四个数值，永远不能改规则、加命令、放宽安全限制：
+三个模块各管一段，互不越界：
+
+| 文件 | 角色 | 能不能改世界 |
+|---|---|---|
+| `src/rule-gate.js` | 静态规则（每条带 `docs/kb` 出处） | 不碰，纯判定 |
+| `src/demo-library.js` | 动态样本（人怎么做） | 不碰，只存/查时序 |
+| `src/observe-mode.js` | 模式开关 + 规划器（把两者接起来） | 只在 auto 且过闸后才出动作 |
+
+### 闸门：所有动作的必经之路（`src/rule-gate.js`）
+
+九条规则，`check()` 返回 true = 违反；每条都有 `id` / `reason`（稳定字符串）/ `kb`（出处）/ `why`（人话）：
+
+| id | reason | 出处 | 拦什么 |
+|---|---|---|---|
+| `no-out-of-world` | `not-in-world` | safety_limit | 没进世界/已退出还下动作 |
+| `no-dead-action` | `player-dead` | safety_limit | 角色已死 |
+| `no-action-while-paused` | `paused` | safety_limit | 游戏暂停 |
+| `hp-floor` | `below-safety-line` | safety_limit | 血量 <35% 还打/挖/放/用（**移动跳跃不拦**——低血往回跑是该做的） |
+| `no-liquid-mining` | `liquid-mining` | safety_limit | 泡在水里开挖 |
+| `no-uncontrolled-fall` | `uncontrolled-fall` | safety_limit | 竖直速度 >8 还在 move/jump |
+| `no-multi-task` | `multi-task` | safety_limit | 边走边挖、边挖边放 |
+| `no-command-shortcut` | `command-shortcut` | atomic_action | 用 `give`/`teleport`/`removeblock` 等直写世界 |
+| `reach-check` | `out-of-reach` | safety_limit | 隔空操作（镐 7 格、剑 4 格、放/用 4 格） |
+
+`always: true` 表示"任何任务都带"：`loadRuleSet({tags})` 按标签取子集时也一定会补上它们。
+
+两个入口，缺一不可：
+
+- `validateSample(sample)` —— **入库前**。不合法的示范直接丢弃，`record()` 回 `{ok:false,reason,rule,kb}`，日志能追到是哪条规则拦的。
+- `gatePlan(plan, {snap, opts})` —— **执行前**。不过就回 `{ok:false, plan:null, violations:[…]}`；函数签名里**没有** force/override/bypass，传了也没用（`test/rule-gate.test.js` 有专门用例钉着这一点）。示范不能把禁止动作变成允许——这是"知识库永远优先"在代码里的落点。
+
+### 示范只能动这五个数
 
 | 参数 | 含义 | 允许范围 |
 |---|---|---|
@@ -23,7 +54,7 @@
 | `settleMs` | 动作后等落定的时间 | 120–600 |
 | `aimLeadMs` | 瞄准提前量 | 0–400 |
 
-超出范围就被夹回边界（`clampTiming`），知识库里的距离/伤害/配方判定一个字都不动。
+越界一律夹回（`TIMING_BOUNDS`），知识库里的距离/伤害/配方判定一个字都不动。动作类型、方向、目标格这些语义字段永远以脚本推演为准。
 
 ## observe 模式干什么
 
@@ -39,28 +70,53 @@
 `data/demo-cases.jsonl`，一行一个样本（`version:1`）：
 
 ```json
-{"version":1,"id":"…","at":"2026-01-01T00:00:00.000Z","mode":"observe",
- "scene":{"zone":"surface","depth":"surface","liquid":"dry","light":"day",
-          "threat":"none","terrain":"flat","moving":false,"tool":"pickaxe",
-          "target":"solid"},
- "signature":"surface|surface|dry|day|none|flat|not-moving|pickaxe|dx3|dy2",
- "script":{"kind":"mine","dx":3,"dy":2,"holdMs":90,"aim":{"x":0,"y":0},"tileTarget":{"x":0,"y":0}},
- "human":{"kind":"mine","dx":3,"dy":1,"holdMs":140,"aim":{…},"tileTarget":{…}},
- "delta":{"dx":0,"dy":-1,"holdMs":50,"aimX":0,"aimY":0,"tileDx":0,"tileDy":0},
- "outcome":{"ok":true,"blocked":false,"hpDrop":0}}
+{"at":"2026-01-01T00:00:00.000Z",
+ "scene":{"zone":"surface","wet":0,"ground":1,"hp":"high",
+          "dx":"3","dy":"2","threat":"clear","moving":"still"},
+ "label":"surface|dry|ground|hp-high|dx3|dy2|threat-clear|still",
+ "human":{"kind":"mine","dx":3,"dy":1,"digHoldMs":140,"settleMs":260,"aimLeadMs":120},
+ "agent":{"kind":"mine","dx":3,"dy":2,"digHoldMs":90,"settleMs":260,"aimLeadMs":120},
+ "delta":{"significant":true,"reason":"timing","diffs":{"digHoldMs":50}},
+ "outcome":{"ok":true,"blocked":false}}
 ```
 
-场景指纹用**分档**而不是原始坐标，换一张地图也成立：深度（surface/underground/cavern/underworld）、液体（dry/wet/lava/honey/shimmer）、光照（day/night/dark）、威胁（none/near/far）、地形（flat/step/wall/pit）、手持物类别（pickaxe/axe/sword/block/torch/other）、目标格相对方位（水平 `dx` 分 2/3/4/5/6/8 档，垂直 `dy` 分 0/1/2/3 档）。
+场景指纹用**分档**而不是原始坐标，换一张地图也成立（`sceneOf`，坐标一律不进键——进了就会"每格一个场景"，永远命中不了）：
 
-相似度 = 加权匹配（zone 0.30、depth 0.14、terrain 0.12、liquid 0.10、threat 0.10、tool 0.08、target 0.06、light 0.04、moving 0.04、dx 0.06、dy 0.04、threat 0.02），同分再按时间新近度破平。低于 **0.72** 视为不像，宁可不给建议（早期草稿写过 0.55，实际取值以代码为准）。
+| 维度 | 取值 |
+|---|---|
+| `zone` | 桥 `state.player.zones` 给的群系（surface/dirtlayer/underground/cavern/underworld/…） |
+| `wet` | 0 / 1（泡在液体里） |
+| `ground` | 0 / 1（脚下有没有地） |
+| `hp` | `high` >75% / `mid` >45% / `low` >25% / `critical` ≤25% |
+| `dx`、`dy` | 按 `[-8,-2,0,2,8]` 分档（目标相对方位） |
+| `threat` | `near` ≤3 格 / `edge` ≤8 格 / `clear` |
+| `moving` | `still` / `left` / `right` / `fall`（按速度判） |
 
-`tuneTiming(scene, cases)`：把同场景、同一动作类、且**真人确实成功**（`outcome.ok`）的样本按 `moveHoldMs + delta.holdMs` 这样的"实际按住时长"取加权中位数，再夹进上表边界。样本不足 3 条不改。
+相似度 = 加权匹配：`zone 0.26、wet 0.14、ground 0.14、hp 0.12、threat 0.12、moving 0.10、dx 0.06、dy 0.06`（`WEIGHTS`，`src/demo-library.js`）。`hp` 与 `threat` 差一档给部分分（0.45w / 0.4w），其余维度必须全等。低于 **0.72** 视为不像，宁可不给建议。
+
+`actionDelta(agent, human)` 只在两种情况下算"值得记"：动作类型不同，或同类动作的按住时长差 ≥30%。否则观摩会退化成把脚本自己的重复动作抄一遍。
+
+`tuneTiming(base, cases, {minSim=0.72, minSamples=3})`：按参数分组取**相似度加权中位数**（比平均值抗手抖），再夹进 `TIMING_BOUNDS`。返回 `{timing, applied, clamped}`——`applied` 每项带 `{param,from,to,sim,from_case}`，`clamped` 是被边界挡回去的部分。
 
 ## 切回 auto 时
 
-`applyRecall(recall)` 把 `tuneTiming` 的结果并进当前执行参数；`explainRecall(recall)` 给出人话：
-「本场景有 7 条示范；挖矿按住时长 90ms → 137ms（7 条样本）」。
-日志固定报三行：本局采集样本数、命中场景数、实际改了哪几个参数。
+规划器 `createAutoPlanner({library, rules})` 的顺序是**先推演 → 再调时序 → 最后过闸门**，顺序不能反：
+
+1. `defaultPlanner(snap)` 看局面出草稿（只看局面，不碰世界）；
+2. `resolveTiming({snap, library})` 召回示范、算分档（见下），把学到的**时长**叠到草稿上（动作类型/方向仍以推演为准）；
+3. `gatePlan(candidate, {snap, rules})` 过闸门；不过就返回 `{kind:'hold', blocked:true, violations}`——**不出动作**。
+
+`resolveTiming` 的分档，是为了解决"要三条样本才改"和"这个具体局面人就该这么按，而它只出现过一次"之间的矛盾：
+
+| 档 | 条件 | 生效门槛 |
+|---|---|---|
+| `exact` | 同 `label` 且相似度 ≥0.9 | 1 条就生效 |
+| `loose` | 只是相似（≥0.72） | 仍要 3 条 |
+| `none` | 没有够像的示范 | 用基础时序 |
+
+分档只影响"要用几条样本"，不影响边界：`TIMING_BOUNDS` 与知识库闸门照旧管着。
+日志用 `formatTimingReport(plan)` 出一行：`[timing] tier=exact source=demo sim=1.00 rules=9`，
+后面跟「`digHoldMs 90→140ms`」这类实际改动；被拦时再跟「拦在 `hp-floor`（safety_limit）」。
 
 ## CLI
 
@@ -75,8 +131,16 @@ npm run observe:report                     # 只读报告：样本数/丢弃原�
 `--every N` 改采样间隔（毫秒，默认 200，下限 50）。观摩期间脚本只读：`createGuard` 会把任何非只读命令挡成
 `OBSERVE_MODE_BLOCKED`，所以"观摩模式误操作"这条路是封死的，不是靠自觉。
 
-样本入库有三道闸：**人整段没动手**（`human-idle`）、**和脚本推演差得不明显**（`not-significant`）、
-**人在死亡/不在世界里**（`player-dead` 等）。丢弃原因会按类计数回显，样本少时先看这行再怀疑采集链路。
+样本入库要过四道闸，前两道在采集侧，后两道是知识库闸门：
+
+| 丢弃原因 | 谁挡的 | 含义 |
+|---|---|---|
+| `human-idle` | `flushSegment` | 人整段没动手——这是没示范，不是人做错了 |
+| `not-significant` | `actionDelta` | 和脚本推演差得不明显，抄一遍没意义 |
+| `below-safety-line` / `liquid-mining` / `uncontrolled-fall` / `player-dead` / `paused` / `not-in-world` | `rule-gate.js` | **人做的这件事本身违背成文规则**，不学 |
+| `out-of-reach` / `multi-task` / `command-shortcut` | `rule-gate.js` | 隔空操作、边做两件事、走捷径改世界，同样不学 |
+
+丢弃时 `record()` 回 `{ok:false, reason, rule, kb}`，日志按 `reason` 计数；样本少时先看这一行——若某一类占多数，问题在采集或玩法，不在检索。
 
 ## 桥里的新命令
 

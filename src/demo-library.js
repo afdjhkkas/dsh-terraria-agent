@@ -12,6 +12,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { MIN_HP_RATIO, RULES, checkAction } from './rule-gate.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const DEFAULT_CASE_PATH = join(HERE, '..', 'data', 'demo-cases.jsonl')
@@ -85,24 +86,29 @@ export function similarity(a = {}, b = {}) {
 
 /**
  * 知识库闸门：不合法的样本直接丢弃，不进库。
- * 规则都是「人的操作明显违背安全/物理」的那几类，不是审美判断——判断太细会把好示范也筛掉。
+ *
+ * 判定本身不在本模块里写死——它委托给 `src/rule-gate.js`，每条规则都带着
+ * `docs/kb/*.md` 的出处。这样"为什么丢弃这条示范"永远能追到一条成文规则上，
+ * 而不是追到一个我随手定的阈值上。`reason` 字符串保持稳定（测试与日志都依赖），
+ * 另外回传 `rule`/`kb` 便于日志直接写出来源。
  */
 export function validateSample(sample = {}, opts = {}) {
   const snap = sample.snap || {}
   const human = sample.human || {}
-  const minHpRatio = opts.minHpRatio ?? 0.25
-  if (snap.inWorld === false) return { ok: false, reason: 'not-in-world' }
-  if (snap.dead) return { ok: false, reason: 'player-dead' }
-  if (snap.paused) return { ok: false, reason: 'paused' }
-  const lifeMax = Number(snap.lifeMax) || 100
-  const ratio = (Number.isFinite(snap.life) ? snap.life : lifeMax) / lifeMax
-  if (ratio < minHpRatio) return { ok: false, reason: 'below-safety-line' }
-  const kind = String(human.kind || '')
-  if (snap.wet && (kind === 'mine' || kind === 'dig')) return { ok: false, reason: 'liquid-mining' }
-  const vy = Number(snap.velocity?.[1] ?? 0)
-  if (vy > 8 && kind === 'move') return { ok: false, reason: 'uncontrolled-fall' }
-  if (!kind) return { ok: false, reason: 'no-human-action' }
-  return { ok: true }
+  if (!String(human.kind || '') || String(human.kind) === 'idle') {
+    return { ok: false, reason: 'no-human-action', rule: null, kb: null }
+  }
+  // 字段归一：本模块历史上读 `snap.velocity[1]`，闸门读 `snap.vy`。
+  // 在这里一次性补齐，别让同一条规则在两条路径上得出两种结论。
+  const norm = { ...snap, vy: Number(snap.velocity?.[1] ?? snap.vy) }
+  const { violations } = checkAction(human, {
+    snap: norm,
+    opts: { minHpRatio: opts.minHpRatio ?? MIN_HP_RATIO },
+    rules: opts.rules ?? RULES,
+  })
+  if (!violations.length) return { ok: true, reason: 'ok', rule: null, kb: null }
+  const first = violations[0]
+  return { ok: false, reason: first.reason, rule: first.id, kb: first.kb, violations }
 }
 
 const HOLD_KEYS = ['jumpHoldMs', 'digHoldMs', 'moveHoldMs', 'settleMs', 'aimLeadMs']
@@ -159,8 +165,9 @@ export class DemoLibrary {
   record(sample = {}, opts = {}) {
     const gate = validateSample(sample, opts)
     if (!gate.ok) {
-      this.discarded.push({ reason: gate.reason, at: sample.at || null })
-      return { ok: false, reason: gate.reason }
+      // 丢弃也要能溯源：rule/kb 来自知识库闸门，日志里直接写"违背了哪条成文规则"。
+      this.discarded.push({ reason: gate.reason, rule: gate.rule ?? null, kb: gate.kb ?? null, at: sample.at || null })
+      return { ok: false, reason: gate.reason, rule: gate.rule ?? null, kb: gate.kb ?? null }
     }
     const delta = sample.delta || actionDelta(sample.agent, sample.human)
     if (!delta.significant) return { ok: false, reason: 'not-significant' }

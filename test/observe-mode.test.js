@@ -120,15 +120,19 @@ test('observer：动作类型不同时报"动作不同"，日志可读', () => {
   assert.match(report, /frames=3/)
 })
 
-test('observer：掉血到安全线以下 / 在液体里的样本被丢弃', () => {
+test('observer：低血还挖 → 丢弃；低血往回跑 → 照收（逃生不是违规）', () => {
   const lib = new DemoLibrary({ file: join(mkdtempSync(join(tmpdir(), 'dsh-obs-')), 'c.jsonl') })
   const obs = createObserver({ read: async () => null, library: lib, planner: () => ({ kind: 'move', moveHoldMs: 100 }), everyMs: 50 })
-  for (let i = 0; i < 8; i++) obs.tick({ snap: { ...snap(), life: 15 }, input: walkInput() })
+  for (let i = 0; i < 8; i++) obs.tick({ snap: { ...snap(), life: 15 }, input: mineInput() })
   const out = obs.flush('test')
   assert.equal(out.recorded, false)
   assert.equal(out.reason, 'below-safety-line')
   assert.equal(lib.stats().total, 0)
   assert.match(formatObserveReport({ stats: obs.stats(), corrections: [] }), /discarded=1/)
+
+  for (let i = 0; i < 8; i++) obs.tick({ snap: { ...snap(), life: 15 }, input: walkInput() })
+  const flee = obs.flush('test')
+  assert.equal(flee.recorded, true, '低血撤退是正当示范，不能和贪挖一起丢掉')
 })
 
 test('observer.run 用注入的 read/sleep 跑完并报告样本数', async () => {

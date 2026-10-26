@@ -48,7 +48,9 @@ test('validateSample 丢弃不合法的示范', () => {
   assert.equal(validateSample({ snap: { ...baseSnap, dead: true }, human }).reason, 'player-dead')
   assert.equal(validateSample({ snap: { ...baseSnap, inWorld: false }, human }).reason, 'not-in-world')
   assert.equal(validateSample({ snap: { ...baseSnap, paused: true }, human }).reason, 'paused')
-  assert.equal(validateSample({ snap: { ...baseSnap, life: 10 }, human }).reason, 'below-safety-line')
+  // 安全线拦的是"低血还干活"（挖/打/放），不是逃生：低血往回跑是正道，不能连示范一起丢掉。
+  assert.equal(validateSample({ snap: { ...baseSnap, life: 10 }, human: { kind: 'mine' } }).reason, 'below-safety-line')
+  assert.equal(validateSample({ snap: { ...baseSnap, life: 10 }, human }).ok, true, '低血移动=撤退，不算违规')
   assert.equal(validateSample({ snap: { ...baseSnap, wet: true }, human: { kind: 'mine' } }).reason, 'liquid-mining')
   assert.equal(validateSample({ snap: { ...baseSnap, velocity: [0, 12] }, human }).reason, 'uncontrolled-fall')
   assert.equal(validateSample({ snap: baseSnap, human: {} }).reason, 'no-human-action')

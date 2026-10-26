@@ -14,7 +14,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { actionDelta, sceneLabel, sceneOf } from './demo-library.js'
+import { actionDelta, sceneLabel, sceneOf, tuneTiming } from './demo-library.js'
+import { describeViolations, gatePlan, loadRuleSet } from './rule-gate.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const DEFAULT_MODE_PATH = join(HERE, '..', 'data', 'mode.json')
@@ -124,15 +125,138 @@ export function framesToAction(frames = [], everyMs = 50) {
   return action
 }
 
+/**
+ * 基础时序：脚本自己的"手感"。示范只许在这套数上做微调（且被 TIMING_BOUNDS 夹住），
+ * 不许另起一套——否则示范就不再是"修正"，而是替换掉了知识库定下的节奏。
+ */
+export const BASE_TIMING = Object.freeze({
+  jumpHoldMs: 150,
+  digHoldMs: 90,
+  moveHoldMs: 600,
+  settleMs: 260,
+  aimLeadMs: 120,
+})
+
 /** 脚本对这一帧的纯函数推演——不发命令，所以"预判"不会改变世界。 */
 export function defaultPlanner(snap = {}) {
   const threat = Number(snap.hostileDist ?? snap.threat ?? 99)
   const dy = Number(snap.dy ?? 0)
-  const base = { jumpHoldMs: 150, digHoldMs: 90, moveHoldMs: 600, settleMs: 260, aimLeadMs: 120 }
+  const base = { ...BASE_TIMING }
   if (threat <= 8) return { kind: 'attack', ...base, target: 'hostile' }
   if (dy < -1) return { kind: 'jump', ...base, jumpHoldMs: 220 }
   if (snap.stuck) return { kind: 'mine', ...base }
   return { kind: 'move', dir: 'right', ...base }
+}
+
+/**
+ * 按当前局面决定"要不要参考人类时序"，以及参考到什么程度。
+ *
+ * 分档的理由很实际：`tuneTiming` 默认要三条同类样本才改参数（防手抖当规律）。
+ * 但用户要的场景恰恰是"这个具体局面下人就该这么按"——那种局面往往只出现过一次。
+ * 折中办法是按相似度分档：
+ *   tier=exact  同场景标签且相似度 ≥ 0.9 → 承认这是同一局面，一条样本就生效
+ *   tier=loose  只是相似（≥ minSim）           → 仍要三条，够稳了才改
+ *   tier=none   没有够像的示范                 → 完全用基础时序
+ * 分档只影响"要用几条样本"，不影响边界：TIMING_BOUNDS 与知识库闸门照旧管着。
+ */
+export function resolveTiming({ snap = {}, library = null, base = BASE_TIMING, opts = {} } = {}) {
+  const minSim = Number(opts.minSim ?? 0.72)
+  const exactSim = Number(opts.exactSim ?? 0.9)
+  const out = {
+    timing: { ...base },
+    applied: [],
+    clamped: [],
+    matches: [],
+    tier: 'none',
+    label: sceneLabel(snap),
+    source: 'base',
+  }
+  if (!library || typeof library.recall !== 'function') return out
+  const found = library.recall(snap, { minSim, limit: Number(opts.limit ?? 8) }) || []
+  // `recall` 回的是 `{rec, sim}`：相似度在外面，样本本体在 rec 里。
+  // 这里必须先摊平，否则下面拿 `m.label`/`m.human` 全是 undefined——
+  // 表现就是"明明有满相似度的示范，tier 却永远停在 loose"，一条也不生效。
+  const picks = found.map((m) => (m.rec ? { ...m.rec, sim: m.sim } : m))
+  out.matches = picks.map((m) => ({ sim: m.sim, label: m.label ?? sceneLabel(m.scene || {}), kind: m.human?.kind ?? null }))
+  if (!picks.length) return out
+  const exact = picks.filter((m) => Number(m.sim) >= exactSim && (m.label ?? null) === out.label)
+  const tier = exact.length ? 'exact' : 'loose'
+  const tuned = tuneTiming(base, picks, {
+    minSim,
+    minSamples: tier === 'exact' ? 1 : Number(opts.minSamples ?? 3),
+  })
+  out.tier = tier
+  out.timing = tuned.timing
+  out.applied = tuned.applied
+  out.clamped = tuned.clamped
+  out.source = tuned.applied.length ? 'demo' : 'base'
+  return out
+}
+
+/**
+ * 自主模式的规划器：推演 → 按场景调时序 → **过知识库闸门**。
+ *
+ * 顺序不能反。先调时序再过闸门，意味着"示范改出来的方案"同样要受规则检验；
+ * 反过来（先过闸门再调时序）就会漏掉时序调完之后才越界的那些情况。
+ *
+ * 闸门不过时**不出动作**：返回 `{kind:'hold', blocked:true}`，把违规条目原样带出去。
+ * 这里没有 force/override 参数，也没有"示范要求例外"的分支——写出来就等于承认规则可以被绕。
+ */
+export function createAutoPlanner({
+  planner = defaultPlanner,
+  library = null,
+  rules = null,
+  tags = [],
+  base = BASE_TIMING,
+  opts = {},
+} = {}) {
+  const ruleSet = rules ? (Array.isArray(rules) ? { rules, sources: [] } : rules) : loadRuleSet({ tags })
+  return function plan(snap = {}, ctx = {}) {
+    const draft = planner(snap) || {}
+    const tuned = resolveTiming({ snap, library, base, opts })
+    const candidate = { ...draft }
+    // 只把示范学到的"时长"叠上去，动作类型/方向这些语义字段一律以推演为准。
+    for (const key of Object.keys(base)) {
+      if (Number.isFinite(Number(tuned.timing[key]))) candidate[key] = Number(tuned.timing[key])
+    }
+    const verdict = gatePlan(candidate, { snap, opts: ctx.gateOpts ?? {}, rules: ruleSet.rules })
+    const meta = {
+      tier: tuned.tier,
+      source: tuned.source,
+      applied: tuned.applied,
+      clamped: tuned.clamped,
+      matches: tuned.matches,
+      label: tuned.label,
+      rules: ruleSet.rules.length,
+    }
+    if (!verdict.ok) {
+      return {
+        kind: 'hold',
+        blocked: true,
+        violations: verdict.violations,
+        why: verdict.why,
+        draft: candidate,
+        timing: meta,
+      }
+    }
+    return { ...candidate, blocked: false, timing: meta }
+  }
+}
+
+/** 一次规划用了什么时序、依据几条示范、有没有被规则拦下——运行时日志就靠它。 */
+export function formatTimingReport(plan = {}) {
+  const t = plan.timing || {}
+  const bit = [
+    `[timing] tier=${t.tier ?? 'none'} source=${t.source ?? 'base'} sim=${(t.matches?.[0]?.sim ?? 0).toFixed?.(2) ?? '0.00'} rules=${t.rules ?? 0}`,
+  ]
+  if (t.applied?.length) {
+    bit.push(t.applied.map((a) => `${a.param} ${a.from}→${a.to}ms`).join(', '))
+  }
+  if (t.clamped?.length) {
+    bit.push(`clamped: ${t.clamped.map((c) => `${c.param} 要求${c.wanted} 停在${c.allowed}`).join(', ')}`)
+  }
+  if (plan.blocked) bit.push(`blocked: ${plan.why || describeViolations(plan.violations || [])}`)
+  return bit.join(' | ')
 }
 
 function pushLimited(list, item, limit) {
