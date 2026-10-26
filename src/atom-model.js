@@ -15,7 +15,9 @@
 export const ATOMIC_KINDS = Object.freeze({
   'jump-short': { param: 'jumpHoldMs', label: '单次轻点跳' },
   'jump-long': { param: 'jumpHoldMs', label: '单次长按跳' },
-  'mine-swing': { param: 'digHoldMs', label: '单次挥镐' },
+  'use-tap': { param: 'digHoldMs', label: '单次轻点使用' },
+  'use-hold': { param: 'digHoldMs', label: '单次按住使用' },
+  'mine-swing': { param: 'digHoldMs', label: '单次挥霍（旧名）' },
   'attack-swing': { param: 'digHoldMs', label: '单次普攻' },
   'place-swing': { param: 'digHoldMs', label: '单次放置' },
   'move': { param: 'moveHoldMs', label: '单次移动' },
@@ -24,6 +26,14 @@ export const ATOMIC_KINDS = Object.freeze({
 
 /** 短跳与长按跳的分界（毫秒）。低于它算轻点，高于它算按住。 */
 export const JUMP_TAP_MS = 200
+
+/**
+ * “一次左键”算轻点还是按住的 tick 分界。
+ * 实测轻点落在 5~7 tick、按住落在 21~33 tick，中间空档很大，取 14 当分界。
+ * 左键在游戏里既是挖掘也是放置（取决于手持物品），所以这里只按节奏分档，
+ * 具体是挖还是放由上层看手持物决定——这正是“分支由实时状态判断”的那条规则。
+ */
+export const USE_HOLD_TICKS = 14
 
 /**
  * 单次动作的按住时长上限。超过它的按键段不是"单次"，是"一直按着"——
@@ -142,7 +152,7 @@ export const TICK_MS = 1000 / 60
 /** 事件流里的键名 → 原子动作。方向键按“一次按住”算一次移动动作。 */
 const EVENT_KEY_KIND = {
   jump: 'jump',
-  mouseLeft: 'mine-swing',
+  mouseLeft: 'use',
   mouseRight: 'place-swing',
   left: 'move',
   right: 'move',
@@ -171,6 +181,7 @@ export function atomizeEvents(events = [], opts = {}) {
   let lastKind = null
   let lastEndTick = -100000
   const loopGapTicks = Number(opts.loopGapTicks) || 6
+  const useHoldTicks = Number(opts.useHoldTicks) || USE_HOLD_TICKS
   for (const e of list) {
     const key = String(e.key || '')
     const baseKind = EVENT_KEY_KIND[key]
@@ -185,6 +196,8 @@ export function atomizeEvents(events = [], opts = {}) {
     if (holdMs > maxAtomMs) { dropped.loop += 1; continue }
     let kind = baseKind
     if (kind === 'jump') kind = holdMs < jumpTapMs ? 'jump-short' : 'jump-long'
+    // 左键：按 tick 分轻点/按住（挖还是放由上层看手持物判断）
+    else if (kind === 'use') kind = ticks < useHoldTicks ? 'use-tap' : 'use-hold'
     if (!ATOMIC_KINDS[kind]) { dropped.sequence += 1; continue }
     if (atoms.length && atoms[atoms.length - 1].kind === kind && start - lastEndTick <= loopGapTicks) { dropped.loop += 1; lastEndTick = tick; continue }
     atoms.push({ kind, holdMs, ticks })

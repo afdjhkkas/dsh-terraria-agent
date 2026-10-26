@@ -217,3 +217,24 @@ test('事件流优先于帧序列：按住时长取 tick 差值，并标明来�
   }
   lib.clear()
 })
+
+test('左键按 tick 分轻点/按住两档（挖还是放交给上层看手持）', () => {
+  const { atoms } = atomizeEvents([
+    { tick: 0, key: 'mouseLeft', down: true }, { tick: 6, key: 'mouseLeft', down: false },
+    { tick: 100, key: 'mouseLeft', down: true }, { tick: 130, key: 'mouseLeft', down: false },
+  ], { loopGapTicks: 3 })
+  assert.deepEqual(atoms.map(a => a.kind), ['use-tap', 'use-hold'])
+  assert.ok(atoms[0].ticks < 14)
+  assert.ok(atoms[1].ticks >= 14)
+})
+
+test('放置与挖掘共用左键：事件层不区分，只按节奏分档', () => {
+  const { atoms } = atomizeEvents([
+    { tick: 0, key: 'mouseRight', down: true }, { tick: 8, key: 'mouseRight', down: false },
+    { tick: 50, key: 'mouseLeft', down: true }, { tick: 58, key: 'mouseLeft', down: false },
+  ], { loopGapTicks: 3 })
+  // mouseRight 仍是单项事件；鼠标左键的“是挖还是放”不在这里判定
+  const kinds = atoms.map(a => a.kind)
+  assert.ok(kinds.includes('place-swing'))
+  assert.ok(kinds.includes('use-tap'))
+})
