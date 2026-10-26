@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Xna.Framework;
 using Terraria.GameContent.Creative;
@@ -243,10 +244,51 @@ namespace DshTerrariaBridge
             try { return (int)_wheelField.GetValue(null); } catch { return 0; }
         }
 
+        // 真机教讲时窗口可能不在前台（串流/远程），XNA 的 Main.mouseX/Y 就冻住不动。
+        // 这里直接问 Windows 要光标位置，再用客户区原点换算回世界坐标，不依赖窗口活跃。
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NativePoint { public int X; public int Y; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NativeRect { public int Left; public int Top; public int Right; public int Bottom; }
+
+        [DllImport("user32.dll")]
+        private static extern bool GetCursorPos(out NativePoint p);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetClientRect(IntPtr hWnd, out NativeRect r);
+
+        [DllImport("user32.dll")]
+        private static extern bool ClientToScreen(IntPtr hWnd, ref NativePoint p);
+
+        /// <summary>读 OS 光标并换算成客户区/世界坐标。inClient=false 表示光标不在游戏窗口里。</summary>
+        private static (bool ok, bool inClient, int sx, int sy, int cx, int cy, float wx, float wy, int cw, int ch) ReadOsCursor()
+        {
+            NativePoint pos;
+            if (!GetCursorPos(out pos)) return (false, false, 0, 0, 0, 0, 0f, 0f, 0, 0);
+            IntPtr hwnd = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+            if (hwnd == IntPtr.Zero) return (false, false, pos.X, pos.Y, 0, 0, 0f, 0f, 0, 0);
+            NativeRect rc;
+            if (!GetClientRect(hwnd, out rc)) return (false, false, pos.X, pos.Y, 0, 0, 0f, 0f, 0, 0);
+            int cw = rc.Right - rc.Left, ch = rc.Bottom - rc.Top;
+            if (cw <= 0 || ch <= 0) return (false, false, pos.X, pos.Y, 0, 0, 0f, 0f, 0, 0);
+            NativePoint origin = new NativePoint { X = 0, Y = 0 };
+            if (!ClientToScreen(hwnd, ref origin)) return (false, false, pos.X, pos.Y, 0, 0, 0f, 0f, 0, 0);
+            int ox = pos.X - origin.X;
+            int oy = pos.Y - origin.Y;
+            bool inClient = ox >= 0 && oy >= 0 && ox < cw && oy < ch;
+            // 客户区物理像素 → 渲染像素，再平移世界坐标（zoom 已包含在 screenPosition/screenWidth 里）
+            float rx = (float)ox * Main.screenWidth / cw;
+            float ry = (float)oy * Main.screenHeight / ch;
+            float wx = Main.screenPosition.X + rx;
+            float wy = Main.screenPosition.Y + ry;
+            return (true, inClient, pos.X, pos.Y, ox, oy, wx, wy, cw, ch);
+        }
         private static string HumanInput()
         {
             if (Main.gameMenu || Main.LocalPlayer == null) return Json.Ok(new { inWorld = false });
             Player pl = P;
+            var cur = ReadOsCursor();
             var ks = Main.keyState;
             bool k(Microsoft.Xna.Framework.Input.Keys key) => ks.IsKeyDown(key);
             var raw = new List<string>();
@@ -290,6 +332,23 @@ namespace DshTerrariaBridge
                     tileY = (int)(Main.MouseWorld.Y / 16f),
                     // 真人切物品栏主要用滚轮，不记这个就看不到"滚了几格"。
                     wheel = ReadMouseWheel(),
+                    // OS 层光标：窗口不在前台时 XNA 的值会冻住，教讲要看这一组。
+                    os = new
+                    {
+                        ok = cur.ok,
+                        inClient = cur.inClient,
+                        x = cur.sx,
+                        y = cur.sy,
+                        clientX = cur.cx,
+                        clientY = cur.cy,
+                        clientW = cur.cw,
+                        clientH = cur.ch,
+                        worldX = MathF.Round(cur.wx, 1),
+                        worldY = MathF.Round(cur.wy, 1),
+                        tileX = cur.ok ? (int)MathF.Floor(cur.wx / 16f) : -1,
+                        tileY = cur.ok ? (int)MathF.Floor(cur.wy / 16f) : -1,
+                    },
+                    source = cur.ok && cur.inClient ? "os" : "xna",
                 },
                 keys = raw,
                 player = new
