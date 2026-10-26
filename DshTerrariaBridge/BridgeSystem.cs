@@ -995,6 +995,17 @@ namespace DshTerrariaBridge
                     }
                 }
             }
+            // 行走结果驱动：走够格数就松手，不管花了多久、中间被挡过几次。
+            if (MoveStopTiles > 0f)
+            {
+                float curX = p.Center.X / 16f, curY = p.Center.Y / 16f;
+                float moved = MoveStopAxis == 0 ? Math.Abs(curX - MoveFromX) : Math.Abs(curY - MoveFromY);
+                if (moved >= MoveStopTiles)
+                {
+                    LeftUntil = 0; RightUntil = 0; UpUntil = 0; DownUntil = 0;
+                    MoveStopTiles = 0f;
+                }
+            }
             if (UseUntil > now)
             {
                 p.controlUseItem = true;
@@ -1700,6 +1711,11 @@ namespace DshTerrariaBridge
         internal static bool UseStopWhenClear;
         // 放置/敲墙同样按结果停：格子真的变成实体（放置）或真的空了（挖掘）才收手。
         internal static bool UseStopWhenPlaced;
+        // 行走也按结果停：给的是"要走几格"，不是"按多久"。
+        // 被墙挡住、脚下滑坡、水里慢，都会让同样的时长走出完全不同距离。
+        internal static float MoveFromX, MoveFromY;
+        internal static float MoveStopTiles;
+        internal static int MoveStopAxis;   // 0=X, 1=Y
         // 攀爬：只按 controlUp/controlDown，让原版的绳子物理自己抬人。
         // 不复用 UpUntil/DownUntil —— 那两个会直接写 velocity，等于"悬停"，不是原版行为。
         internal static ulong ClimbUpUntil, ClimbDownUntil, LayRopeUntil;

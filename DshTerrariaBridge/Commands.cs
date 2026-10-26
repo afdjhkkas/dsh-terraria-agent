@@ -2658,6 +2658,27 @@ namespace DshTerrariaBridge
                 case "up": BridgeSystem.UpUntil = until; BridgeSystem.DownUntil = 0; break;
                 case "down": BridgeSystem.DownUntil = until; BridgeSystem.UpUntil = 0; break;
                 default: return Json.Error($"dir 只能是 left/right/up/down，收到 {dir}");
+            // 结果驱动：给 tiles 就按"走够几格"停，不再靠时长猜。
+            // 被墙挡住时固定时长会立刻失效——人还在原地，键已经松开。
+            float tiles = Json.Float(p, "tiles", 0f);
+            var c0 = new[] { MathF.Round(P.Center.X / 16f, 1), MathF.Round(P.Center.Y / 16f, 1) };
+            if (tiles > 0)
+            {
+                BridgeSystem.MoveFromX = c0[0];
+                BridgeSystem.MoveFromY = c0[1];
+                BridgeSystem.MoveStopTiles = tiles;
+                BridgeSystem.MoveStopAxis = (dir == "up" || dir == "down") ? 1 : 0;
+                // 结果驱动时把上限放宽：走够就停，走不动就靠这个上限兜底。
+                BridgeSystem.LeftUntil = 0; BridgeSystem.RightUntil = 0;
+                BridgeSystem.UpUntil = 0; BridgeSystem.DownUntil = 0;
+                switch (dir)
+                {
+                    case "left": BridgeSystem.LeftUntil = ulong.MaxValue; break;
+                    case "right": BridgeSystem.RightUntil = ulong.MaxValue; break;
+                    case "up": BridgeSystem.UpUntil = ulong.MaxValue; break;
+                    case "down": BridgeSystem.DownUntil = ulong.MaxValue; break;
+                }
+            }
             }
             // Apply once immediately so a short command is not lost between
             // the request tick and the next Player update.
