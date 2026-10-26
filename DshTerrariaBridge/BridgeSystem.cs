@@ -837,7 +837,22 @@ namespace DshTerrariaBridge
             // 这里连同挂绳状态一起置位，等于替玩家做了一个"按上键抓住绳子"的动作。
             if (ClimbUpUntil > now && OnRopeNow(p)) { p.controlUp = true; GrabRope(p); }
             if (ClimbDownUntil > now && OnRopeNow(p)) { p.controlDown = true; GrabRope(p); }
-            if (DownUntil > now) { p.controlDown = true; p.velocity.Y = Math.Max(p.velocity.Y, 1.2f); }
+            if (DownUntil > now)
+            {
+                p.controlDown = true;
+                p.velocity.Y = Math.Max(p.velocity.Y, 1.2f);
+                // 实测事故：只写 controlDown + velocity 时，人站在平台上纹丝不动（平台把位置钉住）。
+                // 真人下穿是“按住↓ + 方向”，引擎靠 controlDown 主动解除平台吸附；
+                // 这里直接把吸附状态清掉并往下蹭一点，等价于“按↓跳下平台”。
+                if (p.velocity.Y >= 0f)
+                {
+                    // Player 上没有 isOnPlatform 这个成员（tModLoader 1.4 编译就报 CS1061），
+                    // 只能自己看脚下是不是平台格；TileID.Sets.Platforms 覆盖所有平台种类。
+                    int fx = (int)(p.Center.X / 16f), fy = (int)((p.position.Y + p.height + 6f) / 16f);
+                    Tile ft = Main.tile[fx, fy];
+                    if (ft.HasTile && TileID.Sets.Platforms[ft.TileType]) p.position.Y += 2f;
+                }
+            }
             if (JumpUntil > now)
             {
                 p.controlJump = true;
