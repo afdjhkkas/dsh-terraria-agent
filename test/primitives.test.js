@@ -20,6 +20,9 @@ function makeFakeBridge({
   equipWorks = true,
   offScreen = false,
   freeSlots = null,
+  pos = { x: 10.5, y: 40.4 },
+  walkNowhere = false,
+  stepTiles = 1.75,
 } = {}) {
   const clock = { t: 0 }
   const pending = []
@@ -28,6 +31,7 @@ function makeFakeBridge({
     inventory: inventory.map(it => ({ ...it })),
     chest: chest.map(it => ({ ...it })),
     free: freeSlots === null ? 50 - inventory.length : freeSlots,
+    pos: { ...pos },
     calls: [],
   }
   const key = (x, y) => `${x},${y}`
@@ -85,6 +89,24 @@ function makeFakeBridge({
           ? { hasObjectData: true, width: 3, height: 2, originX: 1, originY: 1, styleWrapLimit: 0 }
           : { hasObjectData: true, width: 1, height: 2, originX: 0, originY: 0, styleWrapLimit: 0 }
         return { data }
+      }
+      case 'state':
+        return { data: { player: { pos: [state.pos.x, state.pos.y], grounded: true, dead: false, life: 100, lifeMax: 100 } } }
+      case 'move': {
+        if (walkNowhere) return { data: { ok: true } }
+        const dx = { left: -1, right: 1 }[params.dir] ?? 0
+        const dy = { up: -1, down: 1 }[params.dir] ?? 0
+        const col = Math.floor(state.pos.x) + dx
+        const row = Math.round(state.pos.y) + dy
+        const cells = dx !== 0
+          ? [Math.round(state.pos.y) - 2, Math.round(state.pos.y) - 1, Math.round(state.pos.y), Math.round(state.pos.y) + 1].map(r => state.tiles[key(col, r)])
+          : [Math.floor(state.pos.x) - 1, Math.floor(state.pos.x), Math.floor(state.pos.x) + 1].map(c => state.tiles[key(c, row)])
+        const blocked = cells.some(c => c && c.hasTile)
+        if (!blocked) {
+          state.pos.x += dx * stepTiles
+          state.pos.y += dy * 2
+        }
+        return { data: { ok: true, blocked } }
       }
       case 'inventory':
         return {
@@ -319,4 +341,25 @@ test('isTransportFault separates a dead bridge from a gameplay answer', () => {
   assert.equal(isTransportFault(Object.assign(new Error('x'), { code: 'ETIMEDOUT' })), true)
   assert.equal(isTransportFault(new Error('Terraria bridge is not running at 127.0.0.1:47777.')), true)
   assert.equal(isTransportFault(new Error('背包里没有能放置 Stone 的物品')), false)
+})
+
+test('walkClear digs the head row that the body is caught on, then moves', async () => {
+  // 角色中心 y=40，头那格在 38；只清脚下的人会原地卡死（实测 46 步位移 0）
+  const fake = makeFakeBridge({
+    tiles: {
+      '11,38': stone(11, 38, { breaksAfter: 1, solid: true }), '11,39': stone(11, 39, { breaksAfter: 1, solid: true }),
+      '11,40': stone(11, 40, { breaksAfter: 1, solid: true }), '11,41': stone(11, 41, { breaksAfter: 1, solid: true }),
+    },
+  })
+  const result = await fake.primitives.walkClear({ dir: 'right', ms: 100, attempts: 2 })
+  assert.equal(result.ok, true)
+  assert.ok(result.cleared.length >= 2)
+  assert.ok(result.moved > 0)
+})
+
+test('walkClear reports the real displacement instead of trusting move', async () => {
+  const fake = makeFakeBridge({ walkNowhere: true })
+  const result = await fake.primitives.walkClear({ dir: 'left', ms: 50, attempts: 2 })
+  assert.equal(result.ok, false)
+  assert.match(result.reason, /没挪动/)
 })

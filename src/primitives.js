@@ -96,6 +96,58 @@ export function createPrimitives({ request, sleep = defaultSleep, now = Date.now
 
   /* ── tile / furniture placement ─────────────────────────────────────── */
 
+  /**
+   * Move one step, clearing whatever the body is caught on first.
+   *
+   * A 1.25-tile-wide hitbox wedged into a narrow slot makes `move` answer
+   * `ok:true` while the position never changes - the cell that blocks is the one
+   * at **head height**, so digging only the floor row leaves the player stuck
+   * (measured: position identical for 46 steps). This clears the four rows the
+   * body spans - and one more ahead - then retries, and reports the real
+   * displacement instead of trusting the command.
+   */
+  async function walkClear({ dir = 'right', ms = 500, attempts = 4, signal } = {}) {
+    const dx = dir === 'left' ? -1 : dir === 'right' ? 1 : 0
+    const dy = dir === 'up' ? -1 : dir === 'down' ? 1 : 0
+    const here = async () => ((await request('state', {}, { signal })).data ?? {}).player ?? {}
+    const trace = []
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      const before = await here()
+      const [px, py] = before.pos ?? [0, 0]
+      const cleared = []
+      const cells = []
+      if (dx !== 0) {
+        // 碰撞盒 1.25 格宽：只清正前方那一列时，隔壁那列照样把身体顶住
+        // （实测站在 2 格宽的竖井里，前方 1 格是空的但第 2 格实心，位移 0）
+        for (const col of [Math.floor(px) + dx, Math.floor(px) + 2 * dx]) {
+          for (const row of [Math.round(py) - 2, Math.round(py) - 1, Math.round(py), Math.round(py) + 1]) cells.push([col, row])
+        }
+      } else if (dy !== 0) {
+        const row = Math.round(py) + dy
+        for (const col of [Math.floor(px) - 1, Math.floor(px), Math.floor(px) + 1]) cells.push([col, row])
+      }
+      for (const [x, y] of cells) {
+        const cell = await readTile(x, y, signal)
+        if (cell.solid !== true) continue
+        const swing = await mineTile({ x, y, ms: 1400, tries: 2, signal })
+        if (swing.ok) cleared.push(`${x},${y}`)
+      }
+      if (cleared.length) await sleep(300)
+      await request('move', { dir, ms }, { signal })
+      await sleep(ms + 250)
+      const after = await here()
+      const [x2, y2] = after.pos ?? [0, 0]
+      const moved = Math.hypot(x2 - px, y2 - py)
+      trace.push({ attempt, from: [px, py], to: [x2, y2], moved: +moved.toFixed(2), cleared })
+      if (moved >= 0.4) return { ok: true, dir, moved: +moved.toFixed(2), attempt, cleared, trace }
+    }
+    const last = trace[trace.length - 1] ?? { moved: 0 }
+    return {
+      ok: false, dir, moved: last.moved ?? 0, trace,
+      reason: `朝 ${dir} 走了 ${attempts} 次都没挪动（位移 ${last.moved ?? 0} 格）：前方夹住、或是坡/液体挡路，先看清再换方向`,
+    }
+  }
+
   /** Footprint + anchor of a furniture type, straight from the game. */
   async function objectInfo(type, { style = 0, signal } = {}) {
     const data = (await request('tiledata', { type, style }, { signal })).data ?? {}
@@ -334,6 +386,7 @@ export function createPrimitives({ request, sleep = defaultSleep, now = Date.now
     placeObject,
     objectInfo,
     craftItem,
+    walkClear,
     equipFromSlot,
     equipment,
     chestList,
