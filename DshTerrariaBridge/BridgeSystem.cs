@@ -293,10 +293,81 @@ namespace DshTerrariaBridge
         /// 覆盖 controlJump 时引擎根本不跳（实测 4 次 jump 全 0 格），而直接写 velocity 又只能
         /// 恒 5.2 格。写 Triggers 才是"按下跳跃键"，引擎自己算出 1.4~6.1 格的变高。
         /// </summary>
+        // ==== 按键边沿事件（tick 级） ====
+        // 轮询 humaninput 只能看到采样点，短按往往只落在一帧上（实测出现过 0ms 的跳跃）。
+        // 这里按 tick 记“哪一 tick 按下/松开了哪个键”，外部拿事件流就能算出真实按住时长。
+        internal sealed class KeyEvent { public long Tick; public string Key; public bool Down; }
+        private static readonly List<KeyEvent> KeyEvents = new List<KeyEvent>();
+        private const int KeyEventCap = 6000;
+        private static readonly Dictionary<string, bool> KeyState = new Dictionary<string, bool>();
+        private static readonly string[] WatchedKeys = { "jump", "left", "right", "up", "down", "mouseLeft", "mouseRight" };
+
+        private static bool ReadKey(string key)
+        {
+            try
+            {
+                var t = PlayerInput.Triggers.Current;
+                switch (key)
+                {
+                    case "jump": return t.Jump;
+                    case "left": return t.Left;
+                    case "right": return t.Right;
+                    case "up": return t.Up;
+                    case "down": return t.Down;
+                    case "mouseLeft": return Main.mouseLeft;
+                    case "mouseRight": return Main.mouseRight;
+                    default: return false;
+                }
+            }
+            catch { return false; }
+        }
+
+        /// <summary>把 sinceTick 之后的事件按时间正序交出去（只读，最多 max 条）。</summary>
+        internal static List<KeyEvent> SnapshotKeyEvents(long sinceTick, int max)
+        {
+            var outp = new List<KeyEvent>();
+            lock (KeyEvents)
+            {
+                for (int i = KeyEvents.Count - 1; i >= 0 && outp.Count < max; i--)
+                {
+                    if (KeyEvents[i].Tick < sinceTick) break;
+                    outp.Add(KeyEvents[i]);
+                }
+            }
+            outp.Reverse();
+            return outp;
+        }
+
+        internal static void ClearKeyEvents() { lock (KeyEvents) { KeyEvents.Clear(); KeyState.Clear(); } }
+
+        internal static long LastKeyEventTick()
+        {
+            lock (KeyEvents) return KeyEvents.Count > 0 ? KeyEvents[KeyEvents.Count - 1].Tick : 0;
+        }
+
         public override void PostUpdateInput()
         {
             if (Main.gameMenu || Main.dedServ) return;
             if (JumpUntil > Main.GameUpdateCount) PlayerInput.Triggers.Current.Jump = true;
+            // 采集边沿事件：只记“变化”，同一状态不重复记。
+            long tick = Main.GameUpdateCount;
+            // 本模组自己下发的输入不算人的操作，否则示范库里会混进脚本自己的动作。
+            bool bridgeJump = JumpUntil > (ulong)tick;
+            bool bridgeUse = UseUntil > (ulong)tick || UseTileUntil > (ulong)tick;
+            foreach (var key in WatchedKeys)
+            {
+                if (bridgeJump && key == "jump") continue;
+                if (bridgeUse && (key == "mouseLeft" || key == "mouseRight")) continue;
+                bool now = ReadKey(key);
+                bool was = KeyState.TryGetValue(key, out var prev) && prev;
+                if (now == was) continue;
+                KeyState[key] = now;
+                lock (KeyEvents)
+                {
+                    KeyEvents.Add(new KeyEvent { Tick = tick, Key = key, Down = now });
+                    if (KeyEvents.Count > KeyEventCap) KeyEvents.RemoveRange(0, KeyEvents.Count - KeyEventCap);
+                }
+            }
         }
 
         public override void PostUpdateEverything()

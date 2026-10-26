@@ -626,6 +626,22 @@
       "summary": ""
     },
     {
+      "name": "keyevents",
+      "kind": "read",
+      "params": [
+        "since",
+        "max",
+        "clear"
+      ],
+      "returns": [
+        "lastTick",
+        "count",
+        "time",
+        "stride"
+      ],
+      "summary": ""
+    },
+    {
       "name": "left",
       "kind": "act",
       "params": [],

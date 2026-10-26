@@ -33,6 +33,7 @@ namespace DshTerrariaBridge
                 case "ping": return Ping();
                 case "state": return State();
                 case "humaninput": return HumanInput();
+                case "keyevents": return KeyEventsCmd(p);
                 case "scan": return Scan(p);
                 case "tile": return TileAt(p);
                 case "gravity": return Gravity(p);
@@ -369,11 +370,26 @@ namespace DshTerrariaBridge
             });
         }
 
+        /// <summary>按键边沿事件（tick 级）。示范采集用它算真实按住时长，比轮询准。</summary>
+        private static string KeyEventsCmd(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            int since = Json.Int(p, "since", 0);
+            int max = Math.Clamp(Json.Int(p, "max", 400), 1, 2000);
+            bool clear = Json.Bool(p, "clear", false);
+            var evs = BridgeSystem.SnapshotKeyEvents(since, max);
+            long last = BridgeSystem.LastKeyEventTick();
+            var flat = new List<object>();
+            foreach (var e in evs) { flat.Add(e.Tick); flat.Add(e.Key); flat.Add(e.Down); }
+            if (clear) BridgeSystem.ClearKeyEvents();
+            return Json.Ok(new { lastTick = last, count = evs.Count, time = (long)Main.time, stride = 3, flat });
+        }
+
         /// <summary>命令名清单：help 与 unknown 提示都从这里生成，
         /// 免得再出现"实现了但提示里没有、调用方以为不存在"的误导。</summary>
         internal static readonly string[] CommandNames = new[]
         {
-            "accessory", "api", "attack", "blood", "bloodmoon", "bobber", "boss", "buy", "capture", "castline", "chat", "chatpoll", "chatpost", "chest", "climb", "craft", "down", "drop", "duplicate", "eclipse", "equip", "event", "fill", "find", "fly", "follow", "frost", "frostmoon", "goblin", "grab", "gravity", "guard", "grapple", "heal", "help", "homeroom", "hook", "housediag", "housing", "humaninput", "idle", "idmap", "interact", "inventory", "items", "jump", "left", "liquidop", "map", "martian", "mine", "minion", "mirror", "mount", "move", "needs", "npc", "path", "ping", "pirate", "place", "players", "pumpkin", "pumpkinmoon", "quest", "recipes", "reel", "removeblock", "research", "right", "roomcheck", "save", "scan", "select", "sell", "shoot", "shop", "shopdebug", "shops", "snowman", "snowmoon", "splitstack", "startevent", "state", "stop", "talk", "tile", "tiledata", "trash", "travel", "travelstatus", "unhook", "up", "use", "walkto", "wall"
+            "accessory", "api", "attack", "blood", "bloodmoon", "bobber", "boss", "buy", "capture", "castline", "chat", "chatpoll", "chatpost", "chest", "climb", "craft", "down", "drop", "duplicate", "eclipse", "equip", "event", "fill", "find", "fly", "follow", "frost", "frostmoon", "goblin", "grab", "gravity", "guard", "grapple", "heal", "help", "homeroom", "hook", "housediag", "housing", "humaninput", "idle", "idmap", "interact", "inventory", "items", "jump", "keyevents", "left", "liquidop", "map", "martian", "mine", "minion", "mirror", "mount", "move", "needs", "npc", "path", "ping", "pirate", "place", "players", "pumpkin", "pumpkinmoon", "quest", "recipes", "reel", "removeblock", "research", "right", "roomcheck", "save", "scan", "select", "sell", "shoot", "shop", "shopdebug", "shops", "snowman", "snowmoon", "splitstack", "startevent", "state", "stop", "talk", "tile", "tiledata", "trash", "travel", "travelstatus", "unhook", "up", "use", "walkto", "wall"
         };
 
         private static string Help() => Json.Ok(new
@@ -385,6 +401,7 @@ namespace DshTerrariaBridge
                 "jump{ms,tiles,native}：默认走原生输入层（Triggers.Jump），高度随按住时长 1.8~6.1 格；tiles 指定目标高度，native:false 才用自算冲量",
                 "hook/grapple{x,y,slot,ms}：抓钩，真人键位语义；unhook 脱钩",
                 "humaninput{samples,ms}：观察模式采集口（控制标志+位置+按键），只读",
+                "keyevents{since,max,clear}：按键边沿事件（tick 级），示范采集算真实按住时长用；不含本模组自己下发的输入",
             },
         });
 
