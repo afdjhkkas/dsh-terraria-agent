@@ -25,6 +25,13 @@ export const ATOMIC_KINDS = Object.freeze({
 /** 短跳与长按跳的分界（毫秒）。低于它算轻点，高于它算按住。 */
 export const JUMP_TAP_MS = 200
 
+/**
+ * 单次动作的按住时长上限。超过它的按键段不是"单次"，是"一直按着"——
+ * 那是循环/持续操作（连续挖掘、持续放置），重复多少次归上层，不是动作模板。
+ * 实测：单次挥镐约 120ms，满跳约 400ms；1500ms 远高于任何单次动作。
+ */
+export const MAX_ATOM_MS = 1500
+
 /** 这些字段一律不许进库：它们是"这一次"的偶然量，不是动作样式。 */
 export const VOLATILE_FIELDS = Object.freeze([
   'x', 'y', 'tileX', 'tileY', 'px', 'py', 'dx', 'dy',
@@ -87,6 +94,7 @@ const JUMP_KEYS = new Set(['Space', 'space', 'jump'])
  */
 export function atomize(frames = [], opts = {}) {
   const jumpTapMs = Number(opts.jumpTapMs) || JUMP_TAP_MS
+  const maxAtomMs = Number(opts.maxAtomMs) || MAX_ATOM_MS
   const list = Array.isArray(frames) ? frames.filter(f => f && Number.isFinite(f.t)) : []
   const atoms = []
   const dropped = { loop: 0, sequence: 0, branch: 0, spatial: 0 }
@@ -99,7 +107,8 @@ export function atomize(frames = [], opts = {}) {
     const mine = !!f.mouse?.left
     const place = !!f.mouse?.right
     const kind = jump ? 'jump' : mine ? 'mine' : place ? 'place' : null
-    if (!kind) { cur = null; continue }
+    // 松开的那一帧就是动作的结束时刻——只记最后一帧"按下"会把按住时长算短一个采样间隔。
+    if (!kind) { if (cur) cur.end = f.t; cur = null; continue }
     if (cur && cur.kind === kind) { cur.end = f.t; continue }
     cur = { kind, start: f.t, end: f.t }
     runs.push(cur)
@@ -107,6 +116,8 @@ export function atomize(frames = [], opts = {}) {
 
   for (const r of runs) {
     const holdMs = Math.round(r.end - r.start)
+    // 超过上限 = 按住不放的持续操作，不是单次动作，不入库。
+    if (holdMs > maxAtomMs) { dropped.loop += 1; continue }
     let kind = r.kind
     if (kind === 'jump') kind = holdMs < jumpTapMs ? 'jump-short' : 'jump-long'
     else if (kind === 'mine') kind = 'mine-swing'

@@ -64,7 +64,7 @@ test('atomize：连续同类动作只留一条模板，其余计入循环', () =
 })
 
 test('atomize：轻点跳与按住跳按落点时长分成两种原子', () => {
-  const short = atomize([{ t: 0, keys: ['Space'] }, { t: 120, keys: ['Space'] }, { t: 200, keys: [] }])
+  const short = atomize([{ t: 0, keys: ['Space'] }, { t: 120, keys: ['Space'] }, { t: 150, keys: [] }])
   assert.equal(short.atoms[0].kind, 'jump-short')
   const long = atomize([{ t: 0, keys: ['Space'] }, { t: 300, keys: ['Space'] }, { t: 420, keys: [] }])
   assert.equal(long.atoms[0].kind, 'jump-long')
@@ -130,4 +130,18 @@ test('recallAtoms 只回节奏参考，坐标与次数根本不进库', () => {
   assert.equal(rej.reason, 'loop')
   assert.equal(lib.recallAtoms({ zone: 'surface', grounded: true }).length, 1)
   lib.clear()
+})
+
+test('按住不放的长按不算单次动作，直接丢弃', () => {
+  const frames = [{ t: 0, mouse: { left: true } }, { t: 3000, mouse: { left: true } }, { t: 3100, mouse: { left: false } }]
+  const { atoms, dropped } = atomize(frames)
+  assert.equal(atoms.length, 0)
+  assert.ok(dropped.loop >= 1)
+})
+
+test('单次挥镐的典型时长会被保留（不被上限误杀）', () => {
+  const frames = [{ t: 0, mouse: { left: true } }, { t: 120, mouse: { left: false } }]
+  const { atoms } = atomize(frames)
+  assert.equal(atoms.length, 1)
+  assert.equal(atoms[0].holdMs, 120)
 })
