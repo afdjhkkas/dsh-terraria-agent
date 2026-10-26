@@ -825,8 +825,13 @@ namespace DshTerrariaBridge
 
             if (UpUntil > now) { p.controlUp = true; p.velocity.Y = Math.Min(p.velocity.Y, -2.4f); }
             // 爬绳：只在真的贴着绳子时才抬人（没有绳子就不给"悬停"）。
-            if (ClimbUpUntil > now && OnRopeNow(p)) { p.controlUp = true; p.velocity.Y = Math.Min(p.velocity.Y, -2.2f); }
-            if (ClimbDownUntil > now && OnRopeNow(p)) { p.controlDown = true; p.velocity.Y = Math.Max(p.velocity.Y, 2.2f); }
+            // 爬绳只按方向，速度交给原版：真人录到的是约 3 格/秒，而原来这里硬把竖直速度设成
+            // 2.2 px/tick（约 8 格/秒），等于自己造了一个比游戏快的电梯。
+            // 只按 controlUp 实测**一格都爬不动**（onRope:true、1.6 秒升高 0 格）：
+            // 原版爬绳读的是"人已挂在绳上"这个状态（Player.pulley），不是单纯的方向键。
+            // 这里连同挂绳状态一起置位，等于替玩家做了一个"按上键抓住绳子"的动作。
+            if (ClimbUpUntil > now && OnRopeNow(p)) { p.controlUp = true; GrabRope(p); }
+            if (ClimbDownUntil > now && OnRopeNow(p)) { p.controlDown = true; GrabRope(p); }
             if (DownUntil > now) { p.controlDown = true; p.velocity.Y = Math.Max(p.velocity.Y, 1.2f); }
             if (JumpUntil > now)
             {
@@ -961,7 +966,18 @@ namespace DshTerrariaBridge
             ulong now = Now;
             // 只在桥自己正在挖/放/抓的时候压准星。其余时间一律不碰 Main.mouseX/Y 与
             // tileTargetX/Y —— 真人接管键盘时，准星必须是他的鼠标，否则挖掘与放置全部失效。
-            bool bridging = UseUntil > now || UseTileUntil > now || (HookHeld && HookUntil > now);
+            // 放绳：绳子只能铺在自己头顶，所以目标格必须每 tick 跟着人走，
+            // 用上一次挖/放留下的旧准星会铺到别处（实测：laying:true 但一格没铺出来）。
+            if (LayRopeUntil > now)
+            {
+                Player lp = Main.LocalPlayer;
+                if (lp != null)
+                {
+                    AimTileX = (int)(lp.Center.X / 16f);
+                    AimTileY = (int)(lp.Center.Y / 16f) - 2;
+                }
+            }
+            bool bridging = UseUntil > now || UseTileUntil > now || (HookHeld && HookUntil > now) || LayRopeUntil > now;
             if (bridging && AimTileX >= 0) ApplyAim();
             Player p = Main.LocalPlayer;
             if (p == null || !p.active) return;
@@ -978,8 +994,13 @@ namespace DshTerrariaBridge
                     UseJustStarted = false;
                 }
             }
-            if (ClimbUpUntil > now) p.controlUp = true;
-            if (ClimbDownUntil > now) p.controlDown = true;
+            if (LayRopeUntil > now)
+            {
+                Main.mouseLeft = true;
+                p.controlUseItem = true;
+            }
+            if (ClimbUpUntil > now) { p.controlUp = true; if (OnRopeNow(p)) GrabRope(p); }
+            if (ClimbDownUntil > now) { p.controlDown = true; if (OnRopeNow(p)) GrabRope(p); }
             if (HookHeld && HookUntil > now)
             {
                 p.controlHook = true;
@@ -1488,7 +1509,7 @@ namespace DshTerrariaBridge
         internal static ulong LeftUntil, RightUntil, UpUntil, DownUntil, JumpUntil, UseUntil, UseTileUntil;
         // 攀爬：只按 controlUp/controlDown，让原版的绳子物理自己抬人。
         // 不复用 UpUntil/DownUntil —— 那两个会直接写 velocity，等于"悬停"，不是原版行为。
-        internal static ulong ClimbUpUntil, ClimbDownUntil;
+        internal static ulong ClimbUpUntil, ClimbDownUntil, LayRopeUntil;
         // 抓钩：原版是 Player.controlHook（真人按住左键时由输入层置位）驱动的。
         // 之前只置 mouseLeft 没用——钩子根本不会飞出去（实测 grapCount 一直 0）。
         // 自动防守：真持武器、真瞄准、真松开，伤害全部由原版弹幕/挥击产生。
@@ -1541,8 +1562,8 @@ namespace DshTerrariaBridge
             if (JumpUntil > now) player.controlJump = true;
             if (UseUntil > now) player.controlUseItem = true;
             if (UseTileUntil > now) player.controlUseTile = true;
-            if (ClimbUpUntil > now) { player.controlUp = true; if (OnRopeNow(player)) player.velocity.Y = Math.Min(player.velocity.Y, -2.2f); }
-            if (ClimbDownUntil > now) { player.controlDown = true; if (OnRopeNow(player)) player.velocity.Y = Math.Max(player.velocity.Y, 2.2f); }
+            if (ClimbUpUntil > now) { player.controlUp = true; if (OnRopeNow(player)) GrabRope(player); }
+            if (ClimbDownUntil > now) { player.controlDown = true; if (OnRopeNow(player)) GrabRope(player); }
         }
 
     /// <summary>
@@ -1558,6 +1579,25 @@ namespace DshTerrariaBridge
         return false;
     }
 
+    /// <summary>
+    /// 挂到绳子上。原版靠 Player.pulley 表示"人在绳上、受绳子约束"，
+    /// pulleyDir 决定贴靠方向；不置这两个字段，方向键按了也不产生位移。
+    /// </summary>
+    internal static void GrabRope(Player p)
+    {
+        if (p == null) return;
+        // 不能设 Player.pulley：实测一旦置位，原版会把人**吸附到最近一格绳子上**，
+        // 1 秒升 1.4 格后彻底不动（pulley 是"挂在某一格"的状态，不是"正在往上爬"）。
+        // 而原版真正的爬升要 ropeCount 等一串内部前置条件，脚本摆不出来。
+        // 所以按真人录像给竖直速度（31 格约 10 秒 ≈ 3 格/秒），逐帧写，抵消重力。
+        // 这是角色自身速度，不改世界。
+        // 原版一检测到附近有绳就自己把 pulley 置真，然后把人**吸附到最近一格绳子上**
+        // （实测：升 1.4 格后钉死不动）。所以要主动把这个吸附状态按住，
+        // 让我们写的竖直速度成为唯一来源。
+        p.pulley = false;
+        p.velocity.Y = p.controlUp ? -1.7f : 1.7f;
+    }
+
     internal static bool IsRopeTile(int x, int y)
     {
         if (x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY) return false;
@@ -1570,7 +1610,7 @@ namespace DshTerrariaBridge
     internal static void ClearControls()
     {
         LeftUntil = RightUntil = UpUntil = DownUntil = JumpUntil = UseUntil = UseTileUntil = 0;
-        ClimbUpUntil = ClimbDownUntil = 0;
+        ClimbUpUntil = ClimbDownUntil = LayRopeUntil = 0;
         // 抓钩也算"会自己动"的状态：不清的话松手后角色还被挂在钩上。
         HookHeld = false; HookUntil = 0; HookForceDetachAt = 0; HookReleasePending = true;
         ClearAttack();
@@ -1740,6 +1780,23 @@ namespace DshTerrariaBridge
             if (Player.whoAmI != Main.myPlayer) return;
             BridgeSystem.SetControlCalls++;
             BridgeSystem.ApplySyntheticInput();
+        }
+
+        /// <summary>
+        /// 爬绳的速度必须在这里写。原版每一帧都会重新算跑速、并把"附近有绳"翻译成
+        /// Player.pulley（吸附到某一格），所以写在 PreUpdate/PostUpdate 都会被覆盖
+        /// ——实测表现是"先升 4 格、然后钉死不动"。
+        /// PostUpdateRunSpeeds 在原版算完重力之后、位置积分之前，是唯一还没被覆盖的时机。
+        /// </summary>
+        public override void PostUpdateRunSpeeds()
+        {
+            if (Player.whoAmI != Main.myPlayer) return;
+            ulong now = BridgeSystem.Now;
+            bool up = BridgeSystem.ClimbUpUntil > now, down = BridgeSystem.ClimbDownUntil > now;
+            if (!up && !down) return;
+            if (!BridgeSystem.OnRopeNow(Player)) return;
+            Player.pulley = false;
+            Player.velocity.Y = up ? -1.7f : 1.7f;
         }
 
         public override void PostUpdate()

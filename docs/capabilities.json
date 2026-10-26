@@ -179,10 +179,12 @@
       "kind": "act",
       "params": [
         "dir",
-        "ms"
+        "ms",
+        "lay"
       ],
       "returns": [
         "ropeCount",
+        "held",
         "from"
       ],
       "summary": ""

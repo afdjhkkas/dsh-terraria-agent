@@ -219,6 +219,28 @@ namespace DshTerrariaBridge
         /// Main.mouseLeft），不碰任何 OS 级输入 API。观摩模式靠它拿到"这一帧人按了什么、
         /// 朝哪瞄、手持什么"——和主线程同一帧读数，时序以 Main.GameUpdateCount 为准。
         /// </summary>
+        private static System.Reflection.FieldInfo _wheelField;
+        private static bool _wheelProbed;
+
+        /// <summary>
+        /// 读引擎的滚轮累积值。字段名在不同版本里可能不同，所以按候选名反射一次并缓存；
+        /// 一个都找不到就返回 0（而不是抛异常，观测口不能因为小版本差异就整条失效）。
+        /// </summary>
+        private static int ReadMouseWheel()
+        {
+            if (!_wheelProbed)
+            {
+                _wheelProbed = true;
+                foreach (string name in new[] { "mouseWheel", "MouseWheel" })
+                {
+                    var f = typeof(Main).GetField(name, System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                    if (f != null && f.FieldType == typeof(int)) { _wheelField = f; break; }
+                }
+            }
+            if (_wheelField == null) return 0;
+            try { return (int)_wheelField.GetValue(null); } catch { return 0; }
+        }
+
         private static string HumanInput()
         {
             if (Main.gameMenu || Main.LocalPlayer == null) return Json.Ok(new { inWorld = false });
@@ -264,6 +286,8 @@ namespace DshTerrariaBridge
                     y = Main.mouseY,
                     tileX = (int)(Main.MouseWorld.X / 16f),
                     tileY = (int)(Main.MouseWorld.Y / 16f),
+                    // 真人切物品栏主要用滚轮，不记这个就看不到"滚了几格"。
+                    wheel = ReadMouseWheel(),
                 },
                 keys = raw,
                 player = new
@@ -277,6 +301,8 @@ namespace DshTerrariaBridge
                     lifeMax = pl.statLifeMax2,
                     selected = pl.selectedItem,
                     heldType = pl.HeldItem.type,
+                    // 挥动/挖掘的动画进度：判断"是不是真的在挥"比看控制标志可靠。
+                    itemAnimation = pl.itemAnimation,
                 },
             });
         }
@@ -2234,15 +2260,27 @@ namespace DshTerrariaBridge
             string dir = Json.Str(p, "dir", "up");
             int ms = Json.Int(p, "ms", 1200);
             ulong until = BridgeSystem.Now + BridgeSystem.Ticks(ms);
+            // 真人爬绳不是"先在绳子上爬"，是**手持绳按住左键往上放、同时按住上**，
+            // 一边铺一边攀（录像里 31 格用了约 10 秒，绳子从 35 根掉到 0）。
+            // lay 默认开：没有它就只能爬已有的绳，稍高一点就卡住。
+            bool lay = Json.Bool(p, "lay", true);
             if (dir == "down") { BridgeSystem.ClimbDownUntil = until; BridgeSystem.ClimbUpUntil = 0; }
             else { BridgeSystem.ClimbUpUntil = until; BridgeSystem.ClimbDownUntil = 0; }
+            bool holdsRope = pl.HeldItem.type == ItemID.Rope || pl.HeldItem.type == ItemID.RopeCoil
+                             || pl.HeldItem.type == ItemID.SilkRope || pl.HeldItem.type == ItemID.SilkRopeCoil
+                             || pl.HeldItem.type == ItemID.VineRope || pl.HeldItem.type == ItemID.VineRopeCoil
+                             || pl.HeldItem.type == ItemID.WebRope || pl.HeldItem.type == ItemID.WebRopeCoil;
+            bool laying = lay && holdsRope && dir != "down";
+            if (laying) BridgeSystem.LayRopeUntil = Math.Max(BridgeSystem.LayRopeUntil, until);
             int tx = (int)(pl.Center.X / 16f), ty = (int)(pl.Center.Y / 16f);
             bool onRope = BridgeSystem.OnRopeNow(pl);
             return Json.Ok(new
             {
-                dir, ms, onRope, ropeCount = pl.ropeCount,
+                dir, ms, onRope, laying, holdsRope, ropeCount = pl.ropeCount, held = pl.HeldItem.type,
                 from = new { x = tx, y = ty },
-                note = "只按 controlUp/Down，速度交给原版；没有绳子时按了也不会动",
+                note = laying
+                    ? "手持绳按住左键往上放 + 按住上：边铺边爬，速度交给原版"
+                    : "只按方向；没有绳子时不会动（先 select 到绳子，或用 lay:true）",
             });
         }
 
