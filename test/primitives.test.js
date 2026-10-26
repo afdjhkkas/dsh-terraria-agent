@@ -363,3 +363,30 @@ test('walkClear reports the real displacement instead of trusting move', async (
   assert.equal(result.ok, false)
   assert.match(result.reason, /没挪动/)
 })
+
+test('fillVerified 逐格真实放置：已实心的格跳过、够不着先走、失败的进 failures', async () => {
+  const calls = []
+  const tiles = new Map([['2,5', { hasTile: true, type: 1 }]])
+  const state = { x: 10, y: 5 }
+  const request = async (cmd, params) => {
+    calls.push([cmd, params])
+    if (cmd === 'state') return { data: { player: { pos: [state.x, state.y] } } }
+    if (cmd === 'tile') return { data: tiles.get(`${params.x},${params.y}`) ?? { hasTile: false, type: -1 } }
+    if (cmd === 'place') {
+      const key = `${params.x},${params.y}`
+      const here = tiles.get(key) ?? { hasTile: false, type: -1 }
+      if (here.hasTile) return { data: { slot: 3, stackBefore: 5 } }
+      // 只有 x<=3 能放成，用来制造 failures
+      if (params.x <= 3) tiles.set(key, { hasTile: true, type: 1 })
+      return { data: { slot: 3, stackBefore: 5, name: 'StoneBlock' } }
+    }
+    if (cmd === 'inventory') return { data: { items: [{ slot: 3, type: 3, stack: 4 }] } }
+    return { data: {} }
+  }
+  const prim = createPrimitives({ request })
+  const r = await prim.fillVerified({ x1: 1, y1: 5, x2: 4, y2: 6, type: 1, ms: 1 })
+  assert.equal(r.placed, 5, 'x<=3 的四格应放成功（(2,5) 已实心被跳过）')
+  assert.equal(r.failed, 2, 'x=4 的两格放不成，必须记进 failures')
+  assert.equal(r.ok, false)
+  assert.ok(r.failures.length >= 1 && r.failures.length <= 8)
+})

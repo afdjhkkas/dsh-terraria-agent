@@ -380,8 +380,43 @@ export function createPrimitives({ request, sleep = defaultSleep, now = Date.now
     return { ok: true, slot, item: item.name, type: item.type, count: wanted, bagBefore, bagAfter: waited.value }
   }
 
+
+  /**
+   * 逐格铺一片区域（每个格子都真实使用物品并回读确认）。
+   *
+   * 为什么不用桥上的 `fill`：fill 只负责把 "使用物品" 排队（armed），并不等结果，
+   * 一次调用把几十格全排进去时，只有最后几次真的落下，其余静默丢掉。
+   * 实测：fill 60 格 → armed 13 / outOfRange 38 / 回读 0 格。
+   *
+   * 顺序：自下而上、每行从左到右（先有支撑再往上堆），够不着就走过去。
+   */
+  async function fillVerified({ x1, y1, x2, y2, type, style = 0, ms, reach = 6, signal } = {}) {
+    const loX = Math.min(x1, x2), hiX = Math.max(x1, x2)
+    const loY = Math.min(y1, y2), hiY = Math.max(y1, y2)
+    const placed = [], failed = []
+    for (let y = hiY; y >= loY; y--) {
+      for (let x = loX; x <= hiX; x++) {
+        const cur = await readTile(x, y, signal)
+        if (cur && cur.hasTile) continue
+        // 够不着就先走过去（水平方向；垂直靠挖/搭台阶，不在本函数职责内）
+        for (let k = 0; k < 4; k++) {
+          const st = (await request('state', {}, { signal })).data?.player
+          if (!st || !st.pos) break
+          const dx = x - st.pos[0]
+          if (Math.abs(dx) <= reach && Math.abs(y - st.pos[1]) <= reach) break
+          if (Math.abs(dx) > reach) await request('move', { dir: dx > 0 ? 'right' : 'left', ms: 200 })
+          else break
+        }
+        const r = await placeTile({ x, y, type, style, ms, signal })
+        if (r && r.ok) placed.push([x, y]); else failed.push({ x, y, reason: (r && r.reason) || (r && r.error) || 'not placed' })
+      }
+    }
+    return { ok: failed.length === 0 && placed.length > 0, placed: placed.length, failed: failed.length, cells: placed, failures: failed.slice(0, 8) }
+  }
+
   return {
     mineTile,
+    fillVerified,
     placeTile,
     placeObject,
     objectInfo,
