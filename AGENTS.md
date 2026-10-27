@@ -405,7 +405,7 @@ node scripts/testcases.mjs --dry --baseline docs/testcases/baseline.json   # 回
 
 **只读（47）**：api blood bloodmoon bobber boss chatpoll eclipse event find frost frostmoon help hook hookdebug housediag housing humaninput idmap interact inventory items keyevents map navrules needs nodig npc path ping players pumpkin pumpkinmoon quest recipes research roomcheck scan shop shopdebug shops snowmoon state tile tiledata travelstatus walkdiff walkmode
 
-**动作（55）**：accessory attack buy capture castline chat chatpost climb craft down drop duplicate equip fill fly follow goblin grab grapple gravity heal homeroom idle jump left left liquidop martian mine minion mirror move pirate place reel removeblock right right save select sell shoot snowman splitstack startevent stop talk trash travel unhook up up use walkto wall
+**动作（56）**：accessory attack buy capture castline chat chatpost climb craft down drop duplicate equip fill fly follow goblin grab grapple gravity heal homeroom idle jump left left liquidop martian mine minion mirror move moveto pirate place reel removeblock right right save select sell shoot snowman splitstack startevent stop talk trash travel unhook up up use walkto wall
 
 **看参数（4）**：chest down guard mount
 

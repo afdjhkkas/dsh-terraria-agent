@@ -60,7 +60,7 @@
 | `guard` | `off` `note` `untilTick` `radius` `hostileInRange` `weaponSlot` `weapon` |
 | `mount` | `activeAfter` `held` `action` `active` `type` `flight` `items` |
 
-## 二、动作能力（59 个命令）
+## 二、动作能力（60 个命令）
 
 | 命令 | 参数 | 干什么 |
 |---|---|---|
@@ -96,6 +96,7 @@
 | `minion` | `slot` | — |
 | `mirror` | — | — |
 | `move` | `dir` `ms` `tiles` | — |
+| `moveto` | `x` `ms` | — |
 | `pirate` | — | — |
 | `place` | `x` `y` `type` `ms` | — |
 | `reel` | `ms` | — |

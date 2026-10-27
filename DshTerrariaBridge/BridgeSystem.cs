@@ -1541,12 +1541,35 @@ namespace DshTerrariaBridge
             if (dy > 6f && adx < 2.5f) me.controlDown = true;
         }
 
+        /// <summary>精确横向移动：按目标格坐标比例控制速度，到位即停（误差 0.06 格）。</summary>
+        internal static bool ExactActive;
+        internal static float ExactTargetX;
+        internal static int ExactUntil;
+
         internal static void ApplyMovement()
         {
             Player p = Main.LocalPlayer;
             if (p == null || !p.active || p.dead) return;
             ulong now = Main.GameUpdateCount;
 
+            if (ExactActive)
+            {
+                float cur = p.position.X / 16f;
+                float dx = ExactTargetX - cur;
+                if (now > (ulong)ExactUntil || Math.Abs(dx) <= 0.06f)
+                {
+                    p.velocity.X = 0f;
+                    ExactActive = false;
+                }
+                else
+                {
+                    float sp = Math.Clamp(dx * 6f, -2.9f, 2.9f);
+                    p.controlLeft |= sp < 0f;
+                    p.controlRight |= sp > 0f;
+                    p.velocity.X = sp;
+                }
+                return;
+            }
             if (PathActive) { TickPath(); return; }
             if (WalkActive)
             {

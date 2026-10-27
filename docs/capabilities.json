@@ -855,6 +855,20 @@
       "summary": ""
     },
     {
+      "name": "moveto",
+      "kind": "act",
+      "params": [
+        "x",
+        "ms"
+      ],
+      "returns": [
+        "from",
+        "target",
+        "delta"
+      ],
+      "summary": ""
+    },
+    {
       "name": "navrules",
       "kind": "read",
       "params": [

@@ -90,6 +90,7 @@ namespace DshTerrariaBridge
                 case "place": return Place(p);
                 case "tiledata": return TileDataCmd(p);
                 case "move": return Move(p);
+                case "moveto": return MoveTo(p);
                 case "jump": return Jump(p);
                 case "climb": return Climb(p);
                 case "use": return Use(p);
@@ -2703,6 +2704,25 @@ namespace DshTerrariaBridge
 
 
         /* ── 动作 ─────────────────────────────────────────────────────── */
+
+        /// <summary>精确横向移动：走到指定格坐标即停（误差 0.06 格），不靠时长猜。</summary>
+        private static string MoveTo(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            if (!CanTick(out string perr2)) return Json.Error(perr2);
+            BridgeSystem.StopWalk("moveto");
+            BridgeSystem.GuardUntil = 0; BridgeSystem.GuardDefault = false; BridgeSystem.GuardEngaged = false;
+            float x = Json.Float(p, "x", float.NaN);
+            if (float.IsNaN(x)) return Json.Error("moveto 需要 x（目标格坐标，可以是小数）");
+            int ms = Math.Clamp(Json.Int(p, "ms", 4000), 200, 15000);
+            BridgeSystem.LeftUntil = 0; BridgeSystem.RightUntil = 0;
+            BridgeSystem.ExactActive = true;
+            BridgeSystem.ExactTargetX = x;
+            BridgeSystem.ExactUntil = (int)(BridgeSystem.Now + BridgeSystem.Ticks(ms));
+            float from = P.position.X / 16f;
+            return Json.Ok(new { from = MathF.Round(from, 2), target = x, delta = MathF.Round(x - from, 2), ms });
+        }
 
         private static string Move(JsonElement p)
         {
