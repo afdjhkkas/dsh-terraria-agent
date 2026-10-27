@@ -892,7 +892,11 @@ namespace DshTerrariaBridge
                 if (TileStand(x, y + k)) return true;
                 Tile t = Main.tile[x, y + k];
                 bool isDoor = t.HasTile && (t.TileType == TileID.ClosedDoor || t.TileType == TileID.OpenDoor);
-                if (!isDoor) return false;
+                // 空格要继续往下看：人在空中/下落、或站在比地板高 1 格的位置时，
+                // 脚下第 1 格就是空的（实测 2105,233 空、234 才是草地），
+                // 旧写法在这里直接 return false，于是起点被判“无地可站” →
+                // 整个 A* 一开始就 no-path（"bodyS=True floorS=False" 就是这个）。
+                if (!isDoor && t.HasTile) return false;
             }
             return false;
         }
