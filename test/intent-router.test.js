@@ -140,3 +140,16 @@ test('normalizeTags：去重、排序、丢非法、容忍中英文标点', () =
   ])
   assert.deepEqual(normalizeTags('').tags, [])
 })
+test('命令回包 ok 但行为不对 → 命中 atomic_action（AGENTS.md 7.5 报文坑）', () => {
+  // 真实踩过的坑：客户端把参数平铺在 root 上，Commands.Handle 只读 root.params，
+  // p 变成 default，于是 move 往右走、guard 变成再开一次、walkto 坐标全丢。
+  // 现象都是"回包 ok，行为完全不对"，这类原话必须能命中原语库。
+  for (const q of [
+    '命令返回 ok 但角色一动不动，为什么',
+    '指令没生效，是不是报文写错了',
+    '参数没生效，回了 ok 却没反应',
+  ]) {
+    const r = route(q)
+    assert.ok(r.tags.includes('atomic_action'), `${q} 应该命中 atomic_action，实际 ${r.tags.join(',')}`)
+  }
+})

@@ -229,6 +229,19 @@ const { docs } = await buildContext('把家完善一下', { tags })
 const fallback = await buildContext('把家完善一下')
 ```
 
+## 7.5 桥协议是两级结构（发错格式会静默走默认值）
+
+```
+{"cmd":"move","params":{"dir":"left","ms":600}}   → {"ok":true,"data":{...}}
+```
+
+`Commands.Handle` 只从 `root.params` 取参数；**平铺写 `{"cmd":"move","dir":"left"}` 不会报错**，
+`p` 变成 `default`，每个字段都取默认值——于是 `move left` 变成往右走、`guard {"off":true}`
+变成"再开启一次"、`walkto` 的坐标全丢。
+
+排查这类"命令返回 ok 但行为完全不对"时，**第一件事是核对报文是不是两级结构**，
+再去怀疑地形、焦点、控制权。这个坑排了整整一轮，最后才发现是自己的客户端写错了。
+
 ## 8. 元自检（拿到知识之后、动手之前，固定五问）
 
 规则正文：`prompts/meta-check.md`（`terraria_kb { meta: true }` 可取）。
