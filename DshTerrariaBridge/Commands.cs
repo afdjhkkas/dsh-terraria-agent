@@ -494,6 +494,11 @@ namespace DshTerrariaBridge
                     // openChest = Main.player[myPlayer].chest：-1=没开，否则是 Main.chest 的下标。
                     openChest = pl.chest,
                     playerInventory = Main.playerInventory,
+                    // 爬绳的三项读回（和 openChest 同一个思路：能自己验证“到底在不在绳上”，
+                    // 而不是靠“位置变了没”倒推）。ropeCount>0 才是引擎认定的“抓住了绳子”。
+                    pulley = pl.pulley,
+                    ropeCount = pl.ropeCount,
+                    onRope = BridgeSystem.OnRopeNow(pl),
                     mouseRight = Main.mouseRight,
                     mouseRightRelease = Main.mouseRightRelease,
                     // 出生点：魔镜/床这类回城手段的判据。没有这个坐标就只能靠"动了多远"猜，
@@ -3195,8 +3200,8 @@ namespace DshTerrariaBridge
             if (dir.Length() < 1f) dir = new Vector2(0f, -1f);
             dir.Normalize();
             int projIdx = Projectile.NewProjectile(pl.GetSource_ItemUse(hooked), pl.Center, dir * 16f, hooked.shoot, 0, 0f, pl.whoAmI);
-            pl.grappling[0] = projIdx;
-            pl.grapCount = 1;
+            // 不写 pl.grappling[0] / pl.grapCount：这两个是引擎在弹幕命中后自己填的。
+            // 手写等于替引擎宣布"已经挂上了"，钩子没打到也会显示挂着。
             BridgeSystem.SetAim(x, y);
             BridgeSystem.HookAimWorld = targetPx;
             BridgeSystem.HookHeld = true;

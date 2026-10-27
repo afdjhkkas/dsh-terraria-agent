@@ -86,6 +86,54 @@ PreItemCheck 钩子（游戏主线程，不需要前台、不动用户光标）
 其余一切"卡住了"，都属于**我该自己解决**的范围。判断和尝试的顺序写进 `docs/kb/actor-behavior.md`
 （先看能不能绕 → 再试跳 → 再试挖天然地形 → 报具体阻碍）。
 
+## 0.55 只能有真操作：一律只写输入，禁止替引擎算物理（用户 m22230 定的硬规矩）
+
+> **"写硬性规则只能有例如刚才开箱子那样的真操作，然后完完全全检测并剔除所有假操作。"**
+> ——用户原话，2026-10-27。这句话之前他连着说了三遍"你这是假操作"，
+> 一次是开箱子（界面没弹），一次是爬绳（人浮起来了），一次是 `move up`（电梯式攀升）。
+
+### 什么叫"真操作"
+
+**真操作 = 只把"手指动作"交给引擎，结果由原版物理/交互算出来。**
+允许写的只有输入标志：`controlLeft / controlRight / controlUp / controlDown /
+controlJump / controlUseItem / controlUseTile / controlHook / controlMount`
+以及鼠标的 `Main.mouseLeft / mouseRight` 及其**释放边沿**（`mouseLeftRelease` / `mouseRightRelease`）。
+
+**假操作 = 直接改引擎算出来的结果**，以下全部禁止（除读取）：
+
+| 禁止写 | 为什么 |
+|---|---|
+| `player.velocity.X/Y = ...` | 速度是物理算出来的；手写就等于自己造了个比游戏快的电梯（`move up` 曾一路升 21 格） |
+| `player.position / player.Center = ...` | 直接摆放角色，等于瞬移 |
+| `player.pulley = false/true` | 挂绳状态由引擎判定；主动清掉会让人永远拔不住绳子 |
+| `player.wet / lavaWet / immunity / statLife / statMana = ...` | 状态与数值由游戏给 |
+| `npc.life = ...` / `npc.velocity = ...` | 同理，伤害要走真实命中管线 |
+| `Main.tile[x,y] = ...` 直接改写 | 改世界必须走"选槽→瞄准→使用→等 ItemCheck→回读" |
+
+**唯一例外**：物品对象自身的初始化（如新建 `Item` 时设 `position = Vector2.Zero`）、
+以及"读"这些字段做判断——读不算改。
+
+### 每次改完必跑的自检（会写进 CI 前的人工步骤）
+
+```bash
+# 1) 角色速度/位置一个都不许直接写
+grep -n "velocity\.\(X\|Y\) *=[^=]\|player\.position *=\|player\.Center *=\|pulley *=" DshTerrariaBridge/*.cs
+# 期望：只出现注释行（以 // 开头），出现任何赋值行就是回归
+
+# 2) 世界改写的唯一入口
+grep -n "Main\.tile\[[^]]*\]\.\(type\|wall\|active\) *=" DshTerrariaBridge/*.cs
+# 期望：0 行（放方块/挖方块只能走 place/mine 的输入链路）
+```
+
+### 怎么验证"这次是真操作"
+
+光看"人动没动"不够——上面三次假操作人都在动。要**同时**看这三样：
+
+1. **输入标志真的置上了**（`humaninput.control.*` 为 true）；
+2. **状态读数里没有我写的结果**（比如 `velocity` 的数值不是我代码里那个常数）；
+3. **行为能被环境改变**：绳子不够长就该掉下来、墙挡住就该停在墙前——
+   如果"任何地形都照样匀速前进"，那一定是假操作。
+
 ## 0.6 解决完必须回灌（用户 m18346 定的规矩）
 
 > **"你要在不断的解决问题中完善自己的知识库和命中。比如我告诉你可以把部分屋顶换成平台，

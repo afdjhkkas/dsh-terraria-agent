@@ -674,7 +674,7 @@ namespace DshTerrariaBridge
             if (p == null || !p.active || p.dead) { StopPath("dead"); return; }
             if (Now > PathDeadline) { StopPath("timeout"); return; }
             if (p.lavaWet) { StopPath("lava"); return; }
-            if (p.wet) { p.velocity.Y = Math.Min(p.velocity.Y, -3.0f); return; }
+            if (p.wet) { p.controlJump = true; return; }
             if (Now < PathNextAct) return;
 
             int px = (int)(p.Center.X / 16f), py = (int)(p.Center.Y / 16f);
@@ -812,8 +812,6 @@ namespace DshTerrariaBridge
             Player p = Main.LocalPlayer;
             if (p == null) return;
             if (!(p.velocity.Y == 0f && p.oldVelocity.Y == 0f)) return;
-            float g = p.gravity > 0.05f ? p.gravity : 0.4f;
-            p.velocity.Y = -(float)Math.Sqrt(2.0 * g * tiles * 16.0);
             p.controlJump = true;
             // 必须把 controlJump 持续到顶点：原版跳跃是"可变跳"，只给一帧 = 松手，
             // 角色只升 1~2 格就往下掉。实测 climb-slope 想跳 5 格墙，每次都只到 2.1 格（m17852）。
@@ -1186,8 +1184,8 @@ namespace DshTerrariaBridge
                 }
                 // 不 return：继续走下面的横移逻辑，穿过这扇已经推开的门。
             }
-            if (a.kind == "escape") { p.velocity.Y = -6.0f; return; }
-            if (a.kind == "upfloat") { p.velocity.Y = Math.Min(p.velocity.Y, -3.0f); return; }
+            if (a.kind == "escape") { p.controlJump = true; return; }
+            if (a.kind == "upfloat") { p.controlUp = true; return; }
             if (a.kind == "replan")
             {
                 int rpx = (int)(p.Center.X / 16f), rpy = (int)(p.Center.Y / 16f);
@@ -1205,7 +1203,7 @@ namespace DshTerrariaBridge
             if (sign > 0) p.controlRight = true; else if (sign < 0) p.controlLeft = true;
             // 和旧逻辑一致：横向速度给个保底推力。只写 control 时角色会“站着不动”——
             // 原版在同帧后续还会按键盘状态重算一次，手写的 control 会被抹掉（m17158 实测）。
-            if (Math.Abs(p.velocity.X) < 2.6f) p.velocity.X = sign * 2.6f;
+            // 横移只给方向键，速度交给原版加速（不再手动推 velocity）。
             if (a.kind == "jump") WalkJump(a.jumpTiles > 0 ? a.jumpTiles : 2.4f);
         }
 
@@ -1249,7 +1247,7 @@ namespace DshTerrariaBridge
             if (p == null || !p.active || p.dead) { StopWalk("dead"); return; }
             if (Now > WalkDeadline) { StopWalk("timeout"); return; }
             if (p.lavaWet) { StopWalk("lava"); return; }
-            if (p.wet) { p.velocity.Y = Math.Min(p.velocity.Y, -3.0f); return; }
+            if (p.wet) { p.controlJump = true; return; }
 
             int px = (int)(p.Center.X / 16f), py = (int)(p.Center.Y / 16f);
             if (Math.Abs(WalkX - px) <= WalkTol && Math.Abs(WalkY - py) <= WalkTol) { StopWalk("arrived"); return; }
@@ -1431,7 +1429,7 @@ namespace DshTerrariaBridge
             p.direction = sign;
             // 只写 control 实测推不动人（本模组的写入时机抢不过原版输入解析），
             // 所以水平速度仍由这里直接给；门另走“主动开门”，不指望硬推能穿过去。
-            if (Math.Abs(p.velocity.X) < 2.6f) p.velocity.X = sign * 2.6f;
+            // 横移只给方向键，速度交给原版加速（不再手动推 velocity）。
             // 事故：这里原来每帧都调 WalkJump，"目标比当前高"就一路跳着走，看着像抽筋。
             // 原版自己会跨 1 格台阶；只有明确要跨 2..5 格时才由上层显式 jump。
             if (dy < -1) p.controlUp = true;
@@ -1531,12 +1529,11 @@ namespace DshTerrariaBridge
             {
                 float dir = dx > 0 ? 1f : -1f;
                 if (dir > 0) me.controlRight = true; else me.controlLeft = true;
-                me.velocity.X = dir * 2.8f;
-                // 被墙挡住就跳一下
-                if (me.velocity.Y == 0f && Math.Abs(me.oldVelocity.X) < 0.3f) { me.controlJump = true; me.velocity.Y = -7.2f; }
+                // 被墙挡住就跳一下（高度交给原版，不再写初速）
+                if (me.velocity.Y == 0f && Math.Abs(me.oldVelocity.X) < 0.3f) { me.controlJump = true; }
             }
             // 队友在高处：爬/跳
-            if (dy < -3.5f && me.velocity.Y == 0f) { me.controlJump = true; me.velocity.Y = -7.5f; }
+            if (dy < -3.5f && me.velocity.Y == 0f) { me.controlJump = true; }
             // 队友在下面且离得不远：允许往下跟
             if (dy > 6f && adx < 2.5f) me.controlDown = true;
         }
@@ -1558,15 +1555,14 @@ namespace DshTerrariaBridge
                 float dx = ExactTargetX - cur;
                 if (now > (ulong)ExactUntil || Math.Abs(dx) <= 0.06f)
                 {
-                    p.velocity.X = 0f;
+                    // 到位不再手动清速度：靠原版摩擦自然停下（真人松手也是滑一小段）。
                     ExactActive = false;
                 }
                 else
                 {
-                    float sp = Math.Clamp(dx * 6f, -2.9f, 2.9f);
-                    p.controlLeft |= sp < 0f;
-                    p.controlRight |= sp > 0f;
-                    p.velocity.X = sp;
+                    // 只按方向键；距离远时短按、近时点按，靠原版加速/摩擦收敛。
+                    p.controlLeft |= dx < 0f;
+                    p.controlRight |= dx > 0f;
                 }
                 return;
             }
@@ -1597,10 +1593,9 @@ namespace DshTerrariaBridge
             {
                 p.controlLeft |= LeftUntil > now;
                 p.controlRight |= RightUntil > now;
-                p.velocity.X = dir * 2.8f;
             }
 
-            if (UpUntil > now) { p.controlUp = true; p.velocity.Y = Math.Min(p.velocity.Y, -2.4f); }
+            if (UpUntil > now) { p.controlUp = true; }
             // 爬绳：只在真的贴着绳子时才抬人（没有绳子就不给"悬停"）。
             // 爬绳只按方向，速度交给原版：真人录到的是约 3 格/秒，而原来这里硬把竖直速度设成
             // 2.2 px/tick（约 8 格/秒），等于自己造了一个比游戏快的电梯。
@@ -1612,7 +1607,6 @@ namespace DshTerrariaBridge
             if (DownUntil > now)
             {
                 p.controlDown = true;
-                p.velocity.Y = Math.Max(p.velocity.Y, 1.2f);
                 // 实测事故：只写 controlDown + velocity 时，人站在平台上纹丝不动（平台把位置钉住）。
                 // 真人下穿是“按住↓ + 方向”，引擎靠 controlDown 主动解除平台吸附；
                 // 这里直接把吸附状态清掉并往下蹭一点，等价于“按↓跳下平台”。
@@ -1634,19 +1628,11 @@ namespace DshTerrariaBridge
                 // 原生模式下这里一个字都不写：引擎自己的 Player.Jump() 才是"按住更高"的来源。
                 if (!JumpIssued && p.velocity.Y == 0f && p.oldVelocity.Y == 0f)
                 {
-                    if (!JumpNative)
-                    {
-                        p.velocity.Y = JumpImpulse;
-                        JumpIssued = true;
-                    }
-                    else if (Now >= JumpFallbackAt)
-                    {
-                        // 实测事故：control.jump 连续两帧为 true，引擎却一帧都没起跳（vy 恒 0）。
-                        // 真值参照：真人按住 Space 一帧就能升 1.2 格。所以引擎不接管时自己给初速，
-                        // 宁可丢掉“短按变矮”的细节，也不能站着不动。
-                        p.velocity.Y = -7.5f;
-                        JumpIssued = true;
-                    }
+                    // 非 native 模式（按高度折算按住时长）也只按 controlJump，不再塞初速。
+                    if (!JumpNative) JumpIssued = true;
+                    // 旧的 JumpFallbackAt 兜底已删除：引擎 5 tick 没起跳就自己塞 -7.5 速度，
+                    // 这也是“假操作”（跳过引擎物理）。现在如果引擎真不接管，表现为人不起跳，
+                    // 我会如实报“跳不动”，不再偷偷推一把。
                 }
             }
             // 行走结果驱动：走够格数就松手，不管花了多久、中间被挡过几次。
@@ -1692,6 +1678,7 @@ namespace DshTerrariaBridge
         internal static volatile int AimTileX = -1, AimTileY = -1;
         internal static ulong AimUntil;
         internal static volatile bool UseJustStarted, UseTileJustStarted;
+        internal static ulong UseTileLastPulse;
         internal static int LastUseSlot = -1, LastUseX = -1, LastUseY = -1;
         internal static long PreItemCalls, SetControlCalls, SynthCalls;
 
@@ -1767,7 +1754,14 @@ namespace DshTerrariaBridge
             if (UseTileUntil > now)
             {
                 Main.mouseRight = true;
-                if (UseTileJustStarted) { Main.mouseRightRelease = true; UseTileJustStarted = false; }
+                // 右键“按下边沿”原来只在第一帧给一次，实测原版开箱子抓不到（界面不弹、openChest 恒 -1）。
+                // 改成每 4 帧补一次释放边沿，让引擎在任何相位读取时都能看到一次完整“按下”。
+                if (UseTileJustStarted || now - UseTileLastPulse >= 4)
+                {
+                    Main.mouseRightRelease = true;
+                    UseTileLastPulse = now;
+                    UseTileJustStarted = false;
+                }
             }
             return screenX >= 0 && screenY >= 0 && screenX < Main.screenWidth && screenY < Main.screenHeight;
         }
@@ -1876,8 +1870,10 @@ namespace DshTerrariaBridge
                         Projectile pr = Main.projectile[i];
                         if (pr.active && pr.owner == p.whoAmI && pr.aiStyle == 7) pr.Kill();
                     }
-                    p.pulley = false;
-                    p.grapCount = 0;
+                    // 不再写 p.pulley / p.grapCount：这两个是引擎算出来的状态。
+                    // 让抓钩弹幕结束（上面 pr.Kill()）本身就会让原版把 grapCount 归零、
+                    // pulley 自动解除；手写只是抢在引擎前面改结果。
+                    p.controlHook = false;
                 }
                 HookForceDetachAt = 0;
             }
@@ -2157,7 +2153,7 @@ namespace DshTerrariaBridge
             JumpNative = native;
             // 原生跳跃：不碰 velocity，交给引擎按 controlJump 起跳——真人的变高跳就是这么来的
             // （实测按住顶到 6.1 格，短按 1.4~2.7 格）。只有明确要"跳多高"时才用冲量。
-            if (native) { JumpImpulse = 0f; JumpFallbackAt = Now + 5; return; }
+            if (native) { JumpImpulse = 0f; return; }   // 纯原生：不设速度，也不留兜底
             // A fixed impulse made every jump identical (measured 2.30 tiles no matter how long
             // the key was held, because the game's variable jump height is never driven).
             // Solve the impulse for the requested apex instead: h = v^2 / (2g).
@@ -2167,8 +2163,8 @@ namespace DshTerrariaBridge
         }
 
         internal static float JumpImpulse = -8.4f;
-        /// <summary>原生跳跃的兜底时刻：过了这个 tick 还没离地，就自己给初速。</summary>
-        internal static ulong JumpFallbackAt;
+        /// <summary>已弃用：原生跳跃不再有“自己给初速”的兜底。</summary>
+        internal static ulong JumpFallbackAt = ulong.MaxValue;
         /// <summary>true = 只保持 controlJump 让引擎起跳（与真人一致）；false = 自算冲量。</summary>
         internal static bool JumpNative = true;
 
@@ -2473,22 +2469,18 @@ namespace DshTerrariaBridge
     internal static void GrabRope(Player p)
     {
         if (p == null) return;
-        // 不能设 Player.pulley：实测一旦置位，原版会把人**吸附到最近一格绳子上**，
-        // 1 秒升 1.4 格后彻底不动（pulley 是"挂在某一格"的状态，不是"正在往上爬"）。
-        // 而原版真正的爬升要 ropeCount 等一串内部前置条件，脚本摆不出来。
-        // 所以按真人录像给竖直速度（31 格约 10 秒 ≈ 3 格/秒），逐帧写，抵消重力。
-        // 这是角色自身速度，不改世界。
-        // 原版一检测到附近有绳就自己把 pulley 置真，然后把人**吸附到最近一格绳子上**
-        // （实测：升 1.4 格后钉死不动）。所以要主动把这个吸附状态按住，
-        // 让我们写的竖直速度成为唯一来源。
-        p.pulley = false;
-        // 到目标高度就停住：只给固定时长的话，超了就一直冲、绳子一断就自由落体。
+        // 这里**不再写 velocity、也不碰 p.pulley**。
+        // 旧实现有两处假操作：p.pulley=false 主动掐掉引擎的"挂绳"状态，再用
+        // p.velocity.Y=±1.7 硬推——所以"爬上去"其实是我在推，不是引擎在爬。
+        // 正确做法和开箱子一致：只按住方向键，让原版自己判定挂绳、自己动。
+        // 到目标高度就把按键放掉（否则会一直冲到绳子尽头再自由落体）。
         if (ClimbTargetY > 0)
         {
             int py = (int)(p.Center.Y / 16f);
-            if (py <= ClimbTargetY) { p.velocity.Y = 0f; ClimbUpUntil = 0; return; }
+            bool up = ClimbUpUntil > Now;
+            if (up && py <= ClimbTargetY) { ClimbUpUntil = 0; }
+            if (!up && py >= ClimbTargetY) { ClimbDownUntil = 0; }
         }
-        p.velocity.Y = p.controlUp ? -1.7f : 1.7f;
     }
 
     internal static bool IsRopeTile(int x, int y)
@@ -2694,8 +2686,11 @@ namespace DshTerrariaBridge
             bool up = BridgeSystem.ClimbUpUntil > now, down = BridgeSystem.ClimbDownUntil > now;
             if (!up && !down) return;
             if (!BridgeSystem.OnRopeNow(Player)) return;
-            Player.pulley = false;
-            Player.velocity.Y = up ? -1.7f : 1.7f;
+            // 这里原来写 Player.pulley = false 和 velocity = ±1.7：
+            // 前者主动掐掉引擎“挂在绳上”的状态，后者自己推速度，都是假操作。
+            // 现在爬绳完全交给原版：上面已经按了 controlUp，引擎自己判定挂绳并给爬升速度。
+            Player.controlUp = up;
+            if (!up) Player.controlDown = true;
         }
 
         public override void PostUpdate()
