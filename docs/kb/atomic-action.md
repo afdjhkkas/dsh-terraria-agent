@@ -473,3 +473,19 @@
 - 连着三次实测全都成：每垫一块，`pos.y` 稳定减少 1（人真的升上去了），不是“回包成功但没动”。
 
 **动作顺序**：`jump {native:false,height:3.2}` → 等人在半空（原站立格所在行空出来）→ `place {x:列, y:站立格+1, type:方块}` → 等落地 → 复查 `pos.y` 是否真的减少 1。
+
+### 未解决：爬绳（controlUp 通道）
+
+**现象**：绳已铺在人脚下（`onRope:true`、诊断 `dbgRopeTile:true`），发 `climb up` 或 `move up`，7 帧采样全是 `y` 不变、`vy 0.00`、`dbgCtrlUp false`、`dbgPulley false`。
+
+**已排除**：绳的位置（回读确认 `type 213`）、假速度（源码里已无任何 `velocity.Y` 赋值）、跳跃键（`controlJump` 不再被设）。
+
+**矛盾点**：同一个 `SetControls()` 钩子里写的 `controlLeft/controlRight` **被原版认**（今天走了几千格），但 `controlUp` 到 `PostUpdateRunSpeeds` 时读出来是 `false`。
+
+**两个待分辨的假设**（下次开游戏第一件事）：
+1. 原版在 `SetControls()` 之后、`PulleyMovement` 之前用真实键盘重写了 `controlUp`（而左右没被重写）；
+2. `Player.pulley` 的判定不看 `controlUp`，直接读 `Main.keyState`。
+
+**分辨方法**：在 `PostUpdateRunSpeeds` 里同时记录 `Main.keyState.IsKeyDown(Keys.Up)` 与 `Player.controlUp` 两个值，通过 `state` 回读。
+
+**不允许的绕法**：伪造 `Main.keyState`（等于塞 OS 按键）、自己写 `velocity.Y`。可以考虑的只剩 `Player.pulley = true` 单标志（不碰速度）或 IL 钩子。
