@@ -4,7 +4,7 @@
 > 元自检的第 4、5 维（动作原语 / 状态读取）就是拿这张表对照的：
 > 表里没有的接口和命令，一律视为不存在，不许在计划里使用。
 
-## 一、状态读取能力（50 个命令）
+## 一、状态读取能力（51 个命令）
 
 | 命令 | 能读到什么（返回值顶层字段） |
 |---|---|
@@ -31,6 +31,7 @@
 | `items` | `count` `items` |
 | `keyevents` | `lastTick` `count` `time` `stride` |
 | `map` | `mapWidth` `mapHeight` `sampled` `revealedPercent` `explored` |
+| `navrules` | `reload` `state` |
 | `needs` | `worldFields` `npc` `name` `homeless` `homeTile` `position` |
 | `nodig` | `cleared` `count` `zones` |
 | `npc` | `radius` `count` `npcs` |

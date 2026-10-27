@@ -1,0 +1,27 @@
+{
+  "_说明": "导航决策层热更参数的仓库副本。运行时真正生效的是 <存档目录>/ModConfigs/DshTerrariaBridge/nav-rules.json；改完存盘即生效，不用重启游戏。感知层/A* 核心仍然要重启。",
+  "_注意": "删掉某个键 = 用内置默认值；非数字值会被忽略。改这里的同时要保证与 DshTerrariaBridge/NavRules.cs 的 Template() 一致（test/nav-rules.test.js 会校验）。",
+  "thresholds": {
+    "stallJumpsMax": 8,
+    "cliffMaxDrop": 14,
+    "wallMaxJump": 6,
+    "jumpTilesMax": 6.0,
+    "stallJumpTiles": 6.0,
+    "gapJumpTiles": 4.0,
+    "climbExtraTiles": 1.2,
+    "detourBudget": 3,
+    "repathBudget": 3
+  },
+  "priorities": {
+    "escapeDanger": 100,
+    "arrive": 95,
+    "unstickBlocked": 90,
+    "stallJump": 80,
+    "avoidCliff": 70,
+    "passDoor": 60,
+    "detourBuild": 50,
+    "jumpGap": 40,
+    "climbSlope": 30,
+    "moveWaypoint": 10
+  }
+}

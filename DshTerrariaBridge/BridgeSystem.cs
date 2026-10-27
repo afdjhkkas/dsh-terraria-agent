@@ -1093,7 +1093,7 @@ namespace DshTerrariaBridge
             bool nearBlind = true;
             for (int i = 1; i <= 3; i++)
             {
-                if (scan[i] != int.MinValue && scan[i] - s.py <= 14) { nearBlind = false; break; }
+                if (scan[i] != int.MinValue && scan[i] - s.py <= NavRules.T.CliffMaxDrop) { nearBlind = false; break; }
             }
             s.cliffAhead = nearBlind;
             for (int k = 0; k <= 2; k++)
@@ -1131,30 +1131,30 @@ namespace DshTerrariaBridge
         /// <summary>评估层：严格按优先级，只返回一条。顺序来自 KB 的优先级表。</summary>
         private static ActorAct Evaluate(ActorSense s)
         {
-            ActorAct a = new ActorAct { rule = "move-waypoint", priority = 10, kind = "go", jumpTiles = 0 };
-            if (s.dead)      return new ActorAct { rule = "escape-danger", priority = 100, kind = "stop" };
-            if (s.lava)      return new ActorAct { rule = "escape-danger", priority = 100, kind = "escape" };
-            if (s.drowning)  return new ActorAct { rule = "escape-danger", priority = 100, kind = "upfloat" };
-            if (s.arrived)   return new ActorAct { rule = "arrive", priority = 95, kind = "stop" };
-            if (s.blockingSelf) return new ActorAct { rule = "unstick-blocked", priority = 90, kind = "jump", jumpTiles = 6.0f };
+            ActorAct a = new ActorAct { rule = "move-waypoint", priority = NavRules.P.MoveWaypoint, kind = "go", jumpTiles = 0 };
+            if (s.dead)      return new ActorAct { rule = "escape-danger", priority = NavRules.P.EscapeDanger, kind = "stop" };
+            if (s.lava)      return new ActorAct { rule = "escape-danger", priority = NavRules.P.EscapeDanger, kind = "escape" };
+            if (s.drowning)  return new ActorAct { rule = "escape-danger", priority = NavRules.P.EscapeDanger, kind = "upfloat" };
+            if (s.arrived)   return new ActorAct { rule = "arrive", priority = NavRules.P.Arrive, kind = "stop" };
+            if (s.blockingSelf) return new ActorAct { rule = "unstick-blocked", priority = NavRules.P.UnstickBlocked, kind = "jump", jumpTiles = NavRules.T.JumpTilesMax };
             // 停顿自救：先按满跳跳一次（高差在满跳范围内的路点只有靠跳才上得去；
             // 直接重规划会算出同一个路点，位置照旧不动，于是无限重规划、人永远站着 —— m17558 实测 70 帧零控制）。
             if (s.stalled)
             {
                 // 8 帧 ≈ 260ms 长按，正好是满跳；太短就只到两三格，根本够不着屋顶。
-                if (StallJumps <= 8) return new ActorAct { rule = "stall-jump", priority = 80, kind = "jump", jumpTiles = 6.0f };
-                return new ActorAct { rule = "stall-recover", priority = 80, kind = "replan" };
+                if (StallJumps <= NavRules.T.StallJumpsMax) return new ActorAct { rule = "stall-jump", priority = NavRules.P.StallJump, kind = "jump", jumpTiles = NavRules.T.StallJumpTiles };
+                return new ActorAct { rule = "stall-recover", priority = NavRules.P.StallJump, kind = "replan" };
             }
-            if (s.cliffAhead && !s.doorAhead) return new ActorAct { rule = "avoid-cliff", priority = 70, kind = "replan" };
+            if (s.cliffAhead && !s.doorAhead) return new ActorAct { rule = "avoid-cliff", priority = NavRules.P.AvoidCliff, kind = "replan" };
             // 门：必须显式开门。原版"走过去自动开"依赖真实键盘输入，手写 control 时不会触发，
             // 所以这里出一个独立动作，由 ActActor 调 WorldGen.OpenDoor（只推门，不改方块）。
-            if (s.doorAhead) return new ActorAct { rule = "pass-door", priority = 60, kind = "open-door" };
+            if (s.doorAhead) return new ActorAct { rule = "pass-door", priority = NavRules.P.PassDoor, kind = "open-door" };
             // 只在"没有路点可走"时才因建材绕行。A* 已经算出一条绕开房子的路时，
             // 贴身处是墙是正常的（正走在门口），不能再触发 replan —— 否则每帧重算、
             // 路点被反复改写成"往回退 4 格"，人就永远钉在墙前（m17430 实测）。
-            if (s.buildAhead && !WalkHasWp) return new ActorAct { rule = "detour-build", priority = 50, kind = "replan" };
-            if (s.wallH >= 1 && s.wallH <= 6) return new ActorAct { rule = "climb-slope", priority = 30, kind = "jump", jumpTiles = (float)Math.Min(6.0, s.wallH + 1.2) };
-            if (s.gapAhead)  return new ActorAct { rule = "jump-gap", priority = 40, kind = "jump", jumpTiles = 4.0f };
+            if (s.buildAhead && !WalkHasWp) return new ActorAct { rule = "detour-build", priority = NavRules.P.DetourBuild, kind = "replan" };
+            if (s.wallH >= 1 && s.wallH <= NavRules.T.WallMaxJump) return new ActorAct { rule = "climb-slope", priority = NavRules.P.ClimbSlope, kind = "jump", jumpTiles = (float)Math.Min(NavRules.T.JumpTilesMax, s.wallH + NavRules.T.ClimbExtraTiles) };
+            if (s.gapAhead)  return new ActorAct { rule = "jump-gap", priority = NavRules.P.JumpGap, kind = "jump", jumpTiles = NavRules.T.GapJumpTiles };
             return a;
         }
 
@@ -1229,6 +1229,7 @@ namespace DshTerrariaBridge
         /// 用户规格（m17835）：旧 walkto 的节点追踪保留隔离、并行开发、同场景对比。</summary>
         private static void TickWalkReactive()
         {
+            NavRules.EnsureFresh();   // 决策参数热更：改 nav-rules.json 存盘即生效，不用重启
             Player p = Main.LocalPlayer;
             if (p == null || !p.active || p.dead) { StopWalk(p == null || !p.active ? "no-player" : "dead"); return; }
             if (Now > WalkDeadline) { StopWalk("timeout"); return; }

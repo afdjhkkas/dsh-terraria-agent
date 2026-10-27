@@ -51,6 +51,7 @@ namespace DshTerrariaBridge
                 case "duplicate": return Duplicate(p);
                 case "fill": return FillArea(p);
                 case "roomcheck": return RoomCheckCmd(p);
+                case "navrules": return NavRulesCmd(p);
 
                 case "housing": return Housing(p);
                 case "needs": return RoomDiagnostics(p);
@@ -2337,6 +2338,14 @@ namespace DshTerrariaBridge
         /// </summary>
         /// <summary>只读：新旧两套走路逻辑在同一帧各自算出的行为，用于重构期对比。</summary>
         /// <summary>切换走路驱动：new=四层行为系统，old=旧逻辑（重构期对照用）。</summary>
+        /// <summary>导航热更参数：默认只读回状态；`reload:true` 强制重读文件（也有 mtime 自动重载）。</summary>
+        private static string NavRulesCmd(JsonElement p)
+        {
+            if (Json.Bool(p, "reload", false)) { string r = NavRules.Reload(); return Json.Ok(new { reload = r, state = NavRules.Status() }); }
+            NavRules.EnsureFresh();
+            return Json.Ok(NavRules.Status());
+        }
+
         private static string WalkModeCmd(JsonElement p)
         {
             string mode = Json.Str(p, "mode", "");

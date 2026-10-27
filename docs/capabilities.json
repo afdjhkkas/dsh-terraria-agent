@@ -855,6 +855,18 @@
       "summary": ""
     },
     {
+      "name": "navrules",
+      "kind": "read",
+      "params": [
+        "reload"
+      ],
+      "returns": [
+        "reload",
+        "state"
+      ],
+      "summary": ""
+    },
+    {
       "name": "needs",
       "kind": "read",
       "params": [
