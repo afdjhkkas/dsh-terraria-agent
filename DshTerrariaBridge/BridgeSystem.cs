@@ -2514,7 +2514,10 @@ namespace DshTerrariaBridge
         /// </summary>
         private static void ApplyGuard(Player p, ulong now)
         {
-            if (UseUntil > now || UseTileUntil > now) return; // 手上有明确的活（挖/放）就不抢手
+            // 手上有明确的活（挖/放）或者正被手动方向键驱动时不抢手：
+            // 否则 guard 每帧把 controlLeft/Right 写回 false，手动 move/right/left 全部失效。
+            if (UseUntil > now || UseTileUntil > now) return;
+            if (LeftUntil > now || RightUntil > now || UpUntil > now || DownUntil > now) return;
             // 不再自动续期：guard 只在命令给的时长内有效（用户要求删掉自动打怪）。
             if (GuardUntil <= now)
             {
