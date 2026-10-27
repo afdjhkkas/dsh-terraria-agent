@@ -124,7 +124,8 @@ export function createRetryGate({ route, loadDoc, maxRounds = 4, exists } = {}) 
     }
     const key = sig + '|' + norm(detail)
     if (tried.has(key)) {
-      return { action: 'give-up', fresh: [], allTags: [...seen], forced: [], round: rounds, reason: '同一卡点同一现象已经重试过，不重复烧' }
+      // 同一卡点重复 ≠ 知识不足；只是不重复烧。真正的"判定做不到"要等全套复核后仍无新增。
+      return { action: 'skip', fresh: [], allTags: [...seen], forced: [], round: rounds, reason: '同一卡点同一现象已经重试过，不重复烧' }
     }
     if (rounds >= maxRounds) {
       return { action: 'give-up', fresh: [], allTags: [...seen], forced: [], round: rounds, reason: `重试轮数已达上限 ${maxRounds}，判定当前知识不足` }

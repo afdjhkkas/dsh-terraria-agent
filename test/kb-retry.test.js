@@ -66,7 +66,8 @@ test('同一 signal + 同一 detail 不重复烧（防空转）', () => {
   const a = g.onBlockage({ signal: BLOCK_SIGNALS.noPath, detail: '同一个点' })
   assert.equal(a.action, 'retry')
   const b = g.onBlockage({ signal: BLOCK_SIGNALS.noPath, detail: '同一个点' })
-  assert.equal(b.action, 'give-up')
+  // 重复触发是 skip 不是 give-up：同一卡点重复只说明不必重查，不等于"知识不足"
+  assert.equal(b.action, 'skip')
   assert.match(b.reason, /同一卡点/)
 })
 
