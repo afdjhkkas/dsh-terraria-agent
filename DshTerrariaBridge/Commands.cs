@@ -71,6 +71,8 @@ namespace DshTerrariaBridge
                 case "shops": return ShopFind(p);
                 case "buy": return ShopBuy(p);
                 case "sell": return ShopSell(p);
+                case "methods": return MethodsCmd(p);
+                case "fields": return FieldsCmd(p);
                 case "chest": return ChestCmd(p);
                 case "quest": return Quest(p);
                 case "startevent": return StartEvent(p);
@@ -1024,6 +1026,46 @@ namespace DshTerrariaBridge
                 if (d < best) { best = d; index = i; }
             }
             return index >= 0 ? Main.chest[index] : null;
+        }
+
+
+        /// <summary>只读：列出某个类型的公开/非公开方法名（调试用）。</summary>
+
+        /// <summary>只读：列出某个类型的字段名（调试用）。</summary>
+        private static string FieldsCmd(JsonElement p)
+        {
+            string typeName = Json.Str(p, "type") ?? "Terraria.Main";
+            string filter = Json.Str(p, "filter") ?? "";
+            Type t = Type.GetType(typeName, false) ?? typeof(Terraria.Player).Assembly.GetType(typeName);
+            var names = new List<string>();
+            if (t != null)
+            {
+                var flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
+                          | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static;
+                foreach (var f in t.GetFields(flags))
+                    if (filter.Length == 0 || f.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
+                        names.Add(f.Name + ":" + f.FieldType.Name);
+            }
+            names.Sort(StringComparer.Ordinal);
+            return Json.Ok(new { type = typeName, found = t != null, count = names.Count, fields = names });
+        }
+
+        private static string MethodsCmd(JsonElement p)
+        {
+            string typeName = Json.Str(p, "type") ?? "Terraria.Player";
+            string filter = Json.Str(p, "filter") ?? "";
+            Type t = Type.GetType(typeName, false) ?? typeof(Terraria.Player).Assembly.GetType(typeName);
+            var names = new List<string>();
+            if (t != null)
+            {
+                var flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
+                          | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static;
+                foreach (var m in t.GetMethods(flags))
+                    if (filter.Length == 0 || m.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
+                        names.Add(m.Name);
+            }
+            names.Sort(StringComparer.Ordinal);
+            return Json.Ok(new { type = typeName, found = t != null, count = names.Count, methods = names });
         }
 
         private static string ChestCmd(JsonElement p)

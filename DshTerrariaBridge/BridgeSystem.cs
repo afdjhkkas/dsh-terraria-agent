@@ -6,6 +6,11 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Runtime.InteropServices;
+using System.Reflection;
+using Mono.Cecil.Cil;
+using MonoMod.Cil;
+using MonoMod.RuntimeDetour;
+using Terraria.ModLoader;
 using System.Threading;
 using Terraria;
 using Terraria.ID;
@@ -2630,6 +2635,45 @@ namespace DshTerrariaBridge
                 if (a != null && a.ammo > 0 && a.stack > 0 && ItemLoader.CanChooseAmmo(weapon, a, p)) return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// 爬绳判定（Player.PulleyMovement）跑在 ModPlayer.PreUpdate 之前，
+        /// 所以在 PreUpdate/SetControls 写 controlUp 都赶不上本轮读取（实测恒 false）。
+        /// 这里只给 PulleyMovement 加一个前置钩子：执行前把 controlUp 补上。
+        /// 边界：只设输入标志，不碰 velocity、不改判定规则。
+        /// </summary>
+        internal static void ForceClimbInput(Player self)
+        {
+            if (self == null || self.whoAmI != Main.myPlayer) return;
+            if (ClimbUpUntil > Now || UpUntil > Now) self.controlUp = true;
+            if (ClimbDownUntil > Now || DownUntil > Now) self.controlDown = true;
+        }
+
+        internal static void InstallClimbHook(Action<string> log)
+        {
+            try
+            {
+                var mi = typeof(Player).GetMethod("Update",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                    null, new[] { typeof(int) }, null)
+                    ?? typeof(Player).GetMethod("Update",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (mi == null) { log("[dsh] PulleyMovement 未找到，爬绳钩子未安装"); return; }
+                var force = typeof(BridgeSystem).GetMethod(nameof(ForceClimbInput),
+                    BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+                MonoModHooks.Modify(mi, il =>
+                {
+                    var c = new ILCursor(il);
+                    c.Emit(OpCodes.Ldarg_0);
+                    c.Emit(OpCodes.Call, force);
+                });
+                log("[dsh] PulleyMovement 前置钩子已安装");
+            }
+            catch (Exception ex)
+            {
+                log("[dsh] 爬绳钩子安装失败: " + ex.Message);
+            }
         }
 
         internal static ulong Now => Main.GameUpdateCount;
