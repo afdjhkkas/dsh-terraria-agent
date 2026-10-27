@@ -489,6 +489,13 @@ namespace DshTerrariaBridge
                     wingTime = pl.wingTime,
                     wingTimeMax = pl.wingTimeMax,
                     hasWings = pl.wings > 0,
+                    // 开箱子状态：没有这几项，“箱子打开了吗”只能靠人看屏幕，
+                    // 我把内容读出来了也说不清界面到底弹没弹（实测被当场指出“假操作”）。
+                    // openChest = Main.player[myPlayer].chest：-1=没开，否则是 Main.chest 的下标。
+                    openChest = pl.chest,
+                    playerInventory = Main.playerInventory,
+                    mouseRight = Main.mouseRight,
+                    mouseRightRelease = Main.mouseRightRelease,
                     // 出生点：魔镜/床这类回城手段的判据。没有这个坐标就只能靠"动了多远"猜，
                     // 而人本来就站在出生点旁边时，回城位移不到两格，会被误判成失败。
                     spawn = new { x = Main.spawnTileX, y = Main.spawnTileY },
