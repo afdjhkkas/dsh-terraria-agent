@@ -605,7 +605,7 @@ namespace DshTerrariaBridge
                     for (int step = 1; step <= 4; step++)
                     {
                         int jx = cx + d * step;
-                        for (int up = 0; up <= 4; up++)   // 实测无饰品满跳 4.1 格（旧值 6 是错的）
+                        for (int up = 0; up <= 6; up++)   // 净空充足时满跳 6.1（头顶被压会被削，净空另行判定）
                         {
                             if (up == 0 && step == 1) continue;
                             int jy = cy - up;
