@@ -7,5 +7,6 @@
     <LangVersion>12.0</LangVersion>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <Nullable>disable</Nullable>
+      <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
   </PropertyGroup>
 </Project>

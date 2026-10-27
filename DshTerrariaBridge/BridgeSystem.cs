@@ -517,6 +517,8 @@ namespace DshTerrariaBridge
 
         /// <summary>最近一次寻路的诊断串（只读，path/travelstatus 回传）</summary>
         internal static string LastPathWhy = "";
+        internal static bool DbgPulley, DbgCtrlUp, DbgRopeTile;
+        internal static float DbgVelY;
 
         internal static List<(int x, int y)> ComputePath(int sx, int sy, int tx, int ty, out string why, int margin = 10)
         {
@@ -2057,7 +2059,10 @@ namespace DshTerrariaBridge
 
             // 每 tick 持续推进方向键
             ulong until = Now + 40;
-            if (upward) { JumpUntil = until; UpUntil = until; DownUntil = 0; }
+            // up 方向只按上键，**不按跳跃**。
+            // 原来这里同时设了 JumpUntil：跳跃键按住会让原版连续起跳，
+            // 于是"往上"表现成凭空一路飞升（用户 m22312：根本没绳子）。
+            if (upward) { UpUntil = until; DownUntil = 0; }
             else if (vertical) { DownUntil = until; UpUntil = 0; }
             else if (Travel.Dir > 0) { RightUntil = until; LeftUntil = 0; }
             else { LeftUntil = until; RightUntil = 0; }
@@ -2683,6 +2688,9 @@ namespace DshTerrariaBridge
         {
             if (Player.whoAmI != Main.myPlayer) return;
             ulong now = BridgeSystem.Now;
+            // 诊断：原版算完重力后、位置积分前，把关键状态留一份给 state 回读。
+            BridgeSystem.DbgPulley = Player.pulley; BridgeSystem.DbgVelY = Player.velocity.Y; BridgeSystem.DbgCtrlUp = Player.controlUp;
+            BridgeSystem.DbgRopeTile = BridgeSystem.OnRopeNow(Player);
             bool up = BridgeSystem.ClimbUpUntil > now, down = BridgeSystem.ClimbDownUntil > now;
             if (!up && !down) return;
             if (!BridgeSystem.OnRopeNow(Player)) return;

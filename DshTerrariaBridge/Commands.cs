@@ -489,6 +489,11 @@ namespace DshTerrariaBridge
                     wingTime = pl.wingTime,
                     wingTimeMax = pl.wingTimeMax,
                     hasWings = pl.wings > 0,
+                    // 诊断（排查"按上键凭空飞"）：原版算完重力后留下的 pulley/速度/上键/脚下是否绳。
+                    dbgPulley = BridgeSystem.DbgPulley,
+                    dbgVelY = MathF.Round(BridgeSystem.DbgVelY, 3),
+                    dbgCtrlUp = BridgeSystem.DbgCtrlUp,
+                    dbgRopeTile = BridgeSystem.DbgRopeTile,
                     // 开箱子状态：没有这几项，“箱子打开了吗”只能靠人看屏幕，
                     // 我把内容读出来了也说不清界面到底弹没弹（实测被当场指出“假操作”）。
                     // openChest = Main.player[myPlayer].chest：-1=没开，否则是 Main.chest 的下标。
