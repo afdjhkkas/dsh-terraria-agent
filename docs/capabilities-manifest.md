@@ -4,7 +4,7 @@
 > 元自检的第 4、5 维（动作原语 / 状态读取）就是拿这张表对照的：
 > 表里没有的接口和命令，一律视为不存在，不许在计划里使用。
 
-## 一、状态读取能力（49 个命令）
+## 一、状态读取能力（50 个命令）
 
 | 命令 | 能读到什么（返回值顶层字段） |
 |---|---|
@@ -56,6 +56,7 @@
 | `walkmode` | `useNew` `reactive` `dual` |
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
 | `down` | `untilTick` `tick` `tiles` `from` `slot` `held` `interact` `after` `method` `off` `note` `radius` `hostileInRange` `weaponSlot` `weapon` `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `mouseWorldTile` `grapCountBefore` `proj` `equipped` `hasWings` `wingTimeMax` `wingTime` `velY` `hint` `activeAfter` `action` `active` `type` `flight` `items` `slots` `follow` `target` `targetIndex` `guard` `range` `dist` `idle` `count` `players` `attacking` `who` `selected` `free` `freeMain` `freeAll` `equipment` `canFly` `item` `name` `reason` `perCraft` `groupsUsed` `npcs` |
+| `guard` | `off` `note` `untilTick` `radius` `hostileInRange` `weaponSlot` `weapon` |
 | `mount` | `activeAfter` `held` `action` `active` `type` `flight` `items` |
 
 ## 二、动作能力（59 个命令）
@@ -82,7 +83,6 @@
 | `grab` | `r` | — |
 | `grapple` | `x` `y` `ms` | — |
 | `gravity` | — | — |
-| `guard` | `off` `ms` `r` | — |
 | `heal` | — | — |
 | `homeroom` | `x` `y` `who` | — |
 | `idle` | — | — |
@@ -119,7 +119,8 @@
 | `walkto` | `x` `y` `tol` `ms` `dig` | — |
 | `wall` | `x` `y` `type` `remove` `ms` | — |
 | `chest` | `action` `slot` `count` `invSlot` | — |
-| `down` | `ms` `moveMs` `slot` `right` `x` `y` `item` `off` `r` `action` `player` `guard` `range` `who` `interval` `times` `event` | 按住跳跃键时长 → 跳跃顶点高度（格） |
+| `down` | `ms` `moveMs` `slot` `right` `x` `y` `item` `off` `action` `r` `player` `guard` `range` `who` `interval` `times` `event` | 按住跳跃键时长 → 跳跃顶点高度（格） |
+| `guard` | `off` `action` `ms` `r` | — |
 | `mount` | `action` `slot` | — |
 
 ## 三、明确做不到的（做计划前先看这里）

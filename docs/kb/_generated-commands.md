@@ -24,7 +24,7 @@
 | `climb` | `dir` `ms` `tiles` |
 | `craft` | `item` `times` |
 | `down` | — |
-| `down` | `ms` `moveMs` `slot` `right` `x` `y` `item` `off` `r` `action` `player` `guard` `range` `who` `interval` `times` `event` |
+| `down` | `ms` `moveMs` `slot` `right` `x` `y` `item` `off` `action` `r` `player` `guard` `range` `who` `interval` `times` `event` |
 | `drop` | `slot` `count` |
 | `duplicate` | `item` `count` |
 | `eclipse` | — |
@@ -40,7 +40,7 @@
 | `grab` | `r` |
 | `grapple` | `x` `y` `ms` |
 | `gravity` | — |
-| `guard` | `off` `ms` `r` |
+| `guard` | `off` `action` `ms` `r` |
 | `heal` | — |
 | `help` | — |
 | `homeroom` | `x` `y` `who` |

@@ -2700,6 +2700,8 @@ namespace DshTerrariaBridge
             // 手动方向必须抢回控制权：walkto 卡住时 Travel.Active 还是 true，
             // 它每帧覆盖方向键，手动 left/right 会被完全吃掉（实测连发 14 次一动不动）。
             BridgeSystem.StopWalk("manual-move");
+            // guard 每帧会自己转向/切武器/按开火，会把手动操作吃掉；手动指令一律先解除它。
+            BridgeSystem.GuardUntil = 0; BridgeSystem.GuardDefault = false; BridgeSystem.GuardEngaged = false;
             string dir = (Json.Str(p, "dir", "right") ?? "right").ToLowerInvariant();
             int ms = Math.Clamp(Json.Int(p, "ms", 500), 1, 5000);
             ulong until = BridgeSystem.Now + BridgeSystem.Ticks(ms);
@@ -2744,6 +2746,7 @@ namespace DshTerrariaBridge
         private static string Jump(JsonElement p)
         {
             BridgeSystem.StopWalk("manual-jump");   // 同上：手动动件必须抢回控制权
+            BridgeSystem.GuardUntil = 0; BridgeSystem.GuardDefault = false;
             if (!InWorld(out string err)) return Json.Error(err);
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             if (!CanTick(out string perr2)) return Json.Error(perr2);
@@ -2820,6 +2823,7 @@ namespace DshTerrariaBridge
         private static string Use(JsonElement p)
         {
             BridgeSystem.StopWalk("manual-use");
+            BridgeSystem.GuardUntil = 0; BridgeSystem.GuardDefault = false;
             if (!InWorld(out string err)) return Json.Error(err);
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             if (!CanTick(out string perr2)) return Json.Error(perr2);
@@ -3026,7 +3030,7 @@ namespace DshTerrariaBridge
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             if (!CanTick(out string perr2)) return Json.Error(perr2);
             Player pl = P;
-            if (Json.Bool(p, "off", false))
+            if (Json.Bool(p, "off", false) || string.Equals(Json.Str(p, "action", ""), "off", StringComparison.OrdinalIgnoreCase))
             {
                 BridgeSystem.GuardDefault = false;
                 BridgeSystem.GuardUntil = 0;

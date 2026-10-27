@@ -224,8 +224,8 @@
         "y",
         "item",
         "off",
-        "r",
         "action",
+        "r",
         "player",
         "guard",
         "range",
@@ -511,9 +511,10 @@
     },
     {
       "name": "guard",
-      "kind": "act",
+      "kind": "both",
       "params": [
         "off",
+        "action",
         "ms",
         "r"
       ],
