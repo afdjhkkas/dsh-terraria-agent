@@ -153,3 +153,28 @@ test('命令回包 ok 但行为不对 → 命中 atomic_action（AGENTS.md 7.5 �
     assert.ok(r.tags.includes('atomic_action'), `${q} 应该命中 atomic_action，实际 ${r.tags.join(',')}`)
   }
 })
+
+test('一次任务的真实原话必须命中"动手要用的那几个库"（漏了就白干一轮）', () => {
+  // 2026-10-27 实测十句真实任务原话，三句明显漏：挖铁没命中装备线、水下没命中世界规则、
+  // 砍树没命中物品库。这些都是"知道有这条知识、但检索没到"，等于没写。
+  // 每条都要给出**必须命中**的最小集合（只要求关键的那一两个，不要求全集）。
+  const cases = [
+    ['挖点铁做镐子', ['gear_route', 'loot_source']],
+    ['铁镐要怎么升级', ['gear_route']],
+    ['水下面怎么过去', ['world_biome']],
+    ['快淹死了怎么办', ['world_biome']],
+    ['帮我砍树', ['item_operation']],
+    ['砍树要用什么', ['item_operation']],
+    ['晚上能不能出去', ['world_biome']],
+    ['天黑了外面危险吗', ['world_biome']],
+    ['遇到僵尸打不过怎么办', ['combat_math']],
+    ['被怪秒了怎么回事', ['combat_math']],
+  ]
+  const bad = []
+  for (const [q, need] of cases) {
+    const { tags } = route(q)
+    const miss = need.filter((t) => !tags.includes(t))
+    if (miss.length) bad.push(`「${q}」漏 ${miss.join(',')}（实际 ${tags.join(',')}）`)
+  }
+  assert.deepEqual(bad, [], '这些原话检索不到对应库：\n' + bad.join('\n'))
+})
