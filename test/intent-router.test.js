@@ -4,6 +4,7 @@ import {
   TAGS,
   LIBRARIES,
   ALWAYS,
+  CO_LOAD,
   loadRouterPrompt,
   ROUTER_PROMPT_PATH,
   normalizeTags,
@@ -177,4 +178,28 @@ test('一次任务的真实原话必须命中"动手要用的那几个库"（漏
     if (miss.length) bad.push(`「${q}」漏 ${miss.join(',')}（实际 ${tags.join(',')}）`)
   }
   assert.deepEqual(bad, [], '这些原话检索不到对应库：\n' + bad.join('\n'))
+})
+
+// ============================================================================
+// 共现必带（用户 m20028 的"制作可疑眼球"暴露出分数闸门会把配套库筛掉）
+// ============================================================================
+
+test('要打首领时必须连带加载材料来源与合成操作', () => {
+  const r = route('制作可疑眼球 召唤克苏鲁之眼')
+  assert.ok(r.tags.includes('progression_boss'), '配方库必须有')
+  assert.ok(r.tags.includes('loot_source'), '材料从哪来的库必须一起加载')
+  assert.ok(r.tags.includes('item_operation'), '怎么把它做出来的库必须一起加载')
+})
+
+test('要盖房时必须连带加载肢体动作库', () => {
+  const r = route('盖一间 npc 房子')
+  assert.ok(r.tags.includes('build_standard'))
+  assert.ok(r.tags.includes('atomic_action'), '放置/量尺寸属于动作原语，必须一起加载')
+})
+
+test('CO_LOAD 只引用真实存在的库', () => {
+  for (const [base, extras] of Object.entries(CO_LOAD)) {
+    assert.ok(LIBRARIES[base], `未知基础库 ${base}`)
+    for (const e of extras) assert.ok(LIBRARIES[e], `${base} 引用了未知库 ${e}`)
+  }
 })

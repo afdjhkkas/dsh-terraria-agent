@@ -168,11 +168,15 @@ const KEYWORDS = {
     '开箱', '钥匙', '地牢箱', '暗影箱', '掉落表', '钓', '钓鱼', '板条箱', '渔获',
     '买', '商店', '售价', '幸福度', '卖钱', '提取机', '泥沙', '回收', '重铸',
     '铁矿', '矿脉', '搞点', '路子', '不想挖', '有没有别的', '替代', '别的办法',
+    // 召唤物材料的取得链（晶状体/腐化材料这类"要攒"的东西）
+    '晶状体', '召唤物材料', '材料哪里', '怎么攒', '要多少', '凑齐',
   , '铁', '铅', '银', '金矿', '找矿', '挖点'],
   item_operation: [
     '镐', '斧', '锤', '物品', '东西', '道具', '工具', '装备', '武器', '弓', '箭',
     '弹药', '药水', '抓钩', '钩爪', '翅膀', '坐骑', '召唤', '背包', '切换', '手持',
     '分类', '怎么用', '用法', '能干什么', '合成材料',
+    // 合成召唤物本身是"在原版合成界面里做一件物品"
+    '可疑眼球', '合成召唤', '做召唤', '制作召唤',
   , '砍树', '伐木', '挖矿', '采矿', '挖铁', '挖石头', '锯'],
   build_standard: [
     '建', '造', '盖', '搭', '房', '屋', '装修', '完善', '平台', '农场', '刷怪场',
@@ -214,6 +218,20 @@ const KEYWORDS = {
 
 const SCORE_STRONG = 3 // 明确的技术词
 const SCORE_WEAK = 1 // 泛用动词（"打""走""建"这种，容易误判）
+
+/**
+ * 共现必带：某些库只要命中，就必须连带把配套的库一起加载。
+ * 起因（用户 m20028 的"制作可疑眼球"）：分数闸门（≥最高分 50%）会把低分的配套库筛掉——
+ * `progression_boss` 命中 9 分，`item_operation` 只有 3 分（"可疑眼球"是弱信号），
+ * 于是"配方在库 A、材料来源在库 B、怎么合成在库 C"这件事只加载了 A，
+ * 剩下的知识从头到尾不会出现。这和"检索上下文割裂"是同一类病。
+ */
+export const CO_LOAD = Object.freeze({
+  // 要打某个首领 → 必然要凑召唤物材料（loot_source）+ 在原版合成界面把它做出来（item_operation）
+  progression_boss: ['loot_source', 'item_operation'],
+  // 要盖房/做建筑 → 必然要动身体（放方块、量尺寸）和知道原版放置规则
+  build_standard: ['atomic_action'],
+})
 
 const STRONG = new Set([
   ...KEYWORDS.game_rule,
@@ -260,7 +278,15 @@ export function route(text) {
   const corrected = tags.includes('task_correct')
     ? ['task_correct', ...tags.filter((x) => x !== 'task_correct')]
     : tags
-  const ordered = ALWAYS.concat(corrected.filter((x) => !ALWAYS.includes(x)))
+  // 共现必带：把配套库补进来（分数闸门之后再补，否则会被 50% 规则筛掉）
+  const expanded = []
+  for (const tag of corrected) {
+    if (!expanded.includes(tag)) expanded.push(tag)
+    for (const extra of CO_LOAD[tag] ?? []) {
+      if (!expanded.includes(extra)) expanded.push(extra)
+    }
+  }
+  const ordered = ALWAYS.concat(expanded.filter((x) => !ALWAYS.includes(x)))
   return { tags: ordered, scores, hits }
 }
 
