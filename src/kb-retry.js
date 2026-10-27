@@ -1,17 +1,20 @@
 /**
  * 卡点重试检索（retrieval on blockage）。
  * ============================================================================
- * 病根（用户 m19902 指出）：知识库检索只在任务开始时做**一次**。第一轮没命中，
+ * 病根一（用户 m19902）：知识库检索只在任务开始时做**一次**。第一轮没命中，
  * 后面整段执行就带着缺失的知识往下跑；失败了也不会回头想"是不是我漏查了"。
  *
- * 这里把它改成**由卡点触发**的重复检索，且只在真卡住时才触发：
+ * 病根二（用户 m20002，更隐蔽）：**检索上下文割裂**。任务是 A，一开始检索漏了 A 的
+ * 某个库；执行途中冒出衍生问题 B，于是拿 B 去检索、只拉 B 的东西，**原始目标 A 再也没
+ * 有人回去补**。A 缺的知识从头到尾补不上，最后还把"没知识"误判成"做不到"。
  *
- *  1. 检索不是一次性前置动作。以下信号出现时触发二次/多次检索：
- *     no-path / action-failed / safety-violation / target-unreachable。
- *  2. 每次受阻都**重走全套分类检查**，逐类确认是不是漏了该分类下的规则。
- *  3. 结果必须标记"本次有没有命中**新**条目"：
- *     有新 → 回决策链路重新评估；仍无新增 → 才允许判定任务无法完成。
- *  4. 不是无脑反复检索：只认上面那四个信号，且同一信号同一上下文不重复烧。
+ * 修法（用户 m20002 的四条约束，逐条对应到代码）：
+ *  1. `taskTags` 在整个任务生命周期内保留，**不被衍生问题覆盖**（见 `begin`）；
+ *  2. 任意一次重检索的输入 = 【原始目标 + 当前衍生问题】，两部分都参与分类遍历
+ *     （见 `onBlockage` 里的 `candidates`）；
+ *  3. 知识池只累加不替换（`pool`），每次把新查到的并进去，不回退；
+ *  4. 只有【原始目标相关分类全部遍历确认无匹配】且【当前衍生问题也无匹配】才判失败
+ *     （见 `onBlockage` 末尾的 `uncovered` 检查）。
  *
  * 模块刻意不碰 I/O：`route` 与 `loadDoc` 由调用方注入，所以真库和测试假库都能跑。
  * ============================================================================
@@ -62,7 +65,11 @@ export const ALL_CATEGORIES = Object.freeze([
   'navigation',
 ])
 
+/** 每轮最多顺手补查几个"原始目标还没遍历过"的分类（防止一轮把 14 个库全拉进上下文）。 */
+export const SWEEP_PER_ROUND = 4
+
 const norm = s => String(s ?? '').trim()
+const uniq = arr => [...new Set(arr)]
 
 /**
  * 卡点检索闸门。
@@ -70,16 +77,28 @@ const norm = s => String(s ?? '').trim()
  * @param {object} args
  * @param {(text:string)=>string[]} args.route  把一段话路由成 tags（通常就是 kb-router 的 route）
  * @param {(tag:string)=>string|null} [args.loadDoc] 取某个库的正文，用于判断"是否命中新条目"
- * @param {number} [args.maxRounds] 同一次任务最多重试几轮（默认 4，够覆盖连续多个卡点）
+ * @param {number} [args.maxRounds] 同一次任务最多重试几轮（默认 6）
  * @param {(tag:string)=>boolean} [args.exists] 判断库是否真的存在（默认 loadDoc 非空即存在）
+ * @param {boolean} [args.sweepAll] 是否允许补查"原始目标没命中但可能相关"的分类（默认 true）
  */
-export function createRetryGate({ route, loadDoc, maxRounds = 4, exists } = {}) {
+export function createRetryGate({ route, loadDoc, maxRounds = 6, exists, sweepAll = true } = {}) {
   if (typeof route !== 'function') throw new TypeError('createRetryGate needs route(text)')
 
   const has = exists || (tag => (typeof loadDoc === 'function' ? !!norm(loadDoc(tag)) : true))
-  const seen = new Set() // 已经查过的 tag（跨轮累积）
-  const tried = new Set() // 已经触发过的 signal+detail 组合，防同一卡点空转
+
+  /** 约束 3：知识池。只累加，永不替换、永不清空（除了 begin 新任务）。 */
+  const pool = new Set()
+  /** 已经触发过的 signal+detail 组合，防同一卡点空转。 */
+  const tried = new Set()
+
+  /** 约束 1：原始目标与其分类，任务生命周期内不变。 */
   let task = ''
+  let taskTags = []
+  /**
+   * 原始目标下"还没遍历过"的分类。`route(task)` 可能漏掉该查的库（病根二），
+   * 所以任务一开始就把**所有分类**记成待确认；后续每次卡点顺手补一批。
+   */
+  let pending = []
   let rounds = 0
   let history = []
 
@@ -87,9 +106,9 @@ export function createRetryGate({ route, loadDoc, maxRounds = 4, exists } = {}) 
     const fresh = []
     for (const t of tags) {
       if (!ALL_CATEGORIES.includes(t)) continue
-      if (seen.has(t)) continue
+      if (pool.has(t)) continue
       if (!has(t)) continue
-      seen.add(t)
+      pool.add(t)
       fresh.push(t)
     }
     return fresh
@@ -100,14 +119,18 @@ export function createRetryGate({ route, loadDoc, maxRounds = 4, exists } = {}) 
     task = norm(text)
     rounds = 0
     history = []
-    seen.clear()
+    pool.clear()
     tried.clear()
-    const first = typeof route === 'function' ? route(task) : []
-    const tags = (Array.isArray(first) ? first : first?.tags || []).filter(t => ALL_CATEGORIES.includes(t))
-    // begin 不把首次命中的当成"新知识"，它们本来就是已知上下文
-    for (const t of tags) seen.add(t)
-    history.push({ round: 0, phase: 'begin', tags: [...tags], fresh: [] })
-    return { tags: [...tags], fresh: [] }
+
+    const first = route(task)
+    taskTags = (Array.isArray(first) ? first : first?.tags || []).filter(t => ALL_CATEGORIES.includes(t))
+    // 首次命中的分类进入知识池（它们就是已知上下文，不算"新知识"）。
+    for (const t of taskTags) pool.add(t)
+    // 约束 1+2：原始目标没命中的分类全部记为待确认，后面卡点时按批补。
+    pending = sweepAll ? ALL_CATEGORIES.filter(t => !taskTags.includes(t)) : []
+
+    history.push({ round: 0, phase: 'begin', taskTags: [...taskTags], fresh: [], pending: pending.length })
+    return { tags: [...taskTags], fresh: [], pending: [...pending] }
   }
 
   /**
@@ -115,42 +138,85 @@ export function createRetryGate({ route, loadDoc, maxRounds = 4, exists } = {}) 
    * @param {object} args
    * @param {string} args.signal  BLOCK_SIGNALS 之一（别的信号直接拒绝，不重试）
    * @param {string} [args.detail] 卡点的具体现象（例如 "no-path: 2173→2215" / "place 无支撑"）
-   * @returns {{action:'retry'|'give-up', fresh:string[], allTags:string[], forced:string[], round:number, reason:string}}
+   * @returns {{action:'retry'|'give-up'|'skip', fresh:string[], allTags:string[], forced:string[], round:number, reason:string}}
    */
   function onBlockage({ signal, detail = '' } = {}) {
     const sig = norm(signal)
     if (!SIGNAL_SET.has(sig)) {
-      return { action: 'skip', fresh: [], allTags: [...seen], forced: [], round: rounds, reason: `不是卡点信号（${sig || '空'}），不触发重试检索` }
+      return { action: 'skip', fresh: [], allTags: [...pool], forced: [], round: rounds, reason: `不是卡点信号（${sig || '空'}），不触发重试检索` }
     }
     const key = sig + '|' + norm(detail)
     if (tried.has(key)) {
-      // 同一卡点重复 ≠ 知识不足；只是不重复烧。真正的"判定做不到"要等全套复核后仍无新增。
-      return { action: 'skip', fresh: [], allTags: [...seen], forced: [], round: rounds, reason: '同一卡点同一现象已经重试过，不重复烧' }
+      // 同一卡点重复 ≠ 知识不足；只是不重复烧。真正的"判定做不到"要等遍历完仍无新增。
+      return { action: 'skip', fresh: [], allTags: [...pool], forced: [], round: rounds, reason: '同一卡点同一现象已经重试过，不重复烧' }
     }
     if (rounds >= maxRounds) {
-      return { action: 'give-up', fresh: [], allTags: [...seen], forced: [], round: rounds, reason: `重试轮数已达上限 ${maxRounds}，判定当前知识不足` }
+      return { action: 'give-up', fresh: [], allTags: [...pool], forced: [], round: rounds, reason: `重试轮数已达上限 ${maxRounds}，判定当前知识不足` }
     }
     tried.add(key)
     rounds += 1
 
-    // 约束 2：每次受阻都**重走全套分类检查**。
-    // 做法 = ①把卡点现象拼进查询重跑关键词路由；②再按 SIGNAL_CATEGORIES 强制复核相关分类。
-    const queryParts = [task, sig, norm(detail)].filter(Boolean)
-    const routed = route(queryParts.join(' '))
-    const routedTags = (Array.isArray(routed) ? routed : routed?.tags || []).filter(t => ALL_CATEGORIES.includes(t))
+    // 约束 2：检索输入 = 原始目标 + 当前衍生问题，两部分都参与分类遍历。
+    const routedB = route([sig, norm(detail)].filter(Boolean).join(' '))
+    const bTags = (Array.isArray(routedB) ? routedB : routedB?.tags || []).filter(t => ALL_CATEGORIES.includes(t))
     const forced = SIGNAL_CATEGORIES[sig] || []
 
-    const fresh = intake([...routedTags, ...forced])
-    history.push({ round: rounds, phase: 'blockage', signal: sig, detail: norm(detail), tags: [...new Set([...routedTags, ...forced])], fresh })
+    // 约束 1：`task`（原始目标）永远在这条查询里，且 `taskTags` 永远参与遍历。
+    // 额外把"原始目标还没遍历过"的分类按批补进来，这是病根二的正解。
+    const sweep = pending.slice(0, SWEEP_PER_ROUND)
+    for (const t of sweep) pending = pending.filter(x => x !== t)
+
+    const candidates = uniq([...taskTags, ...bTags, ...forced, ...sweep])
+    const fresh = intake(candidates)
+    history.push({
+      round: rounds,
+      phase: 'blockage',
+      signal: sig,
+      detail: norm(detail),
+      taskTags: [...taskTags],
+      candidates,
+      sweep,
+      fresh,
+      pending: pending.length,
+    })
 
     if (fresh.length) {
-      return { action: 'retry', fresh, allTags: [...seen], forced, round: rounds, reason: `命中 ${fresh.length} 条之前没有的知识：${fresh.join(',')}，回决策链路重新评估` }
+      const fromTask = fresh.filter(t => taskTags.includes(t) || sweep.includes(t))
+      const tail = fromTask.length ? `（其中 ${fromTask.join(',')} 属于原始目标欠查的部分）` : ''
+      return {
+        action: 'retry',
+        fresh,
+        allTags: [...pool],
+        forced,
+        round: rounds,
+        reason: `命中 ${fresh.length} 条之前没有的知识：${fresh.join(',')}${tail}，回决策链路重新评估`,
+      }
     }
-    return { action: 'give-up', fresh: [], allTags: [...seen], forced, round: rounds, reason: '全套分类复核后仍无新增知识，才允许判定任务无法完成' }
+
+    // 约束 4：只有【原始目标相关分类全部遍历确认无匹配】且【衍生问题也无匹配】才判失败。
+    if (pending.length > 0) {
+      return {
+        action: 'retry',
+        fresh: [],
+        allTags: [...pool],
+        forced,
+        round: rounds,
+        reason: `本轮无新增，但原始目标还有 ${pending.length} 个分类没遍历过（${pending.slice(0, 4).join(',')}），不能判做不到`,
+      }
+    }
+    return { action: 'give-up', fresh: [], allTags: [...pool], forced, round: rounds, reason: '原始目标相关分类已全部遍历 + 衍生问题也无匹配，才允许判定任务无法完成' }
   }
 
   function status() {
-    return { task, rounds, maxRounds, seen: [...seen], history: history.map(h => ({ ...h })) }
+    return {
+      task,
+      taskTags: [...taskTags],
+      rounds,
+      maxRounds,
+      pool: [...pool],
+      pending: [...pending],
+      history: history.map(h => ({ ...h })),
+    }
   }
 
   return { begin, onBlockage, status, BLOCK_SIGNALS }

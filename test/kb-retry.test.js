@@ -41,8 +41,8 @@ test('no-path 会强制复核 navigation / world_biome / build_standard（约束
 })
 
 test('命中新知识 → retry；全套复核后仍无新增 → give-up（约束 3）', () => {
-  // 第一次 route 给 game_rule（begin 已见过），卡点后仍只给 game_rule → 但 forced 会补新的
-  const g = createRetryGate({ route: () => ['game_rule'], exists: existsAll })
+  // sweepAll:false 关掉"补查原始目标欠查分类"，专门测强制复核本身
+  const g = createRetryGate({ route: () => ['game_rule'], exists: existsAll, sweepAll: false })
   g.begin('挖点铁')
   const r1 = g.onBlockage({ signal: BLOCK_SIGNALS.actionFailed, detail: 'place 无支撑' })
   assert.equal(r1.action, 'retry')
@@ -56,7 +56,7 @@ test('命中新知识 → retry；全套复核后仍无新增 → give-up（约�
   // targetUnreachable 的两个强制分类（navigation / item_operation）都已经见过 → 无新增才 give-up
   const r4 = g.onBlockage({ signal: BLOCK_SIGNALS.targetUnreachable, detail: '2210 站不住' })
   assert.equal(r4.action, 'give-up')
-  assert.match(r4.reason, /仍无新增/)
+  assert.match(r4.reason, /全部遍历|仍无新增/)
   assert.equal(g.status().rounds, 4)
 })
 
@@ -106,4 +106,76 @@ test('formatRetryVerdict 说清轮次与新增', () => {
   assert.match(s, /第1轮/)
   assert.match(s, /新增：navigation/)
   assert.equal(formatRetryVerdict(null), '（无检索结果）')
+})
+// ============================================================================
+// 用户 m20002 的四条约束：检索上下文不能割裂
+// ============================================================================
+
+test('约束1：原始目标分类在整个任务里保留，不被衍生问题覆盖', () => {
+  const g = createRetryGate({ route: () => ['game_rule', 'npc_town'], exists: existsAll })
+  g.begin('盖一间 NPC 房子')
+  assert.deepEqual(g.status().taskTags, ['game_rule', 'npc_town'])
+  // 连卡三次，衍生问题全是"走路走不过去"，原始目标标签不能被顶掉
+  g.onBlockage({ signal: BLOCK_SIGNALS.noPath, detail: '门口过不去' })
+  g.onBlockage({ signal: BLOCK_SIGNALS.actionFailed, detail: '工作台放不下' })
+  g.onBlockage({ signal: BLOCK_SIGNALS.targetUnreachable, detail: '目标格站不住' })
+  assert.deepEqual(g.status().taskTags, ['game_rule', 'npc_town'])
+  assert.equal(g.status().task, '盖一间 NPC 房子')
+})
+
+test('约束2：重检索输入 = 原始目标 + 衍生问题，两部分都参与遍历', () => {
+  const g = createRetryGate({ route: () => ['npc_town'], exists: existsAll })
+  g.begin('盖一间 NPC 房子')
+  const r = g.onBlockage({ signal: BLOCK_SIGNALS.noPath, detail: '门口过不去' })
+  // npc_town 来自原始目标；navigation/world_biome/build_standard 来自衍生问题
+  for (const t of ['npc_town', ...SIGNAL_CATEGORIES[BLOCK_SIGNALS.noPath]]) {
+    assert.ok(r.allTags.includes(t), `合并知识池里应有 ${t}`)
+  }
+  const last = g.status().history.at(-1)
+  assert.ok(last.candidates.includes('npc_town'), '候选分类必须显式带上原始目标标签')
+})
+
+test('约束3：知识池只累加不替换', () => {
+  const g = createRetryGate({ route: () => ['npc_town'], exists: existsAll })
+  g.begin('盖一间 NPC 房子')
+  const r1 = g.onBlockage({ signal: BLOCK_SIGNALS.noPath, detail: 'a' })
+  const after1 = [...r1.allTags]
+  const r2 = g.onBlockage({ signal: BLOCK_SIGNALS.actionFailed, detail: 'b' })
+  for (const t of after1) assert.ok(r2.allTags.includes(t), `第一轮的 ${t} 不该丢`)
+  assert.ok(r2.allTags.length > after1.length, '第二轮应把新知识并进来')
+})
+
+test('约束4：原始目标分类没遍历完之前不许判做不到', () => {
+  // exists 全 false：保证本轮一个都不“命中”，专门测 pending 未清空时的判定
+  const g = createRetryGate({ route: () => ([]), exists: () => false })
+  g.begin('盖一间 NPC 房子')
+  const r = g.onBlockage({ signal: BLOCK_SIGNALS.noPath, detail: 'x' })
+  assert.equal(r.action, 'retry')
+  assert.equal(r.fresh.length, 0, '本轮确实没有新命中')
+  assert.match(r.reason, /没遍历过/)
+  assert.ok(g.status().pending.length > 0)
+})
+
+test('约束4：原始目标分类全部遍历 + 衍生问题无匹配 → 才 give-up', () => {
+  const g = createRetryGate({ route: () => ([]), exists: existsAll, maxRounds: 20 })
+  g.begin('盖一间 NPC 房子')
+  let last = null
+  const signals = ['no-path', 'action-failed', 'safety-violation', 'target-unreachable']
+  for (let i = 0; i < 20; i++) {
+    last = g.onBlockage({ signal: signals[i % 4], detail: 's' + i })
+    if (last.action === 'give-up') break
+  }
+  assert.equal(last.action, 'give-up')
+  assert.equal(g.status().pending.length, 0, '判做不到时 pending 必须已经清空')
+  assert.match(last.reason, /全部遍历/)
+})
+
+test('sweepAll:false 时不补查原始目标欠查分类（旧行为可回退）', () => {
+  const g = createRetryGate({ route: () => ([]), exists: existsAll, sweepAll: false })
+  const r0 = g.begin('随便')
+  assert.deepEqual(r0.pending, [])
+  const r = g.onBlockage({ signal: BLOCK_SIGNALS.actionFailed, detail: 'x' })
+  assert.deepEqual(r.fresh.sort(), ['atomic_action', 'item_operation'])
+  const r2 = g.onBlockage({ signal: BLOCK_SIGNALS.actionFailed, detail: 'y' })
+  assert.equal(r2.action, 'give-up')
 })
