@@ -193,6 +193,26 @@ PreItemCheck 钩子（游戏主线程，不需要前台、不动用户光标）
 5. 玩家带纠正语气（"不是 / 别 / 又 / 错了"）时 `task_correct` 必须带，且**优先读**，
    按它 §4 的流程把纠正**落成规则或代码**，不能当场改一次就算完。
 
+### 7.4 检索不是一次性的：卡住必须重查（用户 m19902 定的规矩）
+
+上面第 1~5 条只管"任务开始时查一次"。**这是病根**：第一轮没命中，后面整段执行就带着缺失的
+知识往下跑，失败了也不会回头想"是不是我漏查了"。所以补一层**卡点重试检索**：
+
+1. **只在这四种信号出现时才重查**（不做无脑反复检索）：
+   `no-path` / `action-failed` / `safety-violation` / `target-unreachable`。
+2. **每次受阻都重走一遍全套分类检查**，逐类确认是不是漏了该分类下的规则；
+   对应分类由信号决定（实现见 `src/kb-retry.js` 的 `SIGNAL_CATEGORIES`）：
+   - `no-path` → 必查 `navigation` / `world_biome` / `build_standard`
+   - `action-failed` → 必查 `item_operation` / `atomic_action`
+   - `safety-violation` → 必查 `safety_limit` / `combat_math`
+   - `target-unreachable` → 必查 `navigation` / `item_operation`
+3. **结果必须标记"有没有新增"**：
+   有新条目 → **回决策链路重新评估**（不是继续原计划）；
+   全套复核后仍无新增 → 这时才允许判定"任务按现有知识做不到"，并说明缺哪类知识。
+4. 同一信号 + 同一现象**不重复烧**；单次任务重试最多 4 轮（`maxRounds`）。
+5. 每轮结束在日志里写一行：第几轮、新增了哪些库、因此改了什么判断
+   （`formatRetryVerdict()` 就是给这个用的）。
+
 ### 入库校验（往知识库写任何东西之前必答）
 
 > **这条描述换一张世界种子还成立吗？**
