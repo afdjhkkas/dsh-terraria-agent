@@ -13,7 +13,6 @@ namespace DshTerrariaBridge
         public override void Load()
         {
             Logger.Info($"[dsh] DSH Terraria Bridge {BridgeVersion} loaded");
-            BridgeSystem.InstallClimbHook(msg => Logger.Info(msg));
         }
     }
 }
