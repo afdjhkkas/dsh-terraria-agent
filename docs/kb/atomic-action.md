@@ -472,4 +472,4 @@
 - 判定“站上去没有”：`grounded === true` **且** `floor(pos.y)+1` 这一格 `solid === true`。
 - 连着三次实测全都成：每垫一块，`pos.y` 稳定减少 1（人真的升上去了），不是“回包成功但没动”。
 
-**动作顺序**：`jump {native:false,height:3.2}` → 等约 300ms（人在半空、原站立格所在行空出来）→ `place {x:列, y:站立格+1, type:方块}` → 等约 650ms 落地 → 复查 `pos.y` 是否真的变了。
+**动作顺序**：`jump {native:false,height:3.2}` → 等人在半空（原站立格所在行空出来）→ `place {x:列, y:站立格+1, type:方块}` → 等落地 → 复查 `pos.y` 是否真的减少 1。
