@@ -2739,8 +2739,11 @@ namespace DshTerrariaBridge
         {
             BridgeSystem.ApplyAim();
             BridgeSystem.ApplyControls(Player);
-            // Movement must be applied in SetControls, after vanilla ResetControls and
-            // TriggersSet.CopyInto.  PreUpdate is too early: ResetControls clears control*.
+            // Keep the proven PreUpdate path as well as the SetControls path.  In this
+            // multiplayer build the hook order differs between the local and host player;
+            // both hooks are input flags only, so whichever is last before Player.Update wins.
+            BridgeSystem.ApplyMovement();
+            BridgeSystem.ApplyNativeControlFlags(Player);
         }
 
         // 真正逐帧生效的地方：物品使用在 ItemCheck 前，移动输入在 PostUpdateInput。
