@@ -585,6 +585,12 @@ namespace DshTerrariaBridge
                     hookType = HookProjectile(pl),
                     mounted = pl.mount != null && pl.mount.Active,
                     mountType = pl.mount != null && pl.mount.Active ? pl.mount.Type : -1,
+                    // 坐椅子/睡床：原版只改 player.sitting 与外观帧，位置几乎不动，
+                    // 没有这个字段就只能靠人看屏幕确认（实测被当场指出"你确实不好判断"）。
+                    sitting = pl.sitting,
+                    head = pl.head,
+                    body = pl.body,
+                    legFrame = pl.legFrame,
                     wingTime = pl.wingTime,
                     wingTimeMax = pl.wingTimeMax,
                     hasWings = pl.wings > 0,
