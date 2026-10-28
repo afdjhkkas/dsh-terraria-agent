@@ -499,8 +499,9 @@ namespace DshTerrariaBridge
 
             bool bridgeUp = IntentUp || UpUntil > now || ClimbUpUntil > now;
             bool bridgeDown = IntentDown || DownUntil > now || ClimbDownUntil > now;
-            bool bridgeDrop = DownUntil > now && IsStandingOnPlatform(player);
-            bool bridgeJump = IntentJump || JumpUntil > now || bridgeDrop;
+            // 平台下穿不是跳跃：原版要求 controlDown 按住且 controlJump 为 false，
+            // 让引擎自己一格一格往下掉。以前把 down 并进 jump，按下键就变成起跳。
+            bool bridgeJump = IntentJump || JumpUntil > now;
 
             // Supply native game input triggers. Player.Update rebuilds controlUp/down from
             // these triggers, so control flags written earlier by ModPlayer are overwritten.
@@ -1892,10 +1893,7 @@ namespace DshTerrariaBridge
                     // manufacturing a velocity fallback.
                 }
             }
-            // Dropping through a platform is a jump-triggered vanilla action.  Keep its
-            // actual output on controlJump as well; the trigger snapshot alone is not enough
-            // in this build.
-            if (DownUntil > now && IsStandingOnPlatform(p)) RequestJump();
+            // 平台下穿只靠 controlDown，不再在这里请求跳跃（见 ApplyNativeControlFlags）。
             // 行走结果驱动：走够格数就松手，不管花了多久、中间被挡过几次。
             if (MoveStopTiles > 0f)
             {
