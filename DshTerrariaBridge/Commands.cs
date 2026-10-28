@@ -3422,10 +3422,13 @@ namespace DshTerrariaBridge
             });
         }
 
-        // 钩爪槽：miscEquips 依次是 宠物/照明/矿车/钩爪/坐骑。抓钩是**装备**，
-        // 不是"手持物品"——放背包里、把它选中都没用，controlHook 照样不发射
-        // （实测：选中背包里的抓钩按下去，grapCount 连续 3 秒停在 0）。
-        private const int HookEquipSlot = 3;
+        // 钩爪槽：Player.miscEquips 的真实顺序是 [0]宠物 [1]照明宠物 [2]矿车
+        // [3]坐骑 [4]抓钩。抓钩是**装备**，不是"手持物品"——放背包里、把它选中
+        // 都没用，controlHook 照样不发射（实测：选中背包里的抓钩按下去，
+        // grapCount 连续 3 秒停在 0）。
+        // 以前这里写成 3，读到的是坐骑槽：用户在钩爪槽装了抓钩，hookdebug 却报
+        // "宇宙车钥匙"（坐骑），hook 命令还回"背包里没有抓钩"。
+        private const int HookEquipSlot = 4;
 
         private static void EnsureHookEquipped(Player pl, out string how)
         {
