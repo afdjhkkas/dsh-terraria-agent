@@ -317,11 +317,44 @@ namespace DshTerrariaBridge
         private static bool IntentLeft, IntentRight, IntentUp, IntentDown, IntentJump;
         private static ulong MovementAppliedTick = ulong.MaxValue;
 
-        private static void RequestLeft(bool value = true) { IntentLeft |= value; }
-        private static void RequestRight(bool value = true) { IntentRight |= value; }
-        private static void RequestUp(bool value = true) { IntentUp |= value; }
-        private static void RequestDown(bool value = true) { IntentDown |= value; }
-        private static void RequestJump(bool value = true) { IntentJump |= value; }
+        // These helpers are the actual keyboard-level output.  Keep the intent bit for the
+        // next control hook, and set Player.control* immediately when a player is available;
+        // the game owns all resulting physics and collision.
+        private static void RequestLeft(bool value = true)
+        {
+            if (!value) return;
+            IntentLeft = true;
+            var p = Main.LocalPlayer;
+            if (p != null && p.active && p.whoAmI == Main.myPlayer) p.controlLeft = true;
+        }
+        private static void RequestRight(bool value = true)
+        {
+            if (!value) return;
+            IntentRight = true;
+            var p = Main.LocalPlayer;
+            if (p != null && p.active && p.whoAmI == Main.myPlayer) p.controlRight = true;
+        }
+        private static void RequestUp(bool value = true)
+        {
+            if (!value) return;
+            IntentUp = true;
+            var p = Main.LocalPlayer;
+            if (p != null && p.active && p.whoAmI == Main.myPlayer) p.controlUp = true;
+        }
+        private static void RequestDown(bool value = true)
+        {
+            if (!value) return;
+            IntentDown = true;
+            var p = Main.LocalPlayer;
+            if (p != null && p.active && p.whoAmI == Main.myPlayer) p.controlDown = true;
+        }
+        private static void RequestJump(bool value = true)
+        {
+            if (!value) return;
+            IntentJump = true;
+            var p = Main.LocalPlayer;
+            if (p != null && p.active && p.whoAmI == Main.myPlayer) p.controlJump = true;
+        }
 
         private static void ApplyBridgeTrigger(bool active, ref bool wasHeld, Action<TriggersSet> setCurrent, Action<TriggersSet> setPressed, Action<TriggersSet> setReleased)
         {
