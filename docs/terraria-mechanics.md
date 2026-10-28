@@ -79,12 +79,12 @@ ItemCheck_Inner`. So `PreItemCheck` is the last hook that can still influence th
 item use, and in single player the whole frame is skipped with `gamePaused = true` when the
 window loses focus.
 
-For bridge movement, the measured safe sequence is `ModSystem.PostUpdateInput` writing the
-native `Triggers.Current` state, then `DshControlPlayer.PreUpdate` resolving path/walk intents
-and mirroring both triggers and intents into the player's control flags immediately before the
-vanilla movement update. Calling the movement resolver from `PostUpdateInput` is too early in
-this build: the later player update clears `controlLeft/controlRight/controlJump`, leaving the
-trigger diagnostic true while the player does not move.
+For bridge movement, the measured safe sequence is `ModSystem.PostUpdateInput` recording the
+native `Triggers.Current` state, then `DshControlPlayer.SetControls` resolving path/walk intents
+and writing the player's `controlLeft/controlRight/controlJump` flags. Calling the movement
+resolver from `PostUpdateInput` or relying on Triggers alone is too early/ineffective in this
+build: the trigger diagnostic is true while the control flags remain false and the player does
+not move.
 
 ## Recipes `[measured]`
 

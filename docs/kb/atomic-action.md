@@ -210,11 +210,10 @@
 3. 长按期间持续回读纵坐标，出现以下任一情况立刻松开：到达目标高度、已落地、血量归零/环境致命。
 4. 落地判据是 `grounded == true` 且纵坐标不再变；只看"跳了一下"会把被天花板挡住的半跳当成功。
 5. **脚本下发的跳跃必须走输入层，而且窗口必须在前台**：`ModSystem.PostUpdateInput`
-   先把“按住跳跃键”写进 `PlayerInput.Triggers.Current.Jump`，随后在
-   `ModPlayer.PreUpdate` 这一帧把触发器/意图镜像到 `Player.controlJump`，再交给原版
-   `Player.Update` 消费。只写 `player.controlJump` 的早期位置会在后续更新中被清掉（实测
-   全 0 格）；而游戏窗口失去焦点时，输入层整条被引擎忽略——同一份代码在前台能跳到
-   上限、在后台一格都跳不起来。
+   保留 `PlayerInput.Triggers.Current.Jump` 的真人按键诊断；实际桥接输出在
+   `ModPlayer.SetControls` 里写入 `Player.controlJump`，再交给原版 `Player.Update` 消费。
+   本环境实测 Triggers 单独为真不会驱动 `controlJump`，所以不能只写触发器；而游戏窗口
+   失去焦点时，输入层整条被引擎忽略——同一份代码在前台能跳到上限、在后台一格都跳不起来。
    **推论**：任何"输入层动作"（跳跃/抓钩/使用）失败时，先查 `focus`，别急着改算法。
 6. 脚本侧不要手调时长：`jump{tiles:N}` 直接说"要跳几格"，桥按标定曲线反查按住时长
    （曲线是机器参数，见 `docs/terraria-mechanics.md`）；`N` 超过上限时必须改走台阶/钩爪。
