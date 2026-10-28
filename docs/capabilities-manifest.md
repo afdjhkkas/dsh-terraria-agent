@@ -51,7 +51,7 @@
 | `shopdebug` | `npc` `npcType` |
 | `shops` | `scanned` |
 | `snowmoon` | — |
-| `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `world` `player` `ropeContact` `ropeRelease` `flagTick` `flagLeft` `flagRight` `flagUp` `flagDown` `flagJump` `flagIntentRight` `flagIntentJump` `flagRightUntilLive` `flagJumpUntilLive` `inputDiag` `guard` `attack` `path` `walk` `input` `hint` |
+| `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `world` `player` `ropeContact` `ropeRelease` `flagTick` `flagLeft` `flagRight` `flagUp` `flagDown` `flagJump` `flagIntentRight` `flagIntentJump` `flagRightUntilLive` `flagJumpUntilLive` `afterTick` `preTick` `preCtrlLeft` `preCtrlRight` `preCtrlJump` `preVelX` `afterCtrlLeft` `afterCtrlRight` `afterCtrlJump` `afterTrigLeft` `afterTrigRight` `afterTrigJump` `afterVelX` `inputDiag` `guard` `attack` `path` `walk` `input` `hint` |
 | `tile` | `hasTile` `type` `name` `wall` `liquid` `liquidName` `slope` `halfBlock` `actuator` |
 | `tiledata` | `name` `hasObjectData` `frameImportant` `width` `height` `originX` `originY` `styleHorizontal` `styleWrapLimit` |
 | `travelstatus` | — |

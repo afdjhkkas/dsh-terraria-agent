@@ -632,6 +632,21 @@ namespace DshTerrariaBridge
                     flagIntentJump = BridgeSystem.DbgFlagsIntentJump,
                     flagRightUntilLive = BridgeSystem.DbgFlagsRightUntilLive,
                     flagJumpUntilLive = BridgeSystem.DbgFlagsJumpUntilLive,
+                    // Player.Update 跑完之后（引擎已算完移动）最终采信的输入：
+                    // 这一份才能回答「我写的 control 到底有没有被采纳」。
+                    afterTick = BridgeSystem.DbgAfterTick,
+                    preTick = BridgeSystem.DbgPreTick,
+                    preCtrlLeft = BridgeSystem.DbgPreCtrlLeft,
+                    preCtrlRight = BridgeSystem.DbgPreCtrlRight,
+                    preCtrlJump = BridgeSystem.DbgPreCtrlJump,
+                    preVelX = BridgeSystem.DbgPreVelX,
+                    afterCtrlLeft = BridgeSystem.DbgAfterCtrlLeft,
+                    afterCtrlRight = BridgeSystem.DbgAfterCtrlRight,
+                    afterCtrlJump = BridgeSystem.DbgAfterCtrlJump,
+                    afterTrigLeft = BridgeSystem.DbgAfterTrigLeft,
+                    afterTrigRight = BridgeSystem.DbgAfterTrigRight,
+                    afterTrigJump = BridgeSystem.DbgAfterTrigJump,
+                    afterVelX = BridgeSystem.DbgAfterVelX,
                     // 出生点：魔镜/床这类回城手段的判据。没有这个坐标就只能靠"动了多远"猜，
                     // 而人本来就站在出生点旁边时，回城位移不到两格，会被误判成失败。
                     spawn = new { x = Main.spawnTileX, y = Main.spawnTileY },
@@ -658,6 +673,19 @@ namespace DshTerrariaBridge
                 data["flagIntentJump"] = BridgeSystem.DbgFlagsIntentJump;
                 data["flagRightUntilLive"] = BridgeSystem.DbgFlagsRightUntilLive;
                 data["flagJumpUntilLive"] = BridgeSystem.DbgFlagsJumpUntilLive;
+                data["afterTick"] = BridgeSystem.DbgAfterTick;
+                data["preTick"] = BridgeSystem.DbgPreTick;
+                data["preCtrlLeft"] = BridgeSystem.DbgPreCtrlLeft;
+                data["preCtrlRight"] = BridgeSystem.DbgPreCtrlRight;
+                data["preCtrlJump"] = BridgeSystem.DbgPreCtrlJump;
+                data["preVelX"] = BridgeSystem.DbgPreVelX;
+                data["afterCtrlLeft"] = BridgeSystem.DbgAfterCtrlLeft;
+                data["afterCtrlRight"] = BridgeSystem.DbgAfterCtrlRight;
+                data["afterCtrlJump"] = BridgeSystem.DbgAfterCtrlJump;
+                data["afterTrigLeft"] = BridgeSystem.DbgAfterTrigLeft;
+                data["afterTrigRight"] = BridgeSystem.DbgAfterTrigRight;
+                data["afterTrigJump"] = BridgeSystem.DbgAfterTrigJump;
+                data["afterVelX"] = BridgeSystem.DbgAfterVelX;
                 data["inputDiag"] = InputDiagnostics(pl);
                 data["guard"] = new
                 {
