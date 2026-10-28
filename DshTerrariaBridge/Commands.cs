@@ -638,15 +638,27 @@ namespace DshTerrariaBridge
                     preTick = BridgeSystem.DbgPreTick,
                     preCtrlLeft = BridgeSystem.DbgPreCtrlLeft,
                     preCtrlRight = BridgeSystem.DbgPreCtrlRight,
+                    preCtrlUp = BridgeSystem.DbgPreCtrlUp,
+                    preCtrlDown = BridgeSystem.DbgPreCtrlDown,
                     preCtrlJump = BridgeSystem.DbgPreCtrlJump,
                     preVelX = BridgeSystem.DbgPreVelX,
                     afterCtrlLeft = BridgeSystem.DbgAfterCtrlLeft,
                     afterCtrlRight = BridgeSystem.DbgAfterCtrlRight,
+                    afterCtrlUp = BridgeSystem.DbgAfterCtrlUp,
+                    afterCtrlDown = BridgeSystem.DbgAfterCtrlDown,
                     afterCtrlJump = BridgeSystem.DbgAfterCtrlJump,
                     afterTrigLeft = BridgeSystem.DbgAfterTrigLeft,
                     afterTrigRight = BridgeSystem.DbgAfterTrigRight,
+                    afterTrigUp = BridgeSystem.DbgAfterTrigUp,
+                    afterTrigDown = BridgeSystem.DbgAfterTrigDown,
                     afterTrigJump = BridgeSystem.DbgAfterTrigJump,
                     afterVelX = BridgeSystem.DbgAfterVelX,
+                    prePhysicsTick = BridgeSystem.DbgPrePhysicsTick,
+                    prePhysicsUp = BridgeSystem.DbgPrePhysicsUp,
+                    prePhysicsDown = BridgeSystem.DbgPrePhysicsDown,
+                    prePhysicsHook = BridgeSystem.DbgPrePhysicsHook,
+                    prePhysicsUseItem = BridgeSystem.DbgPrePhysicsUseItem,
+                    prePhysicsUseTile = BridgeSystem.DbgPrePhysicsUseTile,
                     // 出生点：魔镜/床这类回城手段的判据。没有这个坐标就只能靠"动了多远"猜，
                     // 而人本来就站在出生点旁边时，回城位移不到两格，会被误判成失败。
                     spawn = new { x = Main.spawnTileX, y = Main.spawnTileY },
@@ -677,15 +689,27 @@ namespace DshTerrariaBridge
                 data["preTick"] = BridgeSystem.DbgPreTick;
                 data["preCtrlLeft"] = BridgeSystem.DbgPreCtrlLeft;
                 data["preCtrlRight"] = BridgeSystem.DbgPreCtrlRight;
+                data["preCtrlUp"] = BridgeSystem.DbgPreCtrlUp;
+                data["preCtrlDown"] = BridgeSystem.DbgPreCtrlDown;
                 data["preCtrlJump"] = BridgeSystem.DbgPreCtrlJump;
                 data["preVelX"] = BridgeSystem.DbgPreVelX;
                 data["afterCtrlLeft"] = BridgeSystem.DbgAfterCtrlLeft;
                 data["afterCtrlRight"] = BridgeSystem.DbgAfterCtrlRight;
+                data["afterCtrlUp"] = BridgeSystem.DbgAfterCtrlUp;
+                data["afterCtrlDown"] = BridgeSystem.DbgAfterCtrlDown;
                 data["afterCtrlJump"] = BridgeSystem.DbgAfterCtrlJump;
                 data["afterTrigLeft"] = BridgeSystem.DbgAfterTrigLeft;
                 data["afterTrigRight"] = BridgeSystem.DbgAfterTrigRight;
+                data["afterTrigUp"] = BridgeSystem.DbgAfterTrigUp;
+                data["afterTrigDown"] = BridgeSystem.DbgAfterTrigDown;
                 data["afterTrigJump"] = BridgeSystem.DbgAfterTrigJump;
                 data["afterVelX"] = BridgeSystem.DbgAfterVelX;
+                data["prePhysicsTick"] = BridgeSystem.DbgPrePhysicsTick;
+                data["prePhysicsUp"] = BridgeSystem.DbgPrePhysicsUp;
+                data["prePhysicsDown"] = BridgeSystem.DbgPrePhysicsDown;
+                data["prePhysicsHook"] = BridgeSystem.DbgPrePhysicsHook;
+                data["prePhysicsUseItem"] = BridgeSystem.DbgPrePhysicsUseItem;
+                data["prePhysicsUseTile"] = BridgeSystem.DbgPrePhysicsUseTile;
                 data["inputDiag"] = InputDiagnostics(pl);
                 data["guard"] = new
                 {
@@ -2689,7 +2713,7 @@ namespace DshTerrariaBridge
             if (!InWorld(out string err)) return Json.Error(err);
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             Player pl = P;
-            BridgeSystem.StopWalk("manual-climb");
+            BridgeSystem.StopAutomatedMovement("manual-climb");
             string dir = Json.Str(p, "dir", "up");
             int ms = Json.Int(p, "ms", 1200);
             double tiles = Json.Float(p, "tiles", 0f);
@@ -2994,7 +3018,7 @@ namespace DshTerrariaBridge
             if (!CanTick(out string perr2)) return Json.Error(perr2);
             // 手动方向必须抢回控制权：walkto 卡住时 Travel.Active 还是 true，
             // 它每帧覆盖方向键，手动 left/right 会被完全吃掉（实测连发 14 次一动不动）。
-            BridgeSystem.StopWalk("manual-move");
+            BridgeSystem.StopAutomatedMovement("manual-move");
             // guard 每帧会自己转向/切武器/按开火，会把手动操作吃掉；手动指令一律先解除它。
             BridgeSystem.GuardUntil = 0; BridgeSystem.GuardDefault = false; BridgeSystem.GuardEngaged = false;
             string dir = (Json.Str(p, "dir", "right") ?? "right").ToLowerInvariant();
@@ -3060,7 +3084,7 @@ namespace DshTerrariaBridge
 
         private static string Jump(JsonElement p)
         {
-            BridgeSystem.StopWalk("manual-jump");   // 同上：手动动件必须抢回控制权
+            BridgeSystem.StopAutomatedMovement("manual-jump");   // 同上：手动动件必须抢回控制权
             BridgeSystem.GuardUntil = 0; BridgeSystem.GuardDefault = false;
             if (!InWorld(out string err)) return Json.Error(err);
             if (!HasPlayer(out string perr)) return Json.Error(perr);
@@ -3462,6 +3486,7 @@ namespace DshTerrariaBridge
             if (!CanTick(out string perr2)) return Json.Error(perr2);
             Player pl = P;
             if (pl.dead) return Json.Error("玩家已死亡");
+            BridgeSystem.StopAutomatedMovement("manual-hook");
             int x = Json.Int(p, "x", int.MinValue), y = Json.Int(p, "y", int.MinValue);
             if (x == int.MinValue || y == int.MinValue) return Json.Error("hook 需要 x,y（要挂住的方块）");
             EnsureHookEquipped(pl, out string equipHow);
@@ -3782,6 +3807,26 @@ namespace DshTerrariaBridge
                     rare = it.rare,
                 });
             }
+            // Terraria reserves 50-53 for coins, 54-57 for ammo and 58 for the trash
+            // slot.  Keep the existing `items` field compatible (main bag only), while
+            // exposing every non-main slot so an empty main bag is not mistaken for
+            // “no arrows / no coins”.
+            var special = new List<object>();
+            for (int i = MainBagSlots; i < pl.inventory.Length; i++)
+            {
+                Item it = pl.inventory[i];
+                if (it == null || it.type <= 0 || it.stack <= 0) continue;
+                special.Add(new
+                {
+                    slot = i,
+                    kind = i < 54 ? "coin" : (i < 58 ? "ammo" : "trash"),
+                    type = it.type,
+                    name = it.Name,
+                    stack = it.stack,
+                    prefix = it.prefix,
+                    rare = it.rare,
+                });
+            }
             // Armor and accessories live in a separate array: without this the caller cannot
             // tell whether it is armoured, or whether it can fly (wings are an accessory).
             var equip = new List<object>();
@@ -3801,7 +3846,7 @@ namespace DshTerrariaBridge
             }
             // 空位数量：背包满时掉落物会静默丢失，调用方必须能提前看到。
             int freeMain = 0, freeAll = 0;
-            for (int i = 0; i < MainBagSlots; i++)
+            for (int i = 0; i < pl.inventory.Length; i++)
             {
                 Item it = pl.inventory[i];
                 bool empty = it == null || it.type <= 0 || it.stack <= 0;
@@ -3815,6 +3860,10 @@ namespace DshTerrariaBridge
                 freeMain = freeMain,
                 freeAll = freeAll,
                 items = slots.ToArray(),
+                special = special.ToArray(),
+                coinSlots = Enumerable.Range(50, Math.Max(0, Math.Min(4, pl.inventory.Length - 50))).ToArray(),
+                ammoSlots = Enumerable.Range(54, Math.Max(0, Math.Min(4, pl.inventory.Length - 54))).ToArray(),
+                trashSlot = pl.inventory.Length > 58 ? 58 : -1,
                 equipment = equip.ToArray(),
                 canFly = pl.wingTimeMax > 0 || pl.velocity.Y != 0f && pl.wingsLogic > 0,
                 // statDefense is a struct (Positive/Negative); callers want one number.

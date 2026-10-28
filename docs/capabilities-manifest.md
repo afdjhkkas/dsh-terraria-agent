@@ -28,7 +28,7 @@
 | `housing` | `townNPCs` |
 | `humaninput` | `inWorld` `tick` `paused` `focus` `playerIndex` `inputDiag` `control` `left` `right` `up` `down` `jump` `useItem` `useTile` `grapple` `mount` |
 | `idmap` | `rows` |
-| `inventory` | `selected` `count` `free` `freeMain` `freeAll` `items` `equipment` `canFly` |
+| `inventory` | `selected` `count` `free` `freeMain` `freeAll` `items` `special` `coinSlots` `ammoSlots` `trashSlot` `equipment` `canFly` |
 | `items` | `count` `items` |
 | `keyevents` | `lastTick` `count` `time` `stride` |
 | `map` | `mapWidth` `mapHeight` `sampled` `revealedPercent` `explored` |
@@ -51,14 +51,14 @@
 | `shopdebug` | `npc` `npcType` |
 | `shops` | `scanned` |
 | `snowmoon` | — |
-| `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `world` `player` `ropeContact` `ropeRelease` `flagTick` `flagLeft` `flagRight` `flagUp` `flagDown` `flagJump` `flagIntentRight` `flagIntentJump` `flagRightUntilLive` `flagJumpUntilLive` `afterTick` `preTick` `preCtrlLeft` `preCtrlRight` `preCtrlJump` `preVelX` `afterCtrlLeft` `afterCtrlRight` `afterCtrlJump` `afterTrigLeft` `afterTrigRight` `afterTrigJump` `afterVelX` `inputDiag` `guard` `attack` `path` `walk` `exact` `input` `hint` |
+| `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `world` `player` `ropeContact` `ropeRelease` `flagTick` `flagLeft` `flagRight` `flagUp` `flagDown` `flagJump` `flagIntentRight` `flagIntentJump` `flagRightUntilLive` `flagJumpUntilLive` `afterTick` `preTick` `preCtrlLeft` `preCtrlRight` `preCtrlUp` `preCtrlDown` `preCtrlJump` `preVelX` `afterCtrlLeft` `afterCtrlRight` `afterCtrlUp` `afterCtrlDown` `afterCtrlJump` `afterTrigLeft` `afterTrigRight` `afterTrigUp` `afterTrigDown` `afterTrigJump` `afterVelX` `prePhysicsTick` `prePhysicsUp` `prePhysicsDown` `prePhysicsHook` `prePhysicsUseItem` `prePhysicsUseTile` `inputDiag` `guard` `attack` `path` `walk` `exact` `input` `hint` |
 | `tile` | `hasTile` `type` `name` `wall` `liquid` `liquidName` `slope` `halfBlock` `actuator` |
 | `tiledata` | `name` `hasObjectData` `frameImportant` `width` `height` `originX` `originY` `styleHorizontal` `styleWrapLimit` |
 | `travelstatus` | — |
 | `walkdiff` | `dual` `newRule` `newPriority` `newKind` `oldRule` `oldKind` `same` |
 | `walkmode` | `useNew` `reactive` `dual` |
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
-| `down` | `untilTick` `tick` `inputOnly` `note` `native` `compatibilityNativeFalse` `tiles` `from` `slot` `held` `interact` `method` `off` `radius` `hostileInRange` `weaponSlot` `weapon` `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `mouseWorldTile` `grapCountBefore` `proj` `equipped` `hasWings` `wingTimeMax` `wingTime` `velY` `hint` `activeAfter` `action` `active` `type` `flight` `items` `slots` `follow` `target` `targetIndex` `guard` `range` `dist` `idle` `count` `players` `attacking` `who` `selected` `free` `freeMain` `freeAll` `equipment` `canFly` `item` `name` `reason` `perCraft` `groupsUsed` `npcs` |
+| `down` | `untilTick` `tick` `inputOnly` `note` `native` `compatibilityNativeFalse` `tiles` `from` `slot` `held` `interact` `method` `off` `radius` `hostileInRange` `weaponSlot` `weapon` `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `mouseWorldTile` `grapCountBefore` `proj` `equipped` `hasWings` `wingTimeMax` `wingTime` `velY` `hint` `activeAfter` `action` `active` `type` `flight` `items` `slots` `follow` `target` `targetIndex` `guard` `range` `dist` `idle` `count` `players` `attacking` `who` `selected` `free` `freeMain` `freeAll` `special` `coinSlots` `ammoSlots` `trashSlot` `equipment` `canFly` `item` `name` `reason` `perCraft` `groupsUsed` `npcs` |
 | `guard` | `off` `note` `untilTick` `radius` `hostileInRange` `weaponSlot` `weapon` |
 | `mount` | `activeAfter` `held` `action` `active` `type` `flight` `items` |
 

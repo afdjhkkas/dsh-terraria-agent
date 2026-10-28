@@ -3056,6 +3056,8 @@ namespace DshTerrariaBridge
             BridgeSystem.DbgPreTick = (long)Main.GameUpdateCount;
             BridgeSystem.DbgPreCtrlLeft = Player.controlLeft;
             BridgeSystem.DbgPreCtrlRight = Player.controlRight;
+            BridgeSystem.DbgPreCtrlUp = Player.controlUp;
+            BridgeSystem.DbgPreCtrlDown = Player.controlDown;
             BridgeSystem.DbgPreCtrlJump = Player.controlJump;
             BridgeSystem.DbgPreVelX = Player.velocity.X;
         }
@@ -3095,6 +3097,25 @@ namespace DshTerrariaBridge
             BridgeSystem.ApplyNativeControlFlags(Player);
         }
 
+        /// <summary>
+        /// The remaining vanilla consumers read their control flags after SetControls:
+        /// rope movement, QuickGrapple, and ItemCheck.  Re-apply only input flags here,
+        /// immediately before those consumers run.  This does not write velocity,
+        /// position, pulley, projectiles, or tiles.
+        /// </summary>
+        public override void PostUpdateMiscEffects()
+        {
+            if (Player.whoAmI != Main.myPlayer) return;
+            BridgeSystem.ApplyNativeControlFlags(Player);
+            BridgeSystem.ApplySyntheticInput();
+            BridgeSystem.DbgPrePhysicsTick = (long)Main.GameUpdateCount;
+            BridgeSystem.DbgPrePhysicsUp = Player.controlUp;
+            BridgeSystem.DbgPrePhysicsDown = Player.controlDown;
+            BridgeSystem.DbgPrePhysicsHook = Player.controlHook;
+            BridgeSystem.DbgPrePhysicsUseItem = Player.controlUseItem;
+            BridgeSystem.DbgPrePhysicsUseTile = Player.controlUseTile;
+        }
+
         public override void PostUpdateRunSpeeds()
         {
             if (Player.whoAmI != Main.myPlayer) return;
@@ -3130,9 +3151,13 @@ namespace DshTerrariaBridge
             BridgeSystem.DbgAfterTick = (long)Main.GameUpdateCount;
             BridgeSystem.DbgAfterCtrlLeft = Player.controlLeft;
             BridgeSystem.DbgAfterCtrlRight = Player.controlRight;
+            BridgeSystem.DbgAfterCtrlUp = Player.controlUp;
+            BridgeSystem.DbgAfterCtrlDown = Player.controlDown;
             BridgeSystem.DbgAfterCtrlJump = Player.controlJump;
             BridgeSystem.DbgAfterTrigLeft = _t.Left;
             BridgeSystem.DbgAfterTrigRight = _t.Right;
+            BridgeSystem.DbgAfterTrigUp = _t.Up;
+            BridgeSystem.DbgAfterTrigDown = _t.Down;
             BridgeSystem.DbgAfterTrigJump = _t.Jump;
             BridgeSystem.DbgAfterVelX = Player.velocity.X;
             BridgeSystem.DbgPostMouseLeft = Main.mouseLeft;

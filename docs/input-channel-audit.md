@@ -167,3 +167,10 @@ player.controlMount    |= IntentMount;
 
 `coast / relV` 比值随速度递增（0.366 → 0.487 → 0.609 → 0.622），
 说明减速不是匀减速（每帧乘系数、低于阈值归零），**建议按 `relV` 分档查表，不要硬拟合线性公式**。
+
+## 原版消费阶段
+
+`SetControls` 能留下移动意图，但这一版原版会在后续阶段再次重建部分控制位。上下、抓钩和物品使用因此在
+`PostUpdateMiscEffects` 再写一次输入标志：绳索逻辑随后读取 `controlUp/controlDown`，`QuickGrapple`
+读取 `controlHook`，`ItemCheck` 读取 `controlUseItem/controlUseTile`。这仍然是输入层，不是直接调用抓钩、放置、挖掘或物理结果。
+验证这些动作要看 `state.prePhysics*` 和之后的 `grapCount` / `tile` / `inventory` 回读。

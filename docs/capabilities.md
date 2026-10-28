@@ -24,7 +24,7 @@
 | 感知 | 单格方块 | `tile {x,y}` | ✅ |
 | 感知 | 按类型找方块 | `find {type,x1,x2,y1,y2,max}` | ✅ |
 | 感知 | 附近生物 | `npc {r}` | ✅ |
-| 感知 | 背包 | `inventory` | ✅ |
+| 感知 | 背包 | `inventory` | ✅ 主背包、货币栏、弹药栏、垃圾桶槽位 |
 | 感知 | 地上掉落物 | `items {r}` | ✅ |
 | 感知 | 玩家列表 | `players` | ✅ |
 | 感知 | Boss / 事件状态 | `boss` / `event` | ✅ |
@@ -158,9 +158,10 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 ### 基础按键输入
 
 移动、跳跃、爬绳、平台下落、使用物品、右键交互、抓钩、坐骑和飞行都只写游戏输入层：移动/跳跃最终在
-`SetControls` 的 `Player.control*` 输入标志上落地，`PlayerInput.Triggers.Current` 负责边沿与诊断，鼠标动作走
-`Main.mouseLeft` / `Main.mouseRight` 及释放边沿，物品结果由 `ItemCheck` 和原版物理结算。桥不写 `velocity`、
-`position`、`pulley`、`grapCount` 或弹幕结果。每个改变世界或角色状态的动作都必须在命令返回后回读确认。
+`SetControls` 后的 `PostUpdateMiscEffects` 输入阶段重新落到 `Player.control*`，让原版绳索、抓钩和 `ItemCheck`
+读取到同一帧的输入；`PlayerInput.Triggers.Current` 负责边沿与诊断，鼠标动作走 `Main.mouseLeft` /
+`Main.mouseRight` 及释放边沿，物品结果由 `ItemCheck` 和原版物理结算。桥不写 `velocity`、`position`、
+`pulley`、`grapCount` 或弹幕结果。每个改变世界或角色状态的动作都必须在命令返回后回读确认。
 | `fly {ms}` | 飞行/跳跃 | 无翅膀时回 `hasWings:false` + 明确提示，不假装飞起来 |
 | `mount {action}` | 坐骑 | `info` 返回可用坐骑物品；无坐骑时 `{active:false,items:[]}` |
 
