@@ -726,6 +726,17 @@ namespace DshTerrariaBridge
                     tol = BridgeSystem.WalkTol,
                     stop = BridgeSystem.WalkStop,
                 };
+                data["exact"] = new
+                {
+                    active = BridgeSystem.ExactActive,
+                    targetX = MathF.Round(BridgeSystem.ExactTargetX, 3),
+                    phase = BridgeSystem.ExactPhase == 0 ? "drive" : (BridgeSystem.ExactPhase == 1 ? "coast" : "correct"),
+                    remaining = MathF.Round(BridgeSystem.ExactRemaining, 3),
+                    brakeDistance = MathF.Round(BridgeSystem.ExactBrakeDistance, 3),
+                    stuckTicks = BridgeSystem.ExactStuckTicks,
+                    stopReason = BridgeSystem.ExactStopReason,
+                    untilTick = BridgeSystem.ExactUntil,
+                };
                 // Diagnostics: when a player-mode action "swings but nothing happens",
                 // this says whether the synthetic input was actually active.
                 data["input"] = new
@@ -2945,7 +2956,7 @@ namespace DshTerrariaBridge
             if (!InWorld(out string err)) return Json.Error(err);
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             if (!CanTick(out string perr2)) return Json.Error(perr2);
-            BridgeSystem.StopWalk("moveto");
+            BridgeSystem.StopAutomatedMovement("moveto");
             BridgeSystem.GuardUntil = 0; BridgeSystem.GuardDefault = false; BridgeSystem.GuardEngaged = false;
             float x = Json.Float(p, "x", float.NaN);
             if (float.IsNaN(x)) return Json.Error("moveto 需要 x（目标格坐标，可以是小数）");
@@ -2967,6 +2978,12 @@ namespace DshTerrariaBridge
             BridgeSystem.ExactTargetX = x;
             BridgeSystem.ExactUntil = (int)(BridgeSystem.Now + BridgeSystem.Ticks(ms));
             float from = P.position.X / 16f;
+            BridgeSystem.ExactPhase = 0;
+            BridgeSystem.ExactStuckTicks = 0;
+            BridgeSystem.ExactLastX = from;
+            BridgeSystem.ExactBrakeDistance = 0f;
+            BridgeSystem.ExactRemaining = Math.Abs(x - from);
+            BridgeSystem.ExactStopReason = "";
             return Json.Ok(new { from = MathF.Round(from, 2), target = x, delta = MathF.Round(x - from, 2), ms });
         }
 

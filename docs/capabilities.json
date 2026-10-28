@@ -1347,6 +1347,7 @@
         "attack",
         "path",
         "walk",
+        "exact",
         "input",
         "hint"
       ],

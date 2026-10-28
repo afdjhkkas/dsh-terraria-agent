@@ -425,11 +425,18 @@ namespace DshTerrariaBridge
         internal static long DbgPreTick;
         internal static bool DbgPreCtrlLeft;
         internal static bool DbgPreCtrlRight;
+        internal static bool DbgPreCtrlUp;
+        internal static bool DbgPreCtrlDown;
         internal static bool DbgPreCtrlJump;
         internal static float DbgPreVelX;
-        internal static bool DbgAfterCtrlLeft, DbgAfterCtrlRight, DbgAfterCtrlJump;
-        internal static bool DbgAfterTrigLeft, DbgAfterTrigRight, DbgAfterTrigJump;
+        internal static bool DbgAfterCtrlLeft, DbgAfterCtrlRight, DbgAfterCtrlUp, DbgAfterCtrlDown, DbgAfterCtrlJump;
+        internal static bool DbgAfterTrigLeft, DbgAfterTrigRight, DbgAfterTrigUp, DbgAfterTrigDown, DbgAfterTrigJump;
         internal static float DbgAfterVelX;
+
+        // 诊断快照：PostUpdateMiscEffects 返回后，原版绳索/抓钩/ItemCheck 还没消费输入。
+        internal static long DbgPrePhysicsTick;
+        internal static bool DbgPrePhysicsUp, DbgPrePhysicsDown, DbgPrePhysicsHook;
+        internal static bool DbgPrePhysicsUseItem, DbgPrePhysicsUseTile;
 
         // 诊断快照：ApplyNativeControlFlags 结束时 control* 的真实值。
         internal static long DbgFlagsTick;
@@ -1721,6 +1728,43 @@ namespace DshTerrariaBridge
         internal static bool ExactActive;
         internal static float ExactTargetX;
         internal static int ExactUntil;
+        // 精确移动必须提前松手：Terraria 会在没有方向键后继续按原版摩擦滑行，
+        // 直到 velocity 自己衰减。这里记录的是控制阶段和诊断，不写速度。
+        // 0=加速，1=滑行，2=反向修正。
+        internal static int ExactPhase;
+        internal static int ExactStuckTicks;
+        internal static float ExactLastX;
+        internal static float ExactBrakeDistance;
+        internal static float ExactRemaining;
+        internal static string ExactStopReason = "";
+
+        // 真机测得的“松手后惯性距离”查表。velocity.X 是 Terraria 原生速度单位，
+        // 返回值是格。分段插值只用于查表之间的速度；绝不把它写回 Player.velocity。
+        private static readonly (float speed, float tiles)[] ExactCoastTable =
+        {
+            (0.20f, 0.03f),
+            (1.94f, 0.71f),
+            (2.71f, 1.32f),
+            (3.48f, 2.12f),
+            (3.57f, 2.22f),
+        };
+
+        internal static float EstimateExactCoast(float speed)
+        {
+            speed = Math.Abs(speed);
+            if (speed <= ExactCoastTable[0].speed) return ExactCoastTable[0].tiles;
+            for (int i = 1; i < ExactCoastTable.Length; i++)
+            {
+                var (s1, d1) = ExactCoastTable[i];
+                var (s0, d0) = ExactCoastTable[i - 1];
+                if (speed <= s1)
+                {
+                    float f = (speed - s0) / (s1 - s0);
+                    return d0 + (d1 - d0) * f;
+                }
+            }
+            return ExactCoastTable[ExactCoastTable.Length - 1].tiles;
+        }
 
         internal static void ApplyMovement()
         {
@@ -1739,20 +1783,68 @@ namespace DshTerrariaBridge
 
             if (ExactActive)
             {
+                // Exact movement owns horizontal direction windows while it is active.
+                // Clear stale move/tiles windows so an earlier command cannot fight the
+                // controller or keep pressing after the target has been reached.
+                LeftUntil = 0;
+                RightUntil = 0;
                 float cur = p.position.X / 16f;
                 float dx = ExactTargetX - cur;
-                if (now > (ulong)ExactUntil || Math.Abs(dx) <= 0.06f)
+                float speed = p.velocity.X;
+                float remaining = Math.Abs(dx);
+                float coast = EstimateExactCoast(speed);
+                ExactRemaining = remaining;
+                ExactBrakeDistance = coast;
+
+                if (now > (ulong)ExactUntil)
                 {
                     // 到位不再手动清速度：靠原版摩擦自然停下（真人松手也是滑一小段）。
                     ExactActive = false;
+                    ExactStopReason = "timeout";
+                    ExactPhase = 1;
+                    return;
                 }
-                else
+
+                if (remaining <= 0.08f && Math.Abs(speed) <= 0.12f)
                 {
-                    // 只记录方向键意图；SetControls 会把它写入 controlLeft/controlRight，
-                    // 速度与摩擦交给原版。
-                    if (dx < 0f) RequestLeft();
-                    else RequestRight();
+                    // 只有位置和速度都回读到稳定，才算真正到位；命令层可以用 state
+                    // 的 exact.active/stopReason 判断，而不是相信“按键到期”。
+                    ExactActive = false;
+                    ExactStopReason = "arrived";
+                    ExactPhase = 1;
+                    return;
                 }
+
+                if (Math.Abs(cur - ExactLastX) < 0.002f && remaining > 0.12f)
+                    ExactStuckTicks++;
+                else
+                    ExactStuckTicks = 0;
+                ExactLastX = cur;
+                if (ExactStuckTicks > 45)
+                {
+                    ExactActive = false;
+                    ExactStopReason = "blocked";
+                    ExactPhase = 1;
+                    return;
+                }
+
+                int wanted = Math.Sign(dx);
+                // speedToward > 0 means the current inertia is already carrying the
+                // player toward the target. Once the measured coast distance covers the
+                // remaining gap, release both keys and let vanilla friction do the braking.
+                float speedToward = speed * wanted;
+                if (speedToward > 0.05f && remaining <= coast + 0.04f)
+                {
+                    ExactPhase = 1;
+                    return;
+                }
+
+                // If the player crossed the target, or is still drifting away from it,
+                // press the target-side key. The engine then decelerates/reverses using
+                // its own horizontal movement code; no velocity is manufactured here.
+                ExactPhase = speedToward < -0.05f ? 2 : 0;
+                if (wanted < 0) RequestLeft();
+                else if (wanted > 0) RequestRight();
                 return;
             }
             if (PathActive) { TickPath(); return; }
@@ -2387,6 +2479,12 @@ namespace DshTerrariaBridge
                 ExactActive = true;
                 ExactTargetX = targetX;
                 ExactUntil = (int)until;
+                ExactPhase = 0;
+                ExactStuckTicks = 0;
+                ExactLastX = p.position.X / 16f;
+                ExactBrakeDistance = 0f;
+                ExactRemaining = Math.Abs(targetX - ExactLastX);
+                ExactStopReason = "";
                 return;
             }
             if (kind == "jump")
@@ -2898,6 +2996,20 @@ namespace DshTerrariaBridge
             p.direction = best.Center.X >= p.Center.X ? 1 : -1;
             Main.mouseLeft = true;
             p.controlUseItem = true;
+        }
+
+        // 手动动作开始时，取消仍在后台运行的寻路/旅行/精确移动任务。
+        // 否则旧任务会在 ApplyMovement 的提前返回分支里吞掉新的 Up/Down 意图。
+        internal static void StopAutomatedMovement(string reason)
+        {
+            StopPath(reason);
+            StopWalk(reason);
+            Travel.Active = false;
+            ExactActive = false;
+            MoveStopTiles = 0f;
+            ExactPhase = 0;
+            ExactStuckTicks = 0;
+            ExactStopReason = reason ?? "stopped";
         }
 
         /// <summary>优先有弹药的远程武器，其次近战；都不行就用当前手持。</summary>
