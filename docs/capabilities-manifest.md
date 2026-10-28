@@ -18,6 +18,7 @@
 | `event` | `dayTime` `time` `day` `bloodMoon` `eclipse` `invasionType` `invasionSize` `pumpkinMoon` `snowMoon` `raining` `hardMode` `downedEye` `downedEater` `downedSkeletron` `downedWall` `downedPlantera` `downedGolem` |
 | `fields` | `type` `found` `count` `fields` |
 | `find` | `scanned` |
+| `follow` | `follow` `target` `targetIndex` `guard` `range` `dist` `note` |
 | `frost` | — |
 | `frostmoon` | — |
 | `help` | — |
@@ -27,7 +28,6 @@
 | `housing` | `townNPCs` |
 | `humaninput` | `inWorld` `tick` `paused` `focus` `playerIndex` `inputDiag` `control` `left` `right` `up` `down` `jump` `useItem` `useTile` `grapple` `mount` |
 | `idmap` | `rows` |
-| `interact` | `interact` `after` `method` |
 | `inventory` | `selected` `count` `free` `freeMain` `freeAll` `items` `equipment` `canFly` |
 | `items` | `count` `items` |
 | `keyevents` | `lastTick` `count` `time` `stride` |
@@ -51,14 +51,14 @@
 | `shopdebug` | `npc` `npcType` |
 | `shops` | `scanned` |
 | `snowmoon` | — |
-| `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `world` `player` `inputDiag` `guard` `attack` `path` `walk` `input` `hint` |
+| `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `world` `player` `ropeContact` `inputDiag` `guard` `attack` `path` `walk` `input` `hint` |
 | `tile` | `hasTile` `type` `name` `wall` `liquid` `liquidName` `slope` `halfBlock` `actuator` |
 | `tiledata` | `name` `hasObjectData` `frameImportant` `width` `height` `originX` `originY` `styleHorizontal` `styleWrapLimit` |
 | `travelstatus` | — |
 | `walkdiff` | `dual` `newRule` `newPriority` `newKind` `oldRule` `oldKind` `same` |
 | `walkmode` | `useNew` `reactive` `dual` |
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
-| `down` | `untilTick` `tick` `tiles` `from` `slot` `held` `interact` `after` `method` `off` `note` `radius` `hostileInRange` `weaponSlot` `weapon` `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `mouseWorldTile` `grapCountBefore` `proj` `equipped` `hasWings` `wingTimeMax` `wingTime` `velY` `hint` `activeAfter` `action` `active` `type` `flight` `items` `slots` `follow` `target` `targetIndex` `guard` `range` `dist` `idle` `count` `players` `attacking` `who` `selected` `free` `freeMain` `freeAll` `equipment` `canFly` `item` `name` `reason` `perCraft` `groupsUsed` `npcs` |
+| `down` | `untilTick` `tick` `native` `compatibilityNativeFalse` `tiles` `from` `slot` `held` `interact` `method` `note` `off` `radius` `hostileInRange` `weaponSlot` `weapon` `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `mouseWorldTile` `grapCountBefore` `proj` `equipped` `hasWings` `wingTimeMax` `wingTime` `velY` `hint` `activeAfter` `action` `active` `type` `flight` `items` `slots` `follow` `target` `targetIndex` `guard` `range` `dist` `idle` `count` `players` `attacking` `who` `selected` `free` `freeMain` `freeAll` `equipment` `canFly` `item` `name` `reason` `perCraft` `groupsUsed` `npcs` |
 | `guard` | `off` `note` `untilTick` `radius` `hostileInRange` `weaponSlot` `weapon` |
 | `mount` | `activeAfter` `held` `action` `active` `type` `flight` `items` |
 
@@ -81,7 +81,6 @@
 | `equip` | `slot` | — |
 | `fill` | `x1` `y1` `x2` `y2` `type` | — |
 | `fly` | `ms` | — |
-| `follow` | `off` `player` `guard` `range` | — |
 | `goblin` | — | — |
 | `grab` | `r` | — |
 | `grapple` | `x` `y` `ms` | — |
@@ -89,6 +88,7 @@
 | `heal` | — | — |
 | `homeroom` | `x` `y` `who` | — |
 | `idle` | — | — |
+| `interact` | `x` `y` | — |
 | `jump` | `ms` `moveMs` | — |
 | `left` | — | — |
 | `left` | — | — |

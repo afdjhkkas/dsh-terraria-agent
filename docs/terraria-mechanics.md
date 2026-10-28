@@ -33,17 +33,15 @@ always confirm with `tile` rather than trusting a table from memory.
 
 ## Player physics `[measured]`
 
-- Horizontal: forcing `velocity.X = ±2.8` px/tick gives ≈ 11 tiles/s; 800 ms of `right`
-  moved ≈ 8.8 tiles, then friction brings it to rest within ~100 ms.
-- Jump: one impulse of `velocity.Y = -5.6` raises the player ≈ 2.3 tiles, airborne ≈ 350 ms.
-- Gravity/friction still run on top of any forced velocity, so a forced velocity does not
-  survive once the hold ends.
+- Horizontal movement and jumping must be measured from real held-key input. Earlier
+  velocity-forcing measurements are historical debugging data, not permitted operations.
+- Gravity, friction, collision, slopes, platforms, mounts and status effects remain owned
+  by vanilla; the bridge emits direction/jump triggers and reads the resulting state.
 - **Wings** `[wiki]`: with wings equipped, *holding jump after the jump ends starts flight*.
   A long `jump` on a winged character is legitimate flight, not a bug. The bridge sets
   `controlJump` and lets vanilla decide; it does not fake flight.
-- Consequences of overriding `velocity` directly: knockback, dash, mounts, conveyor belts,
-  ice skid, wind and `confused` are all bypassed. Collision still applies because
-  position integration happens after the override.
+- Directly overriding `velocity` is forbidden by the bridge contract because it bypasses
+  engine effects and makes an action impossible to verify as a player input.
 
 ## Combat `[wiki]`
 
@@ -80,6 +78,13 @@ Ordering worth knowing when driving a player from a mod: `Player.Update` calls
 ItemCheck_Inner`. So `PreItemCheck` is the last hook that can still influence the vanilla
 item use, and in single player the whole frame is skipped with `gamePaused = true` when the
 window loses focus.
+
+For bridge movement, the measured safe sequence is `ModSystem.PostUpdateInput` writing the
+native `Triggers.Current` state, then `DshControlPlayer.PreUpdate` resolving path/walk intents
+and mirroring both triggers and intents into the player's control flags immediately before the
+vanilla movement update. Calling the movement resolver from `PostUpdateInput` is too early in
+this build: the later player update clears `controlLeft/controlRight/controlJump`, leaving the
+trigger diagnostic true while the player does not move.
 
 ## Recipes `[measured]`
 

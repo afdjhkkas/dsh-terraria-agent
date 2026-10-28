@@ -307,6 +307,61 @@ namespace DshTerrariaBridge
         private static readonly Dictionary<string, bool> KeyState = new Dictionary<string, bool>();
         private static readonly string[] WatchedKeys = { "jump", "left", "right", "up", "down", "mouseLeft", "mouseRight" };
 
+        // Bridge-generated keys need the same edge semantics as a physical key.  Terraria
+        // uses Current for held input and JustPressed/JustReleased for jump and other
+        // actions.  Keeping our own previous state lets a command begin with one real
+        // press edge, remain held for its requested duration, and end with one release.
+        private static bool BridgeJumpHeld, BridgeLeftHeld, BridgeRightHeld, BridgeUpHeld, BridgeDownHeld;
+        // Movement decisions are made before Player.Update.  Keep them as input intents so
+        // PostUpdateInput can present the same key state to vanilla in the correct phase.
+        private static bool IntentLeft, IntentRight, IntentUp, IntentDown, IntentJump;
+        private static ulong MovementAppliedTick = ulong.MaxValue;
+
+        private static void RequestLeft(bool value = true) { IntentLeft |= value; }
+        private static void RequestRight(bool value = true) { IntentRight |= value; }
+        private static void RequestUp(bool value = true) { IntentUp |= value; }
+        private static void RequestDown(bool value = true) { IntentDown |= value; }
+        private static void RequestJump(bool value = true) { IntentJump |= value; }
+
+        private static void ApplyBridgeTrigger(bool active, ref bool wasHeld, Action<TriggersSet> setCurrent, Action<TriggersSet> setPressed, Action<TriggersSet> setReleased)
+        {
+            var current = PlayerInput.Triggers.Current;
+            if (active)
+            {
+                setCurrent(current);
+                if (!wasHeld) setPressed(PlayerInput.Triggers.JustPressed);
+            }
+            else if (wasHeld)
+            {
+                setReleased(PlayerInput.Triggers.JustReleased);
+            }
+            wasHeld = active;
+        }
+
+        /// <summary>
+        /// Copy the bridge's native input state into Terraria's per-player control flags at
+        /// the hook where vanilla has finished reading PlayerInput and is about to process
+        /// movement.  PostUpdateInput alone updates Triggers.Current, but this tModLoader
+        /// build does not always perform the Current -> Player.control* copy for mod-owned
+        /// triggers (the diagnostic showed pi.right=true while controlRight stayed false).
+        /// These are input flags only; physics, collision, jump impulse, and rope state remain
+        /// entirely owned by the vanilla Player.Update implementation.
+        /// </summary>
+        internal static void ApplyNativeControlFlags(Player player)
+        {
+            if (player == null || player.whoAmI != Main.myPlayer) return;
+            ulong now = Main.GameUpdateCount;
+            var triggers = PlayerInput.Triggers.Current;
+            // ApplyMovement runs in ModPlayer.PreUpdate, after PostUpdateInput has supplied
+            // the trigger state.  Include the intents it computes in that same phase: this
+            // is the last bridge write before Player.Update consumes the controls.
+            player.controlLeft |= IntentLeft || triggers.Left || LeftUntil > now;
+            player.controlRight |= IntentRight || triggers.Right || RightUntil > now;
+            player.controlUp |= IntentUp || triggers.Up || UpUntil > now || ClimbUpUntil > now;
+            player.controlDown |= IntentDown || triggers.Down || DownUntil > now || ClimbDownUntil > now;
+            player.controlJump |= IntentJump || triggers.Jump || JumpUntil > now;
+        }
+
         private static bool ReadKey(string key)
         {
             try
@@ -360,20 +415,20 @@ namespace DshTerrariaBridge
             if (ClimbUpUntil > now || ClimbDownUntil > now)
                 UpdateClimbTarget(player);
 
-            bool bridgeUp = UpUntil > now || ClimbUpUntil > now;
-            bool bridgeDown = DownUntil > now || ClimbDownUntil > now;
+            bool bridgeUp = IntentUp || UpUntil > now || ClimbUpUntil > now;
+            bool bridgeDown = IntentDown || DownUntil > now || ClimbDownUntil > now;
             bool bridgeDrop = DownUntil > now && IsStandingOnPlatform(player);
-            bool bridgeJump = JumpUntil > now || bridgeDrop;
+            bool bridgeJump = IntentJump || JumpUntil > now || bridgeDrop;
 
             // Supply native game input triggers. Player.Update rebuilds controlUp/down from
             // these triggers, so control flags written earlier by ModPlayer are overwritten.
-            if (bridgeUp) PlayerInput.Triggers.Current.Up = true;
-            if (bridgeDown) PlayerInput.Triggers.Current.Down = true;
-            if (bridgeJump) PlayerInput.Triggers.Current.Jump = true;
+            ApplyBridgeTrigger(bridgeUp, ref BridgeUpHeld, t => t.Up = true, t => t.Up = true, t => t.Up = true);
+            ApplyBridgeTrigger(bridgeDown, ref BridgeDownHeld, t => t.Down = true, t => t.Down = true, t => t.Down = true);
+            ApplyBridgeTrigger(bridgeJump, ref BridgeJumpHeld, t => t.Jump = true, t => t.Jump = true, t => t.Jump = true);
             // 左右也走输入层：SetControls 里写的 controlLeft/Right 会被 Triggers 重算覆盖（m23078）。
-            // 只加 true、不清零，真人按键与桥互不干扰。
-            if (LeftUntil > now) PlayerInput.Triggers.Current.Left = true;
-            if (RightUntil > now) PlayerInput.Triggers.Current.Right = true;
+            // 合并真人输入与桥的意图；释放边沿也交给 Triggers，避免遗留按键状态。
+            ApplyBridgeTrigger(IntentLeft || LeftUntil > now, ref BridgeLeftHeld, t => t.Left = true, t => t.Left = true, t => t.Left = true);
+            ApplyBridgeTrigger(IntentRight || RightUntil > now, ref BridgeRightHeld, t => t.Right = true, t => t.Right = true, t => t.Right = true);
             var triggers = PlayerInput.Triggers.Current;
             DbgInputTriggerTick = (long)now;
             DbgInputTriggerPlayer = player.whoAmI;
@@ -404,6 +459,9 @@ namespace DshTerrariaBridge
                     if (KeyEvents.Count > KeyEventCap) KeyEvents.RemoveRange(0, KeyEvents.Count - KeyEventCap);
                 }
             }
+            // ApplyMovement is intentionally not called here.  It must run from
+            // DshControlPlayer.PreUpdate, after these triggers are present, so vanilla does
+            // not rebuild controlLeft/controlRight/controlJump over the bridge's input.
         }
 
         private static bool IsStandingOnPlatform(Player player)
@@ -725,7 +783,7 @@ namespace DshTerrariaBridge
             if (p == null || !p.active || p.dead) { StopPath("dead"); return; }
             if (Now > PathDeadline) { StopPath("timeout"); return; }
             if (p.lavaWet) { StopPath("lava"); return; }
-            if (p.wet) { p.controlJump = true; return; }
+            if (p.wet) { RequestJump(); return; }
             if (Now < PathNextAct) return;
 
             int px = (int)(p.Center.X / 16f), py = (int)(p.Center.Y / 16f);
@@ -771,8 +829,7 @@ namespace DshTerrariaBridge
                 }
                 // 没被挡就只走路，不跳：用户指出“明明走就可以，为什么要边走边跳”（m16540）。
                 // 需要上台阶时，原版会自动跨 1 格；真跨不上去（rise 大）才跳，且按满跳量一次跳到位。
-                p.controlLeft |= sign < 0;
-                p.controlRight |= sign > 0;
+                if (sign < 0) RequestLeft(); else if (sign > 0) RequestRight();
                 // 不硬改 velocity：原版靠 control 标志自己算速度，才会触发台阶/斜坡/门的自动处理。
                 // 事故背景：之前为了追横向速度直接写 velocity.X，结果走到自建房的关门前推不动（原版自动开门逻辑被绕过）。
                 p.direction = sign;
@@ -846,8 +903,7 @@ namespace DshTerrariaBridge
         {
             if (!WalkActive) return;
             WalkActive = false; WalkStop = reason; WalkHasWp = false;
-            Player p = Main.LocalPlayer;
-            if (p != null) { p.controlLeft = false; p.controlRight = false; p.controlJump = false; }
+            // The next PostUpdateInput frame will emit no bridge movement triggers.
         }
 
         private static bool TileSolid(int x, int y)
@@ -863,7 +919,7 @@ namespace DshTerrariaBridge
             Player p = Main.LocalPlayer;
             if (p == null) return;
             if (!(p.velocity.Y == 0f && p.oldVelocity.Y == 0f)) return;
-            p.controlJump = true;
+            RequestJump();
             // 必须把 controlJump 持续到顶点：原版跳跃是"可变跳"，只给一帧 = 松手，
             // 角色只升 1~2 格就往下掉。实测 climb-slope 想跳 5 格墙，每次都只到 2.1 格（m17852）。
             // 按"满跳 6.1 格 ≈ 24 tick"线性折算按住时长。
@@ -1196,7 +1252,7 @@ namespace DshTerrariaBridge
             }
             if (s.cliffAhead && !s.doorAhead) return new ActorAct { rule = "avoid-cliff", priority = NavRules.P.AvoidCliff, kind = "replan" };
             // 门：必须显式开门。原版"走过去自动开"依赖真实键盘输入，手写 control 时不会触发，
-            // 所以这里出一个独立动作，由 ActActor 调 WorldGen.OpenDoor（只推门，不改方块）。
+            // 所以这里出一个独立动作，由 ActActor 发一次原版右键交互输入。
             if (s.doorAhead) return new ActorAct { rule = "pass-door", priority = NavRules.P.PassDoor, kind = "open-door" };
             // 只在"没有路点可走"时才因建材绕行。A* 已经算出一条绕开房子的路时，
             // 贴身处是墙是正常的（正走在门口），不能再触发 replan —— 否则每帧重算、
@@ -1228,15 +1284,15 @@ namespace DshTerrariaBridge
                     Tile t = Main.tile[dpx + sign, dpy + k];
                     if (t.HasTile && t.TileType == TileID.ClosedDoor && Now > WalkDoorUntil)
                     {
-                        WorldGen.OpenDoor(dpx + sign, dpy + k, sign);
+                        BeginTileInteraction(dpx + sign, dpy + k);
                         WalkDoorUntil = Now + 20;
                         break;
                     }
                 }
                 // 不 return：继续走下面的横移逻辑，穿过这扇已经推开的门。
             }
-            if (a.kind == "escape") { p.controlJump = true; return; }
-            if (a.kind == "upfloat") { p.controlUp = true; return; }
+            if (a.kind == "escape") { RequestJump(); return; }
+            if (a.kind == "upfloat") { RequestUp(); return; }
             if (a.kind == "replan")
             {
                 int rpx = (int)(p.Center.X / 16f), rpy = (int)(p.Center.Y / 16f);
@@ -1251,10 +1307,9 @@ namespace DshTerrariaBridge
                 }
                 return;
             }
-            if (sign > 0) p.controlRight = true; else if (sign < 0) p.controlLeft = true;
-            // 和旧逻辑一致：横向速度给个保底推力。只写 control 时角色会“站着不动”——
-            // 原版在同帧后续还会按键盘状态重算一次，手写的 control 会被抹掉（m17158 实测）。
-            // 横移只给方向键，速度交给原版加速（不再手动推 velocity）。
+            if (sign > 0) RequestRight(); else if (sign < 0) RequestLeft();
+            // 横移只发方向键意图；PostUpdateInput 会把它翻译成原生 Triggers，
+            // 速度、碰撞和台阶完全交给原版物理。
             if (a.kind == "jump") WalkJump(a.jumpTiles > 0 ? a.jumpTiles : 2.4f);
         }
 
@@ -1298,7 +1353,7 @@ namespace DshTerrariaBridge
             if (p == null || !p.active || p.dead) { StopWalk("dead"); return; }
             if (Now > WalkDeadline) { StopWalk("timeout"); return; }
             if (p.lavaWet) { StopWalk("lava"); return; }
-            if (p.wet) { p.controlJump = true; return; }
+            if (p.wet) { RequestJump(); return; }
 
             int px = (int)(p.Center.X / 16f), py = (int)(p.Center.Y / 16f);
             if (Math.Abs(WalkX - px) <= WalkTol && Math.Abs(WalkY - py) <= WalkTol) { StopWalk("arrived"); return; }
@@ -1313,7 +1368,8 @@ namespace DshTerrariaBridge
             {
                 // 到点必须刹车：路点常常是"起跳点"，带着 2.9 格/秒的惯性冲过去 3 格，
                 // 下一个路点就变成头顶正上方、而正上方是实心屋顶 —— 规划好的起跳点白算了（m17699 实测冲到 2167.9 后卡死）。
-                if (Math.Abs(p.velocity.X) > 0.6f) p.velocity.X *= 0.25f;
+                // Release the direction at the waypoint and let vanilla friction settle the
+                // player; the bridge never edits velocity directly.
                 WalkHasWp = false;
             }
             // 没有路点就立刻重算，绝不"直接朝最终目标顶墙"：
@@ -1423,8 +1479,8 @@ namespace DshTerrariaBridge
                 if (dt.HasTile && dt.TileType == TileID.ClosedDoor && Now > WalkDoorUntil)
                 {
                     // 开门不是“挥镐”：挥镐只会把门敲坏。原版走这套是 Player.TileInteract，
-                    // 但它由真人右键触发；这里直接调 WorldGen.OpenDoor = 推开门，不改方块结构。
-                    WorldGen.OpenDoor(px + sign, py, sign);
+                    // 由真人右键触发；桥只压准星并按住右键，让原版自己处理门。
+                    BeginTileInteraction(px + sign, py);
                     WalkDoorUntil = Now + 25;
                     PathNextAct = Now + 6;
                     return;
@@ -1475,27 +1531,24 @@ namespace DshTerrariaBridge
                 }
             }
 
-            p.controlLeft |= sign < 0;
-            p.controlRight |= sign > 0;
+            if (sign < 0) RequestLeft(); else if (sign > 0) RequestRight();
             p.direction = sign;
-            // 只写 control 实测推不动人（本模组的写入时机抢不过原版输入解析），
-            // 所以水平速度仍由这里直接给；门另走“主动开门”，不指望硬推能穿过去。
-            // 横移只给方向键，速度交给原版加速（不再手动推 velocity）。
+            // 横移只发方向键意图；门另走主动右键交互，速度与碰撞由原版处理。
             // 事故：这里原来每帧都调 WalkJump，"目标比当前高"就一路跳着走，看着像抽筋。
             // 原版自己会跨 1 格台阶；只有明确要跨 2..5 格时才由上层显式 jump。
-            if (dy < -1) p.controlUp = true;
+            if (dy < -1) RequestUp();
             // 目标在下方（dy>2）：不挖，靠"走过边缘自然下落"。地形本来就有起伏，
             // 事故：这里原来判 TileSolid(px,py+2) 就当成"要往下挖"直接停，而 py+2 往往就是自己脚踩的那块地。
 
         }
 
         /// <summary>
-        /// 移动兜底：control 标志在 Player.Update 里会被真实按键状态覆盖，
-        /// 所以除设置标志外，每帧直接把速度推向目标方向（碰撞/重力仍由游戏解算）。
+        /// 移动意图在 PostUpdateInput 阶段写入原生方向触发器，
+        /// 速度、碰撞、重力和台阶全部由游戏解算。
         /// </summary>
 
         // ==== 跟随 / 待命 / 护卫（和人一起玩的基础） ====
-        // 设计：只写 control 标志 + 速度，碰撞/重力/门/台阶全交给原版解算。
+        // 设计：只写原生方向触发器，碰撞/重力/门/台阶全交给原版解算。
         // 不做瞬移、不改方块——后随的人走不过去的地方，就等着或者喊人。
 
         internal static volatile bool FollowActive, FollowGuard;
@@ -1579,14 +1632,14 @@ namespace DshTerrariaBridge
             if (adx > FollowStopTiles)
             {
                 float dir = dx > 0 ? 1f : -1f;
-                if (dir > 0) me.controlRight = true; else me.controlLeft = true;
+                if (dir > 0) RequestRight(); else RequestLeft();
                 // 被墙挡住就跳一下（高度交给原版，不再写初速）
-                if (me.velocity.Y == 0f && Math.Abs(me.oldVelocity.X) < 0.3f) { me.controlJump = true; }
+                if (me.velocity.Y == 0f && Math.Abs(me.oldVelocity.X) < 0.3f) RequestJump();
             }
             // 队友在高处：爬/跳
-            if (dy < -3.5f && me.velocity.Y == 0f) { me.controlJump = true; }
+            if (dy < -3.5f && me.velocity.Y == 0f) RequestJump();
             // 队友在下面且离得不远：允许往下跟
-            if (dy > 6f && adx < 2.5f) me.controlDown = true;
+            if (dy > 6f && adx < 2.5f) RequestDown();
         }
 
         /// <summary>精确横向移动：按目标格坐标比例控制速度，到位即停（误差 0.06 格）。</summary>
@@ -1596,6 +1649,9 @@ namespace DshTerrariaBridge
 
         internal static void ApplyMovement()
         {
+            if (MovementAppliedTick == Now) return;
+            MovementAppliedTick = Now;
+            IntentLeft = IntentRight = IntentUp = IntentDown = IntentJump = false;
             Player p = Main.LocalPlayer;
             if (p == null || !p.active || p.dead) return;
             ulong now = Main.GameUpdateCount;
@@ -1613,8 +1669,8 @@ namespace DshTerrariaBridge
                 {
                     // 只按方向键（同时写 Triggers：Player.Update 会用触发器重建 controlLeft/Right，
                     // 只写 control* 会被覆盖，所以两边都给）。距离远时按住、近时靠摩擦收敛。
-                    if (dx < 0f) { p.controlLeft = true; PlayerInput.Triggers.Current.Left = true; }
-                    else { p.controlRight = true; PlayerInput.Triggers.Current.Right = true; }
+                    if (dx < 0f) RequestLeft();
+                    else RequestRight();
                 }
                 return;
             }
@@ -1643,26 +1699,24 @@ namespace DshTerrariaBridge
             if (RightUntil > now) dir += 1f;
             if (dir != 0f)
             {
-                p.controlLeft |= LeftUntil > now;
-                p.controlRight |= RightUntil > now;
+                if (LeftUntil > now) RequestLeft();
+                if (RightUntil > now) RequestRight();
             }
 
             // Up/Down/Climb and platform-drop input is emitted in PostUpdateInput so the
             // vanilla game receives native triggers before Player.Update.
             if (JumpUntil > now)
             {
-                p.controlJump = true;
+                RequestJump();
                 // One impulse per command, and only from the ground. The old code
                 // re-impulsed at every apex, which turned a 2 s jump into an
                 // unpowered climb; wings and auto-jump are left to vanilla.
                 // 原生模式下这里一个字都不写：引擎自己的 Player.Jump() 才是"按住更高"的来源。
                 if (!JumpIssued && p.velocity.Y == 0f && p.oldVelocity.Y == 0f)
                 {
-                    // 非 native 模式（按高度折算按住时长）也只按 controlJump，不再塞初速。
-                    if (!JumpNative) JumpIssued = true;
-                    // 旧的 JumpFallbackAt 兜底已删除：引擎 5 tick 没起跳就自己塞 -7.5 速度，
-                    // 这也是“假操作”（跳过引擎物理）。现在如果引擎真不接管，表现为人不起跳，
-                    // 我会如实报“跳不动”，不再偷偷推一把。
+                    // The vanilla engine owns the jump impulse and variable-height timing.
+                    // If it does not accept the trigger, report that through state instead of
+                    // manufacturing a velocity fallback.
                 }
             }
             // 行走结果驱动：走够格数就松手，不管花了多久、中间被挡过几次。
@@ -1714,6 +1768,13 @@ namespace DshTerrariaBridge
 
         internal static void SetAim(int x, int y) { AimTileX = x; AimTileY = y; }
         internal static void ClearAim() { AimTileX = -1; AimTileY = -1; }
+
+        internal static void BeginTileInteraction(int tileX, int tileY, int ms = 120)
+        {
+            SetAim(tileX, tileY);
+            UseTileJustStarted = true;
+            UseTileUntil = Now + Ticks(Math.Clamp(ms, 1, 2000));
+        }
 
         /// <summary>
         /// 让游戏自己把"使用物品"这件事做一遍：选中真实槽位、准星压到目标格、按住使用 ms 毫秒。
@@ -1885,26 +1946,9 @@ namespace DshTerrariaBridge
                 p.releaseHook = true;
                 HookReleasePending = false;
             }
-            // 松手 + 跳一下之后钩子还挂着（实测原版这两步都不脱钩），兜底清附着状态。
-            // 这是角色自身状态（和走路写 velocity 同类），不动世界。
-            if (HookForceDetachAt > 0 && now >= HookForceDetachAt)
-            {
-                if (p.grapCount > 0)
-                {
-                    // 只管 grapCount/pulley 没用：下一帧原版会从还活着的抓钩弹幕把 grapCount
-                    // 重新算回来（实测位置一直钉死）。真正的脱钩就是让抓钩弹幕收回/消失。
-                    for (int i = 0; i < Main.maxProjectiles; i++)
-                    {
-                        Projectile pr = Main.projectile[i];
-                        if (pr.active && pr.owner == p.whoAmI && pr.aiStyle == 7) pr.Kill();
-                    }
-                    // 不再写 p.pulley / p.grapCount：这两个是引擎算出来的状态。
-                    // 让抓钩弹幕结束（上面 pr.Kill()）本身就会让原版把 grapCount 归零、
-                    // pulley 自动解除；手写只是抢在引擎前面改结果。
-                    p.controlHook = false;
-                }
-                HookForceDetachAt = 0;
-            }
+            // Unhook is represented only by a released hook input.  The vanilla projectile
+            // lifecycle decides whether the attachment ends; the bridge never kills a
+            // projectile or edits grappling/pulley state directly.
             if (UseTileUntil > now)
             {
                 Main.mouseRight = true;
@@ -2177,27 +2221,16 @@ namespace DshTerrariaBridge
         }
 
         /// <summary>Arm one jump for the given deadline (a single ground impulse).</summary>
-        internal static void BeginJump(ulong until, float heightTiles = 5.5f, bool native = false)
+        internal static void BeginJump(ulong until)
         {
             JumpUntil = until;
             JumpIssued = false;
-            JumpNative = native;
-            // 原生跳跃：不碰 velocity，交给引擎按 controlJump 起跳——真人的变高跳就是这么来的
-            // （实测按住顶到 6.1 格，短按 1.4~2.7 格）。只有明确要"跳多高"时才用冲量。
-            if (native) { JumpImpulse = 0f; return; }   // 纯原生：不设速度，也不留兜底
-            // A fixed impulse made every jump identical (measured 2.30 tiles no matter how long
-            // the key was held, because the game's variable jump height is never driven).
-            // Solve the impulse for the requested apex instead: h = v^2 / (2g).
-            float g = Main.LocalPlayer?.gravity is > 0.05f ? Main.LocalPlayer.gravity : 0.4f;
-            float tiles = Math.Clamp(heightTiles, 1f, 12f);
-            JumpImpulse = -(float)Math.Sqrt(2.0 * g * tiles * 16.0);
+            // Keep the first press edge alive even when the command arrives between two
+            // PostUpdateInput callbacks.  The next callback will emit the native trigger;
+            // SetControls then mirrors it into controlJump at the vanilla decision point.
+            IntentJump = true;
         }
 
-        internal static float JumpImpulse = -8.4f;
-        /// <summary>已弃用：原生跳跃不再有“自己给初速”的兜底。</summary>
-        internal static ulong JumpFallbackAt = ulong.MaxValue;
-        /// <summary>true = 只保持 controlJump 让引擎起跳（与真人一致）；false = 自算冲量。</summary>
-        internal static bool JumpNative = true;
 
         /// <summary>
         /// Performs a real player-owned hit against a hostile NPC.  This uses
@@ -2441,7 +2474,6 @@ namespace DshTerrariaBridge
         // 脱钩要走原版的 releaseHook 一帧标志（和 mouseLeftRelease 同类的机制）。
         // 只清 controlHook 不够：实测 grapCount 一直停在 1，角色被钉在原地。
         internal static volatile bool HookReleasePending, HookJustStarted;
-        internal static ulong HookForceDetachAt;
         internal static ulong AttackUntil, AttackNextTick;
         internal static volatile int AttackTarget = -1, AttackRadius = 40, AttackIntervalTicks = 10;
         internal static volatile bool AttackAutoTarget, AttackFinished, AttackFinishedCleanly, AttackKilled, AttackBlockedByTerrain, JumpIssued;
@@ -2469,11 +2501,8 @@ namespace DshTerrariaBridge
             if (player != null && player.active && player.dead && GuardUntil > 0)
                 ResetMotion("death");
 
-            if (LeftUntil > now) player.controlLeft = true;
-            if (RightUntil > now) player.controlRight = true;
-            if (JumpUntil > now) player.controlJump = true;
-            if (UseUntil > now) player.controlUseItem = true;
-            if (UseTileUntil > now) player.controlUseTile = true;
+            // Movement and jump are emitted from PostUpdateInput as native triggers.
+            // Item/tile use is emitted in PreItemCheck, the phase vanilla ItemCheck reads.
         }
 
     /// <summary>
@@ -2531,8 +2560,10 @@ namespace DshTerrariaBridge
     {
         LeftUntil = RightUntil = UpUntil = DownUntil = JumpUntil = UseUntil = UseTileUntil = 0;
         ClimbUpUntil = ClimbDownUntil = LayRopeUntil = 0; ClimbTargetY = 0;
+        IntentLeft = IntentRight = IntentUp = IntentDown = IntentJump = false;
+        BridgeJumpHeld = BridgeLeftHeld = BridgeRightHeld = BridgeUpHeld = BridgeDownHeld = false;
         // 抓钩也算"会自己动"的状态：不清的话松手后角色还被挂在钩上。
-        HookHeld = false; HookUntil = 0; HookForceDetachAt = 0; HookReleasePending = true;
+        HookHeld = false; HookUntil = 0; HookReleasePending = true;
         ClearAttack();
     }
 
@@ -2554,7 +2585,6 @@ namespace DshTerrariaBridge
         HookHeld = false;
         HookUntil = 0;
         HookReleasePending = false;
-        HookForceDetachAt = 0;
         LastResetReason = why;
         ResetCount++;
     }
@@ -2672,12 +2702,14 @@ namespace DshTerrariaBridge
         {
             BridgeSystem.ApplyAim();
             BridgeSystem.ApplyControls(Player);
-            // 走路必须在物理之前写 control 标志：PostUpdate 里写的话，下一帧 Main.UpdateInput
-            // 会把 controlLeft/Right 重置掉，标志永远不生效（古老版靠直接改 velocity 掩盖了这一点）。
+            // PostUpdateInput has already written active bridge keys to Triggers.  Resolve
+            // path/walk/follow intents now, then mirror both triggers and intents into the
+            // native control flags at the last bridge hook before Player.Update.
             BridgeSystem.ApplyMovement();
+            BridgeSystem.ApplyNativeControlFlags(Player);
         }
 
-        // 真正逐帧生效的地方：Player.Update 结束时再推一次速度/标志
+        // 真正逐帧生效的地方：物品使用在 ItemCheck 前，移动输入在 PostUpdateInput。
         /// <summary>
         /// Runs immediately before the vanilla item check. Everything written here is what
         /// ItemCheck actually reads - writing it in PreUpdate/PostUpdate is overwritten by
@@ -2728,7 +2760,6 @@ namespace DshTerrariaBridge
             // ModPlayer hooks run for every player; without this guard the local player
             // would be advanced once per player slot in multiplayer.
             if (Player.whoAmI != Main.myPlayer) return;
-            BridgeSystem.ApplyMovement();
             BridgeSystem.ApplyAttack();
             // 诊断：Update 跑完之后这些控制位是什么——抓钩逻辑看到的正是这份
             BridgeSystem.DbgPostControlHook = Player.controlHook;

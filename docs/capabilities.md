@@ -135,18 +135,22 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 
 | 命令 | 说明 | 证据 / 限制 |
 |---|---|---|
-| `move {dir,ms}` | 逐帧写速度（真人按住方向键的效果） | 1.4 秒顶墙位置不变，证明碰撞生效 |
-| `jump {ms}` | 置跳跃标志 | 起跳/上台阶 |
+| `move {dir,ms}` | 按住原版方向键输入（速度、碰撞和台阶由游戏计算） | 1.4 秒顶墙位置不变，证明碰撞生效 |
+| `jump {ms}` | 按住原版跳跃键输入（高度由按住时长和游戏物理决定） | 起跳/上台阶 |
 | `climb {dir,ms}` | **只在绳子上**才生效 | 301→291、455→307；绳道分段 28 格 |
-| `walkto {x,y,tol,ms}` | 走到坐标。内部是 **感知→决策→执行** 三层：每 tick 扫 8 列地面（落差/墙高/是否建材/是否门/是否坑），按优先级出一条例，执行层只写 `controlLeft/Right/Jump` | 已能穿过自建房的关门（`WorldGen.OpenDoor`，不挥镐）、跳过 1~6 格台阶、跨 ≤3 格坑；实测 2105→2194 往返。⚠️「地面→实心屋顶」这种组合会规划出路径但执行时冲过起跳点 |
+| `walkto {x,y,tol,ms}` | 走到坐标。内部是 **感知→决策→执行** 三层：每 tick 扫 8 列地面（落差/墙高/是否建材/是否门/是否坑），执行层只发方向/跳跃/右键交互输入 | 已能穿过自建房的关门（右键交互由原版处理）、跳过 1~6 格台阶、跨 ≤3 格坑；⚠️「地面→实心屋顶」这种组合仍需实机复测 |
 | `walkmode {mode}` | `legacy` / `reactive` / `new` 切换走路实现，用来同场景对比两套 | 回包带当前模式；层级为首次改动的隔离用 |
 | `path {x,y,ms,dig}` | A* 寻路（离线镜像 `src/path-model.js` 的 C# 版，四类边：走/跨/跳/落） | 失败时回 `why`（含起点终点是否可站、`opened` 计数）。⚠️ 兜底包围盒 ±10 |
 | `travelstatus` | 走路的实时内部状态（`active/stop/rule/kind/wp/lu/ru/greedy`） | 诊断"路点在左、控制却向右"这类问题的唯一手段 |
 | `travel {dir,distance,dig}` | 定向掘进循环 | ⚠️ **只用水平方向**：`down` 会沿斜坡漂移十几格并淹死过人 |
 | `mirror` | 魔镜回城 | 任意位置 → 出生点 |
-| `interact {x,y}` | 右键交互：开门 / 开箱 / 和 NPC 对话。走引擎自己的 `Player.TileInteractionsUse`，带 8 格距离检查，不改任何格子 | 回读 `before/after` 方块类型；开箱后 `chest` 可读内容 |
-| `hook {x,y,ms}` | 抓钩（`controlHook` 驱动） | 挂住 4 格外木地板：`grapCount 0→1`、角色被拉到 2100→2097.6 |
-| `unhook` | 松钩（`releaseHook` + 收弹幕） | `grapCount 1→0`，角色留在原地 |
+| `interact {x,y}` | 压准星并发送一次原版右键输入，开门 / 开箱 / 和 NPC 对话由游戏结算 | 命令只返回输入已发送；必须在 `untilTick` 后用 `tile` / `chest` / `state` 回读 |
+| `hook {x,y,ms}` | 压准星并发送原版抓钩左键输入，弹幕和拉力由游戏结算 | 必须在 `untilTick` 后回读 `state.player.grapCount` / `hookdebug`；未实测前标为 🚧 |
+| `unhook` | 发送松开抓钩和短跳输入，脱钩由游戏结算 | 必须回读 `grapCount`；不再直接杀弹幕 |
+
+### 基础按键输入
+
+移动、跳跃、爬绳、平台下落、使用物品、右键交互、抓钩、坐骑和飞行都只写游戏输入层：方向键/跳跃键走 `PlayerInput.Triggers.Current`，鼠标动作走 `Main.mouseLeft` / `Main.mouseRight` 及释放边沿，物品结果由 `ItemCheck` 和原版物理结算。桥不写 `velocity`、`position`、`pulley`、`grapCount` 或弹幕结果。每个改变世界或角色状态的动作都必须在命令返回后回读确认。
 | `fly {ms}` | 飞行/跳跃 | 无翅膀时回 `hasWings:false` + 明确提示，不假装飞起来 |
 | `mount {action}` | 坐骑 | `info` 返回可用坐骑物品；无坐骑时 `{active:false,items:[]}` |
 

@@ -237,15 +237,16 @@
       "returns": [
         "untilTick",
         "tick",
+        "native",
+        "compatibilityNativeFalse",
         "tiles",
         "from",
         "slot",
         "held",
         "interact",
-        "after",
         "method",
-        "off",
         "note",
+        "off",
         "radius",
         "hostileInRange",
         "weaponSlot",
@@ -448,7 +449,7 @@
     },
     {
       "name": "follow",
-      "kind": "act",
+      "kind": "read",
       "params": [
         "off",
         "player",
@@ -513,6 +514,7 @@
       "returns": [
         "grapCountBefore",
         "proj",
+        "note",
         "equipped"
       ],
       "summary": ""
@@ -685,15 +687,16 @@
     },
     {
       "name": "interact",
-      "kind": "read",
+      "kind": "act",
       "params": [
         "x",
         "y"
       ],
       "returns": [
         "interact",
-        "after",
-        "method"
+        "untilTick",
+        "method",
+        "note"
       ],
       "summary": ""
     },
@@ -733,6 +736,8 @@
         "moveMs"
       ],
       "returns": [
+        "native",
+        "compatibilityNativeFalse",
         "tiles",
         "from"
       ],
@@ -1304,6 +1309,7 @@
         "mouseTile",
         "world",
         "player",
+        "ropeContact",
         "inputDiag",
         "guard",
         "attack",

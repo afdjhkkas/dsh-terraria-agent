@@ -493,7 +493,7 @@ namespace DshTerrariaBridge
             commands = CommandNames,
             notes = new[]
             {
-                "jump{ms,tiles,native,dir,moveMs}：默认走原生输入层（Triggers.Jump），高度随按住时长 1.8~6.1 格；tiles 指定目标高度；native:false 才用自算冲量；dir=left/right 时同帧带横向输入（跳远必须用这个，否则只会原地垂直跳）",
+                "jump{ms,tiles,dir,moveMs}：只走原生输入层（Triggers.Jump），高度由按住时长和游戏物理决定；dir=left/right 时同帧带横向输入",
                 "hook/grapple{x,y,slot,ms}：抓钩，真人键位语义；unhook 脱钩",
                 "humaninput{samples,ms}：观察模式采集口（控制标志+位置+按键），只读",
                 "keyevents{since,max,clear}：按键边沿事件（tick 级），示范采集算真实按住时长用；不含本模组自己下发的输入",
@@ -1299,7 +1299,6 @@ namespace DshTerrariaBridge
             // 与 UI 拖入垃圾桶等价：垃圾桶里原有物品被销毁，被拖的物品离开背包。
             Item moved = it.Clone();
             moved.stack = n;
-            moved.position = Vector2.Zero;
             pl.trashItem = moved;
             if (n >= it.stack) pl.inventory[slot] = new Item();
             else it.stack -= n;
@@ -2945,20 +2944,24 @@ namespace DshTerrariaBridge
             // 真人实测：按住跳跃键顶到 6.1 格，短按只有 1.4~2.7 格——高度是靠"按住多久"走出来的。
             // 所以默认改成**原生跳跃**：只保持 controlJump，让引擎自己起跳并做变高，
             // 不再替它设竖直速度（旧做法恒 5.2 格，且有天花板时与真人差得更远）。
-            // 需要精确某个高度（跨越指定深坑）时再传 native:false + height。
-            bool native = !(p.TryGetProperty("native", out var nv) && nv.ValueKind == JsonValueKind.False);
+            // Jump is always a real held-key input.  Keep accepting the old
+            // native:false/height spelling as a compatibility alias, but never use it to
+            // synthesize velocity: height is converted to a real held-key duration below.
+            bool legacyNativeFalse = p.TryGetProperty("native", out var nv) && nv.ValueKind == JsonValueKind.False;
             // 便利参数：直接说"要跳几格"，按住时长由实测表反查（真人同样按这两列对应）。
             double? wantTiles = null;
             if (p.TryGetProperty("tiles", out var tv) && tv.ValueKind == JsonValueKind.Number)
             {
                 wantTiles = tv.GetDouble();
                 ms = MsForTiles(wantTiles.Value);
-                native = true;
+                // tiles is only a convenience conversion to a held-key duration.
             }
-            float height = 5.5f;
-            var hp = p.TryGetProperty("height", out var hv) ? hv : default;
-            if (hp.ValueKind == JsonValueKind.Number) height = (float)hp.GetDouble();
-            BridgeSystem.BeginJump(BridgeSystem.Now + BridgeSystem.Ticks(ms), height, native);
+            else if (legacyNativeFalse && p.TryGetProperty("height", out var hv) && hv.ValueKind == JsonValueKind.Number)
+            {
+                wantTiles = hv.GetDouble();
+                ms = MsForTiles(wantTiles.Value);
+            }
+            BridgeSystem.BeginJump(BridgeSystem.Now + BridgeSystem.Ticks(ms));
             // 真人跳远是起跳的同时按住方向：两个 control 位在同一帧一起置上。
             // 之前只能先 jump 再 left/right，跳跃 400ms 内发出的横移会和落地后的输入抢，
             // 结果永远是原地垂直跳。这里把横移并进同一条命令，保证空中每帧都有横向输入。
@@ -2969,7 +2972,8 @@ namespace DshTerrariaBridge
             return Json.Ok(new
             {
                 ms,
-                native,
+                native = true,
+                compatibilityNativeFalse = legacyNativeFalse,
                 tiles = wantTiles,
                 from = new[] { MathF.Round(pl.Center.X / 16f, 1), MathF.Round(pl.Center.Y / 16f, 1) },
                 grounded = pl.velocity.Y == 0f && pl.oldVelocity.Y == 0f,
@@ -3090,27 +3094,20 @@ namespace DshTerrariaBridge
             var pc = pl.Center / 16f;
             if (Math.Abs(x + 0.5f - pc.X) > 8 || Math.Abs(y + 0.5f - pc.Y) > 8)
                 return Json.Error($"够不到：({x},{y}) 离玩家超过 8 格，先走过去");
-            var mi = typeof(Player).GetMethod("TileInteractionsUse",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public,
-                null, new[] { typeof(int), typeof(int) }, null);
-            if (mi == null) return Json.Error("引擎里找不到 TileInteractionsUse(int,int)，交互链不可用");
             int before = TileCode(Main.tile[x, y]);
-            Player.tileTargetX = x;   // 静态成员：全游戏同一份准星格子
-            Player.tileTargetY = y;
-            try { mi.Invoke(pl, new object[] { x, y }); }
-            catch (System.Exception e)
-            {
-                var inner = e.InnerException ?? e;
-                return Json.Error("TileInteractionsUse 抛错：" + inner.Message);
-            }
+            // Real right-click input.  Vanilla Player.TileInteractionsUse is reached by
+            // ItemCheck after the bridge supplies the aim and right-button hold; do not call
+            // the interaction method directly because that bypasses the input path.
+            BridgeSystem.BeginTileInteraction(x, y, 180);
             return Json.Ok(new
             {
                 interact = true,
                 x,
                 y,
                 before,
-                after = TileCode(Main.tile[x, y]),
-                method = "Player.TileInteractionsUse",
+                untilTick = BridgeSystem.UseTileUntil,
+                method = "right-click input",
+                note = "请在 untilTick 后用 tile/state 回读确认门、箱子或 NPC 交互结果",
             });
         }
 
@@ -3332,28 +3329,20 @@ namespace DshTerrariaBridge
             if (distance > 40) return Json.Error("抓钩最远约 40 格，目标在 " + distance + " 格外");
             int before = pl.grapCount;
             int ms = Json.Int(p, "ms", 1600);
-            // 为什么自己发弹幕：原版 QuickGrapple 用 Main.MouseWorld 选落点，而鼠标位置由
-            // 系统输入每帧重建，mod 在 SetControls 里写 Main.mouseX 当场就被覆盖（实测写入后
-            // MouseWorld 仍停在真实光标 (2044,242)，目标格 2096,279 永远选不中）——于是
-            // controlHook/装备/落点判据全对，钩子就是不飞。这里只把"按下左键"这一步换成
-            // 用原版 Projectile.NewProjectile 发同一个钩子弹幕：弹幕 AI、命中判定、拉力
-            // 全部仍由原版执行，人被拉过去的每一个像素都不是我们算的。
             Vector2 targetPx = new Vector2(x * 16f + 8f, y * 16f + 8f);
-            Vector2 dir = targetPx - pl.Center;
-            if (dir.Length() < 1f) dir = new Vector2(0f, -1f);
-            dir.Normalize();
-            int projIdx = Projectile.NewProjectile(pl.GetSource_ItemUse(hooked), pl.Center, dir * 16f, hooked.shoot, 0, 0f, pl.whoAmI);
-            // 不写 pl.grappling[0] / pl.grapCount：这两个是引擎在弹幕命中后自己填的。
-            // 手写等于替引擎宣布"已经挂上了"，钩子没打到也会显示挂着。
+            // A grapple is a real left-button input. Vanilla selects the equipped hook,
+            // spawns its projectile, and resolves attachment; the bridge only aims and holds.
             BridgeSystem.SetAim(x, y);
             BridgeSystem.HookAimWorld = targetPx;
             BridgeSystem.HookHeld = true;
+            BridgeSystem.HookJustStarted = true;
             BridgeSystem.HookUntil = BridgeSystem.Now + BridgeSystem.Ticks(ms);
             return Json.Ok(new
             {
                 x, y, distance, ms, equipHow,
                 grapCountBefore = before,
-                proj = projIdx,
+                proj = -1,
+                note = "已发送真实抓钩输入；请在 untilTick 后回读 state.grapCount / hookdebug",
                 equipped = new { type = hooked.type, name = hooked.Name },
             });
         }
@@ -3369,10 +3358,8 @@ namespace DshTerrariaBridge
             BridgeSystem.HookHeld = false;
             BridgeSystem.HookUntil = 0;
             BridgeSystem.HookReleasePending = true;
-            BridgeSystem.HookForceDetachAt = BridgeSystem.Now + BridgeSystem.Ticks(250);
             BridgeSystem.JumpUntil = BridgeSystem.Now + BridgeSystem.Ticks(160);
             BridgeSystem.JumpIssued = false;
-            BridgeSystem.JumpNative = true;
             return Json.Ok(new { grapCountBefore = before });
         }
 
@@ -3392,8 +3379,7 @@ namespace DshTerrariaBridge
             bool mounted = pl.mount != null && pl.mount.Active;
             BridgeSystem.JumpUntil = BridgeSystem.Now + BridgeSystem.Ticks(ms);
             BridgeSystem.JumpIssued = false;
-            // 飞/脱钩都是"按住跳跃键"的语义：走原生，别让上一颗冲量在这里弹一下。
-            BridgeSystem.JumpNative = true;
+            // 飞/脱钩都是"按住跳跃键"的语义：走原生输入。
             return Json.Ok(new
             {
                 ms,
@@ -3484,7 +3470,7 @@ namespace DshTerrariaBridge
         // ==== 与人同玩：跟随 / 待命 / 玩家列表 ====
 
         /// <summary>
-        /// 跟随另一个玩家。只写 control 标志与速度——走路、碰撞、上台阶全由原版解算，
+        /// 跟随另一个玩家。只发送原生方向输入——走路、碰撞、上台阶全由原版解算，
         /// 不做瞬移、不挖不该挖的方块。
         /// guard:true 时兼当护卫：优先打队友正在打的目标，血低于 30% 先停手。
         /// </summary>
