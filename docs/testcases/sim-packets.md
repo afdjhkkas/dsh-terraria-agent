@@ -1,9 +1,9 @@
-﻿# 离线推演包（阶段①）
+# 离线推演包（阶段①）
 
 > 由 `node scripts/testcases.mjs --sim` 生成。每条用例的推演结论写回 `docs/testcases/sim-gaps.md`。
 > 这个模式不连游戏、不发动作，只走路由 + 检索 + 五维自检 + 动作流推演。
 
-共 54 条。
+共 58 条。
 
 ### M01（阶段 1 · move）
 
@@ -15,7 +15,7 @@
 NEED_KNOWLEDGE:safety_limit,atomic_action,actor_behavior
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / actor_behavior(1454字) / atomic_action(4194字)
+**要读的库**（3 个）：safety_limit(1464字) / actor_behavior(4739字) / atomic_action(17929字)
 
 **声明需要的命令**：move, state, scan
 　全部在清单里
@@ -34,7 +34,7 @@ NEED_KNOWLEDGE:safety_limit,atomic_action,actor_behavior
 NEED_KNOWLEDGE:safety_limit,actor_behavior
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / actor_behavior(1454字)
+**要读的库**（2 个）：safety_limit(1464字) / actor_behavior(4739字)
 
 **声明需要的命令**：jump, state
 　全部在清单里
@@ -51,7 +51,7 @@ NEED_KNOWLEDGE:safety_limit,actor_behavior
 NEED_KNOWLEDGE:safety_limit,atomic_action,game_rule
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / game_rule(4006字) / atomic_action(4194字)
+**要读的库**（3 个）：safety_limit(1464字) / game_rule(5069字) / atomic_action(17929字)
 
 **声明需要的命令**：mine, scan, tile, state
 　全部在清单里
@@ -70,7 +70,7 @@ NEED_KNOWLEDGE:safety_limit,atomic_action,game_rule
 NEED_KNOWLEDGE:safety_limit,world_biome
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / world_biome(2411字)
+**要读的库**（2 个）：safety_limit(1464字) / world_biome(3223字)
 
 **声明需要的命令**：travel, state, scan
 　全部在清单里
@@ -87,7 +87,7 @@ NEED_KNOWLEDGE:safety_limit,world_biome
 NEED_KNOWLEDGE:safety_limit,world_biome
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / world_biome(2411字)
+**要读的库**（2 个）：safety_limit(1464字) / world_biome(3223字)
 
 **声明需要的命令**：travel, scan, tile, state
 　全部在清单里
@@ -106,7 +106,7 @@ NEED_KNOWLEDGE:safety_limit,world_biome
 NEED_KNOWLEDGE:safety_limit,world_biome,loot_source
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / world_biome(2411字) / loot_source(1807字)
+**要读的库**（3 个）：safety_limit(1464字) / world_biome(3223字) / loot_source(2688字)
 
 **声明需要的命令**：find, travel, scan
 　全部在清单里
@@ -125,11 +125,10 @@ NEED_KNOWLEDGE:safety_limit,world_biome,loot_source
 NEED_KNOWLEDGE:safety_limit
 ```
 
-**要读的库**（1 个）：safety_limit(1174字)
+**要读的库**（1 个）：safety_limit(1464字)
 
-**声明需要的命令**：—
-
-**已知缺的命令**：map
+**声明需要的命令**：map
+　全部在清单里
 
 **已知缺的知识**：没有大地图：读不到已探索区域范围，也读不到自己在地图上被标在哪
 
@@ -147,7 +146,7 @@ NEED_KNOWLEDGE:safety_limit
 NEED_KNOWLEDGE:safety_limit,item_operation,atomic_action
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / atomic_action(4194字) / item_operation(3072字)
+**要读的库**（3 个）：safety_limit(1464字) / atomic_action(17929字) / item_operation(5128字)
 
 **声明需要的命令**：use, select, grab, inventory
 　全部在清单里
@@ -164,7 +163,7 @@ NEED_KNOWLEDGE:safety_limit,item_operation,atomic_action
 NEED_KNOWLEDGE:safety_limit,atomic_action,item_operation
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / atomic_action(4194字) / item_operation(3072字)
+**要读的库**（3 个）：safety_limit(1464字) / atomic_action(17929字) / item_operation(5128字)
 
 **声明需要的命令**：mine, grab, inventory, tile
 　全部在清单里
@@ -173,9 +172,7 @@ NEED_KNOWLEDGE:safety_limit,atomic_action,item_operation
 
 ### G03（阶段 1 · gather）
 
-**任务**：找一处**本世界生成的金属矿**，挖下来并数清背包里多了几个
-
-> 世界生成时金属是成组二选一的（铜/锡、铁/铅、银/钨、金/铂），所以“铜矿或铁矿”不是全世界的通用说法；必须先 `find` 确认这个世界到底有哪几种矿，再挖。
+**任务**：找一处铜矿或铁矿，挖下来并数清背包里多了几个
 
 **路由**：
 
@@ -183,7 +180,7 @@ NEED_KNOWLEDGE:safety_limit,atomic_action,item_operation
 NEED_KNOWLEDGE:safety_limit,item_operation
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / item_operation(3072字)
+**要读的库**（2 个）：safety_limit(1464字) / item_operation(5128字)
 
 **声明需要的命令**：find, mine, grab, inventory
 　全部在清单里
@@ -200,7 +197,7 @@ NEED_KNOWLEDGE:safety_limit,item_operation
 NEED_KNOWLEDGE:safety_limit,item_operation
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / item_operation(3072字)
+**要读的库**（2 个）：safety_limit(1464字) / item_operation(5128字)
 
 **声明需要的命令**：find, mine, grab, tile
 　全部在清单里
@@ -217,7 +214,7 @@ NEED_KNOWLEDGE:safety_limit,item_operation
 NEED_KNOWLEDGE:safety_limit,loot_source,game_rule
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / game_rule(4006字) / loot_source(1807字)
+**要读的库**（3 个）：safety_limit(1464字) / game_rule(5069字) / loot_source(2688字)
 
 **声明需要的命令**：find, mine, grab, state
 　全部在清单里
@@ -234,7 +231,7 @@ NEED_KNOWLEDGE:safety_limit,loot_source,game_rule
 NEED_KNOWLEDGE:safety_limit,loot_source
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / loot_source(1807字)
+**要读的库**（2 个）：safety_limit(1464字) / loot_source(2688字)
 
 **声明需要的命令**：mine, grab, inventory
 　全部在清单里
@@ -251,7 +248,7 @@ NEED_KNOWLEDGE:safety_limit,loot_source
 NEED_KNOWLEDGE:safety_limit,loot_source
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / loot_source(1807字)
+**要读的库**（2 个）：safety_limit(1464字) / loot_source(2688字)
 
 **声明需要的命令**：chest, inventory, grab
 　全部在清单里
@@ -268,7 +265,7 @@ NEED_KNOWLEDGE:safety_limit,loot_source
 NEED_KNOWLEDGE:safety_limit,item_operation
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / item_operation(3072字)
+**要读的库**（2 个）：safety_limit(1464字) / item_operation(5128字)
 
 **声明需要的命令**：select, use, tile, inventory
 　全部在清单里
@@ -287,7 +284,7 @@ NEED_KNOWLEDGE:safety_limit,item_operation
 NEED_KNOWLEDGE:safety_limit,item_operation
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / item_operation(3072字)
+**要读的库**（2 个）：safety_limit(1464字) / item_operation(5128字)
 
 **声明需要的命令**：grab, inventory, state
 　全部在清单里
@@ -306,7 +303,7 @@ NEED_KNOWLEDGE:safety_limit,item_operation
 NEED_KNOWLEDGE:safety_limit,build_standard,atomic_action
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / build_standard(1819字) / atomic_action(4194字)
+**要读的库**（3 个）：safety_limit(1464字) / build_standard(7087字) / atomic_action(17929字)
 
 **声明需要的命令**：place, wall, tile, inventory
 　全部在清单里
@@ -323,7 +320,7 @@ NEED_KNOWLEDGE:safety_limit,build_standard,atomic_action
 NEED_KNOWLEDGE:safety_limit,build_standard,npc_town
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / npc_town(2175字) / build_standard(1819字)
+**要读的库**（3 个）：safety_limit(1464字) / npc_town(3288字) / build_standard(7087字)
 
 **声明需要的命令**：place, wall, craft, homeroom, housing, housediag
 　全部在清单里
@@ -340,7 +337,7 @@ NEED_KNOWLEDGE:safety_limit,build_standard,npc_town
 NEED_KNOWLEDGE:safety_limit,atomic_action,build_standard
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / build_standard(1819字) / atomic_action(4194字)
+**要读的库**（3 个）：safety_limit(1464字) / build_standard(7087字) / atomic_action(17929字)
 
 **声明需要的命令**：fill, place, tile, state
 　全部在清单里
@@ -357,7 +354,7 @@ NEED_KNOWLEDGE:safety_limit,atomic_action,build_standard
 NEED_KNOWLEDGE:safety_limit,build_standard,item_operation
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / build_standard(1819字) / item_operation(3072字)
+**要读的库**（3 个）：safety_limit(1464字) / build_standard(7087字) / item_operation(5128字)
 
 **声明需要的命令**：place, craft, chest, tile
 　全部在清单里
@@ -374,7 +371,7 @@ NEED_KNOWLEDGE:safety_limit,build_standard,item_operation
 NEED_KNOWLEDGE:safety_limit,build_standard
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / build_standard(1819字)
+**要读的库**（2 个）：safety_limit(1464字) / build_standard(7087字)
 
 **声明需要的命令**：place, climb, tile, state
 　全部在清单里
@@ -391,7 +388,7 @@ NEED_KNOWLEDGE:safety_limit,build_standard
 NEED_KNOWLEDGE:safety_limit,build_standard,npc_town
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / npc_town(2175字) / build_standard(1819字)
+**要读的库**（3 个）：safety_limit(1464字) / npc_town(3288字) / build_standard(7087字)
 
 **声明需要的命令**：place, homeroom, housediag
 　全部在清单里
@@ -400,9 +397,7 @@ NEED_KNOWLEDGE:safety_limit,build_standard,npc_town
 
 ### K01（阶段 1 · craft）
 
-**任务**：用木材做工作台、木剑（并确认“木镐”是否存在）
-
-> 实测：原版**没有木镐**，最早的镐是铜镐/锡镐，需要金属锭。所以这条的正确预期结果是“工作台 + 木剑做成，木镐配方不存在 → 报 GAP/纠正用例”。
+**任务**：用木材做工作台、木剑、木镐
 
 **路由**：
 
@@ -410,7 +405,7 @@ NEED_KNOWLEDGE:safety_limit,build_standard,npc_town
 NEED_KNOWLEDGE:safety_limit,item_operation
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / item_operation(3072字)
+**要读的库**（2 个）：safety_limit(1464字) / item_operation(5128字)
 
 **声明需要的命令**：craft, recipes, inventory
 　全部在清单里
@@ -427,7 +422,7 @@ NEED_KNOWLEDGE:safety_limit,item_operation
 NEED_KNOWLEDGE:safety_limit,item_operation
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / item_operation(3072字)
+**要读的库**（2 个）：safety_limit(1464字) / item_operation(5128字)
 
 **声明需要的命令**：craft, recipes, find
 　全部在清单里
@@ -444,7 +439,7 @@ NEED_KNOWLEDGE:safety_limit,item_operation
 NEED_KNOWLEDGE:safety_limit,item_operation
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / item_operation(3072字)
+**要读的库**（2 个）：safety_limit(1464字) / item_operation(5128字)
 
 **声明需要的命令**：craft, recipes, inventory
 　全部在清单里
@@ -461,7 +456,7 @@ NEED_KNOWLEDGE:safety_limit,item_operation
 NEED_KNOWLEDGE:safety_limit,loot_source,item_operation
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / loot_source(1807字) / item_operation(3072字)
+**要读的库**（3 个）：safety_limit(1464字) / loot_source(2688字) / item_operation(5128字)
 
 **声明需要的命令**：craft, recipes, inventory
 　全部在清单里
@@ -478,7 +473,7 @@ NEED_KNOWLEDGE:safety_limit,loot_source,item_operation
 NEED_KNOWLEDGE:safety_limit,item_operation
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / item_operation(3072字)
+**要读的库**（2 个）：safety_limit(1464字) / item_operation(5128字)
 
 **声明需要的命令**：chest, inventory, drop
 　全部在清单里
@@ -495,12 +490,10 @@ NEED_KNOWLEDGE:safety_limit,item_operation
 NEED_KNOWLEDGE:safety_limit,item_operation
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / item_operation(3072字)
+**要读的库**（2 个）：safety_limit(1464字) / item_operation(5128字)
 
-**声明需要的命令**：drop, inventory
+**声明需要的命令**：drop, inventory, splitstack
 　全部在清单里
-
-**已知缺的命令**：splitstack
 
 **已知缺的知识**：item_operation 没有堆叠拆分规则
 
@@ -510,9 +503,7 @@ NEED_KNOWLEDGE:safety_limit,item_operation
 
 ### K07（阶段 1 · craft）
 
-**任务**：查配方判断当前材料能不能做出**本世界的金属镐**（铁/铅或铜/锡变体）
-
-> 实测：铁镐要铁锭 ×10，而铁在铅变体世界里根本不存在；这种世界对应的是铅镐。
+**任务**：查配方判断当前材料能不能做出铁镐
 
 **路由**：
 
@@ -520,7 +511,7 @@ NEED_KNOWLEDGE:safety_limit,item_operation
 NEED_KNOWLEDGE:safety_limit,item_operation
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / item_operation(3072字)
+**要读的库**（2 个）：safety_limit(1464字) / item_operation(5128字)
 
 **声明需要的命令**：recipes, inventory
 　全部在清单里
@@ -537,7 +528,7 @@ NEED_KNOWLEDGE:safety_limit,item_operation
 NEED_KNOWLEDGE:safety_limit,npc_town
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / npc_town(2175字)
+**要读的库**（2 个）：safety_limit(1464字) / npc_town(3288字)
 
 **声明需要的命令**：npc, talk, housing, homeroom
 　全部在清单里
@@ -554,7 +545,7 @@ NEED_KNOWLEDGE:safety_limit,npc_town
 NEED_KNOWLEDGE:safety_limit,npc_town,item_operation
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / npc_town(2175字) / item_operation(3072字)
+**要读的库**（3 个）：safety_limit(1464字) / npc_town(3288字) / item_operation(5128字)
 
 **声明需要的命令**：shops, shop, buy, npc
 　全部在清单里
@@ -571,7 +562,7 @@ NEED_KNOWLEDGE:safety_limit,npc_town,item_operation
 NEED_KNOWLEDGE:safety_limit,npc_town
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / npc_town(2175字)
+**要读的库**（2 个）：safety_limit(1464字) / npc_town(3288字)
 
 **声明需要的命令**：npc, heal, state
 　全部在清单里
@@ -588,18 +579,16 @@ NEED_KNOWLEDGE:safety_limit,npc_town
 NEED_KNOWLEDGE:safety_limit
 ```
 
-**要读的库**（1 个）：safety_limit(1174字)
+**要读的库**（1 个）：safety_limit(1464字)
 
 **声明需要的命令**：npc, talk
 　全部在清单里
 
-**已知缺的命令**：quest
-
 **已知缺的知识**：npc_town 只写了渔夫怎么出现，没有任务系统：任务进度、任务鱼种类、交付规则
 
-**撞上明确做不到**：NPC 对话文本
+**撞上明确做不到**：NPC 对话选项与任务进度
 
-**备注**：读不到任务进度与对话文本
+**备注**：quest 能读到要哪条鱼、今天交没交；交付要靠对话选项，读不到也点不了
 
 **推演要点**：按 `prompts/offline-sim.md` 写 SELF_CHECK 五维 + FLOW + GAPS。
 
@@ -613,7 +602,7 @@ NEED_KNOWLEDGE:safety_limit
 NEED_KNOWLEDGE:safety_limit,npc_town,gear_route
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / gear_route(2197字) / npc_town(2175字)
+**要读的库**（3 个）：safety_limit(1464字) / gear_route(2197字) / npc_town(3288字)
 
 **声明需要的命令**：shops, shop, buy, sell, npc
 　全部在清单里
@@ -630,7 +619,7 @@ NEED_KNOWLEDGE:safety_limit,npc_town,gear_route
 NEED_KNOWLEDGE:safety_limit,npc_town,build_standard
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / npc_town(2175字) / build_standard(1819字)
+**要读的库**（3 个）：safety_limit(1464字) / npc_town(3288字) / build_standard(7087字)
 
 **声明需要的命令**：housing, housediag, roomcheck, tile
 　全部在清单里
@@ -647,16 +636,14 @@ NEED_KNOWLEDGE:safety_limit,npc_town,build_standard
 NEED_KNOWLEDGE:safety_limit,loot_source
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / loot_source(1807字)
+**要读的库**（2 个）：safety_limit(1464字) / loot_source(2688字)
 
-**声明需要的命令**：select, use, state
+**声明需要的命令**：bobber, castline, reel, select, state, use
 　全部在清单里
-
-**已知缺的命令**：castline, reel
 
 **已知缺的知识**：loot_source 只写了"需要钓竿+鱼饵、产物由群系深度决定"，缺动作流程与判定：怎么抛竿、咬钩的时机信号、收线、鱼饵每次消耗
 
-**撞上明确做不到**：随机事件与时机窗口；通用弹幕状态
+**撞上明确做不到**：随机事件与时机窗口
 
 **备注**：抛竿/等待/收线是时序原语，use 只能点一下，也读不到浮标状态
 
@@ -672,9 +659,9 @@ NEED_KNOWLEDGE:safety_limit,loot_source
 NEED_KNOWLEDGE:safety_limit,loot_source
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / loot_source(1807字)
+**要读的库**（2 个）：safety_limit(1464字) / loot_source(2688字)
 
-**声明需要的命令**：select, use, npc, inventory
+**声明需要的命令**：capture, inventory, npc, select, use
 　全部在清单里
 
 **已知缺的知识**：loot_source 只提到松露虫，缺捕捉机制：虫网怎么用、哪些生物可捕、成功率
@@ -695,7 +682,7 @@ NEED_KNOWLEDGE:safety_limit,loot_source
 NEED_KNOWLEDGE:safety_limit,item_operation
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / item_operation(3072字)
+**要读的库**（2 个）：safety_limit(1464字) / item_operation(5128字)
 
 **声明需要的命令**：place, inventory
 　全部在清单里
@@ -712,16 +699,14 @@ NEED_KNOWLEDGE:safety_limit,item_operation
 NEED_KNOWLEDGE:safety_limit
 ```
 
-**要读的库**（1 个）：safety_limit(1174字)
+**要读的库**（1 个）：safety_limit(1464字)
 
-**声明需要的命令**：select, use, npc, talk
+**声明需要的命令**：bobber, castline, npc, reel, select, talk, use
 　全部在清单里
-
-**已知缺的命令**：castline, reel, quest
 
 **已知缺的知识**：任务鱼与交付规则同上，未入库
 
-**撞上明确做不到**：NPC 对话文本；通用弹幕状态
+**撞上明确做不到**：NPC 对话选项与任务进度
 
 **推演要点**：按 `prompts/offline-sim.md` 写 SELF_CHECK 五维 + FLOW + GAPS。
 
@@ -735,7 +720,7 @@ NEED_KNOWLEDGE:safety_limit
 NEED_KNOWLEDGE:safety_limit,combat_math,actor_behavior
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / combat_math(1726字) / actor_behavior(1454字)
+**要读的库**（3 个）：safety_limit(1464字) / combat_math(1726字) / actor_behavior(4739字)
 
 **声明需要的命令**：attack, npc, state, move
 　全部在清单里
@@ -752,7 +737,7 @@ NEED_KNOWLEDGE:safety_limit,combat_math,actor_behavior
 NEED_KNOWLEDGE:safety_limit,combat_math
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / combat_math(1726字)
+**要读的库**（2 个）：safety_limit(1464字) / combat_math(1726字)
 
 **声明需要的命令**：select, shoot, attack, npc
 　全部在清单里
@@ -769,7 +754,7 @@ NEED_KNOWLEDGE:safety_limit,combat_math
 NEED_KNOWLEDGE:safety_limit,combat_math
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / combat_math(1726字)
+**要读的库**（2 个）：safety_limit(1464字) / combat_math(1726字)
 
 **声明需要的命令**：state, move, guard, attack
 　全部在清单里
@@ -786,7 +771,7 @@ NEED_KNOWLEDGE:safety_limit,combat_math
 NEED_KNOWLEDGE:safety_limit,world_biome,combat_math
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / world_biome(2411字) / combat_math(1726字)
+**要读的库**（3 个）：safety_limit(1464字) / world_biome(3223字) / combat_math(1726字)
 
 **声明需要的命令**：travel, find, attack, npc
 　全部在清单里
@@ -803,7 +788,7 @@ NEED_KNOWLEDGE:safety_limit,world_biome,combat_math
 NEED_KNOWLEDGE:safety_limit,progression_boss
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / progression_boss(2017字)
+**要读的库**（2 个）：safety_limit(1464字) / progression_boss(2282字)
 
 **声明需要的命令**：craft, select, use, attack, boss, npc
 　全部在清单里
@@ -820,7 +805,7 @@ NEED_KNOWLEDGE:safety_limit,progression_boss
 NEED_KNOWLEDGE:safety_limit,progression_boss
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / progression_boss(2017字)
+**要读的库**（2 个）：safety_limit(1464字) / progression_boss(2282字)
 
 **声明需要的命令**：grab, inventory, boss
 　全部在清单里
@@ -837,12 +822,10 @@ NEED_KNOWLEDGE:safety_limit,progression_boss
 NEED_KNOWLEDGE:safety_limit
 ```
 
-**要读的库**（1 个）：safety_limit(1174字)
+**要读的库**（1 个）：safety_limit(1464字)
 
-**声明需要的命令**：event, guard, attack, state
+**声明需要的命令**：attack, event, guard, startevent, state
 　全部在清单里
-
-**已知缺的命令**：startevent
 
 **撞上明确做不到**：随机事件与时机窗口
 
@@ -858,12 +841,10 @@ NEED_KNOWLEDGE:safety_limit
 NEED_KNOWLEDGE:safety_limit
 ```
 
-**要读的库**（1 个）：safety_limit(1174字)
+**要读的库**（1 个）：safety_limit(1464字)
 
-**声明需要的命令**：event, attack, guard
+**声明需要的命令**：attack, event, guard, startevent
 　全部在清单里
-
-**已知缺的命令**：startevent
 
 **备注**：event 只能读状态，没有触发的口子
 
@@ -879,7 +860,7 @@ NEED_KNOWLEDGE:safety_limit
 NEED_KNOWLEDGE:safety_limit,item_operation,loot_source
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / loot_source(1807字) / item_operation(3072字)
+**要读的库**（3 个）：safety_limit(1464字) / loot_source(2688字) / item_operation(5128字)
 
 **声明需要的命令**：drop, find, inventory, tile
 　全部在清单里
@@ -896,7 +877,7 @@ NEED_KNOWLEDGE:safety_limit,item_operation,loot_source
 NEED_KNOWLEDGE:safety_limit,progression_boss,world_biome
 ```
 
-**要读的库**（3 个）：safety_limit(1174字) / world_biome(2411字) / progression_boss(2017字)
+**要读的库**（3 个）：safety_limit(1464字) / world_biome(3223字) / progression_boss(2282字)
 
 **声明需要的命令**：boss, attack, select, use, find
 　全部在清单里
@@ -913,12 +894,10 @@ NEED_KNOWLEDGE:safety_limit,progression_boss,world_biome
 NEED_KNOWLEDGE:safety_limit
 ```
 
-**要读的库**（1 个）：safety_limit(1174字)
+**要读的库**（1 个）：safety_limit(1464字)
 
-**声明需要的命令**：event, guard, attack, npc
+**声明需要的命令**：attack, event, guard, npc, startevent
 　全部在清单里
-
-**已知缺的命令**：startevent
 
 **撞上明确做不到**：随机事件与时机窗口
 
@@ -934,7 +913,7 @@ NEED_KNOWLEDGE:safety_limit
 NEED_KNOWLEDGE:safety_limit,gear_route
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / gear_route(2197字)
+**要读的库**（2 个）：safety_limit(1464字) / gear_route(2197字)
 
 **声明需要的命令**：equip, accessory, inventory
 　全部在清单里
@@ -951,7 +930,7 @@ NEED_KNOWLEDGE:safety_limit,gear_route
 NEED_KNOWLEDGE:safety_limit,gear_route
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / gear_route(2197字)
+**要读的库**（2 个）：safety_limit(1464字) / gear_route(2197字)
 
 **声明需要的命令**：select, use, state
 　全部在清单里
@@ -968,7 +947,7 @@ NEED_KNOWLEDGE:safety_limit,gear_route
 NEED_KNOWLEDGE:safety_limit,combat_math
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / combat_math(1726字)
+**要读的库**（2 个）：safety_limit(1464字) / combat_math(1726字)
 
 **声明需要的命令**：select, use, shoot, attack
 　全部在清单里
@@ -985,9 +964,85 @@ NEED_KNOWLEDGE:safety_limit,combat_math
 NEED_KNOWLEDGE:safety_limit,actor_behavior
 ```
 
-**要读的库**（2 个）：safety_limit(1174字) / actor_behavior(1454字)
+**要读的库**（2 个）：safety_limit(1464字) / actor_behavior(4739字)
 
 **声明需要的命令**：hook, unhook, state, move
 　全部在清单里
+
+**推演要点**：按 `prompts/offline-sim.md` 写 SELF_CHECK 五维 + FLOW + GAPS。
+
+### M08（阶段 3 · move）
+
+**任务**：在地面上向右走 0.6 秒，必须真的产生位移
+
+**路由**：
+
+```
+NEED_KNOWLEDGE:safety_limit,atomic_action
+```
+
+**要读的库**（2 个）：safety_limit(1464字) / atomic_action(17929字)
+
+**声明需要的命令**：move, state
+　全部在清单里
+
+**备注**：判据三条：state.flagRight===true（ApplyNativeControlFlags 当帧 controlRight 真值）；state.player.velocity[0] 从 0 加速到 2.8 左右；位移>3 格。<br>红线：state.ropeContact.onRopeReal===true 时原版禁止横移，位移 0 是正确行为，必须先下绳再测。禁止用 humaninput.control.right 当判据（读取时机在 Player.Update 之后，原版已重置）。
+
+**推演要点**：按 `prompts/offline-sim.md` 写 SELF_CHECK 五维 + FLOW + GAPS。
+
+### M09（阶段 3 · move）
+
+**任务**：站在实心地面、头顶三格全空，jump ms=400 必须起跳
+
+**路由**：
+
+```
+NEED_KNOWLEDGE:safety_limit,atomic_action
+```
+
+**要读的库**（2 个）：safety_limit(1464字) / atomic_action(17929字)
+
+**声明需要的命令**：jump, state, tile
+　全部在清单里
+
+**备注**：判据：state.flagJump===true 且 velocity[1] 出现负值（约 -4.6），跳幅 4.5~5.5 格。<br>红线：起跳前先读 tile 确认头顶 ≥3 格空；state.player.grounded 必须 true。跳不起来先查头顶，不要改代码。
+
+**推演要点**：按 `prompts/offline-sim.md` 写 SELF_CHECK 五维 + FLOW + GAPS。
+
+### M10（阶段 3 · move）
+
+**任务**：站到脚底格真的是绳的位置（ropeContact.tileFeetType===213），move down 必须下爬
+
+**路由**：
+
+```
+NEED_KNOWLEDGE:safety_limit,atomic_action
+```
+
+**要读的库**（2 个）：safety_limit(1464字) / atomic_action(17929字)
+
+**声明需要的命令**：move, state, tile, find
+　全部在清单里
+
+**备注**：前置：state.ropeContact.onRopeReal===true 且 pulley===true；脚底格不是 213 时无论怎么按都不会动，这是引擎判定，不是 bug。<br>判据：velocity[1] 出现正值（约 +2.4）且 y 增大。<br>红线：禁止写 velocity 或 pulley 制造爬升。
+
+**推演要点**：按 `prompts/offline-sim.md` 写 SELF_CHECK 五维 + FLOW + GAPS。
+
+### M11（阶段 3 · move）
+
+**任务**：在绳上 move up，绳没到顶时必须上爬；已到绳顶时不动是正确行为
+
+**路由**：
+
+```
+NEED_KNOWLEDGE:safety_limit,atomic_action
+```
+
+**要读的库**（2 个）：safety_limit(1464字) / atomic_action(17929字)
+
+**声明需要的命令**：move, state, tile, find
+　全部在清单里
+
+**备注**：判据：绳顶以下 velocity[1] 应为负值（爬升）；若 y 已贴近绳顶那一格，velocity[1]===0 是引擎正确反应，判 PASS 不判 FAIL。<br>红线：先用 find type:213 读出绳的上下界，不要凭感觉说“爬不动”。
 
 **推演要点**：按 `prompts/offline-sim.md` 写 SELF_CHECK 五维 + FLOW + GAPS。

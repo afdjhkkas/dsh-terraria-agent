@@ -29,6 +29,10 @@
 | M05 | GAP | 逐层下行→识别岩浆→绕开 | **R1** 液体类型 |
 | M06 | GAP | 找发光蘑菇地/微光池 | **R1** 液体类型、**D1**、**K1** |
 | M07 | GAP | 打开大地图读数 | **C4** `map` |
+| M08 | PASS | `move {dir:right,ms:600}` → 逐帧 `state`：`flagRight` 当帧真值 + `velocity[0]` 加速曲线 + 位移 | —（红线：`ropeContact.onRopeReal` 为真时原版禁止横移，须先下绳） |
+| M09 | PASS | `tile` 确认头顶 ≥3 格空 → `jump {ms:400}` → `state.flagJump` 与 `velocity[1]` 出负值、跳幅 4.5~5.5 格 | —（红线：`grounded` 必须 true，跳不动先查头顶） |
+| M10 | PASS | `find type:213` 读绳上下界 → 站到脚底格 213 → `ropeContact.onRopeReal/pulley` 为真 → `move {dir:down}` → `velocity[1]` 出正值 | —（红线：脚底格不是 213 时按什么都不会动，属引擎判定） |
+| M11 | PASS | 同上 → `move {dir:up}` → 绳顶以下 `velocity[1]` 出负值；已到绳顶时 `velocity[1]===0` 判 PASS | —（旧 `onRope` 看身体范围会误报，须改用 `ropeContact.onRopeReal`） |
 | G01 | PASS | `select(斧)`→砍树干→`grab` | — |
 | G02 | PASS | `mine`×10→`grab`→`inventory` 差额 | — |
 | G03 | PASS | `find(type=铜/铁)`→`mine`→`inventory` 计数 | — |

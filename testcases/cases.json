@@ -1278,6 +1278,95 @@
         ],
         "kbMissing": []
       }
+    },
+    {
+      "id": "M08",
+      "phase": 3,
+      "category": "move",
+      "task": "在地面上向右走 0.6 秒，必须真的产生位移",
+      "needs": {
+        "commands": [
+          "move",
+          "state"
+        ],
+        "kb": [
+          "atomic_action"
+        ],
+        "kbAnchors": [
+          "左右",
+          "位移"
+        ],
+        "kbMissing": []
+      },
+      "note": "判据三条：state.flagRight===true（ApplyNativeControlFlags 当帧 controlRight 真值）；state.player.velocity[0] 从 0 加速到 2.8 左右；位移>3 格。<br>红线：state.ropeContact.onRopeReal===true 时原版禁止横移，位移 0 是正确行为，必须先下绳再测。禁止用 humaninput.control.right 当判据（读取时机在 Player.Update 之后，原版已重置）。"
+    },
+    {
+      "id": "M09",
+      "phase": 3,
+      "category": "move",
+      "task": "站在实心地面、头顶三格全空，jump ms=400 必须起跳",
+      "needs": {
+        "commands": [
+          "jump",
+          "state",
+          "tile"
+        ],
+        "kb": [
+          "atomic_action"
+        ],
+        "kbAnchors": [
+          "跳跃",
+          "满跳"
+        ],
+        "kbMissing": []
+      },
+      "note": "判据：state.flagJump===true 且 velocity[1] 出现负值（约 -4.6），跳幅 4.5~5.5 格。<br>红线：起跳前先读 tile 确认头顶 ≥3 格空；state.player.grounded 必须 true。跳不起来先查头顶，不要改代码。"
+    },
+    {
+      "id": "M10",
+      "phase": 3,
+      "category": "move",
+      "task": "站到脚底格真的是绳的位置（ropeContact.tileFeetType===213），move down 必须下爬",
+      "needs": {
+        "commands": [
+          "move",
+          "state",
+          "tile",
+          "find"
+        ],
+        "kb": [
+          "atomic_action"
+        ],
+        "kbAnchors": [
+          "绳子",
+          "下降"
+        ],
+        "kbMissing": []
+      },
+      "note": "前置：state.ropeContact.onRopeReal===true 且 pulley===true；脚底格不是 213 时无论怎么按都不会动，这是引擎判定，不是 bug。<br>判据：velocity[1] 出现正值（约 +2.4）且 y 增大。<br>红线：禁止写 velocity 或 pulley 制造爬升。"
+    },
+    {
+      "id": "M11",
+      "phase": 3,
+      "category": "move",
+      "task": "在绳上 move up，绳没到顶时必须上爬；已到绳顶时不动是正确行为",
+      "needs": {
+        "commands": [
+          "move",
+          "state",
+          "tile",
+          "find"
+        ],
+        "kb": [
+          "atomic_action"
+        ],
+        "kbAnchors": [
+          "绳子",
+          "爬升"
+        ],
+        "kbMissing": []
+      },
+      "note": "判据：绳顶以下 velocity[1] 应为负值（爬升）；若 y 已贴近绳顶那一格，velocity[1]===0 是引擎正确反应，判 PASS 不判 FAIL。<br>红线：先用 find type:213 读出绳的上下界，不要凭感觉说“爬不动”。"
     }
   ]
 }
