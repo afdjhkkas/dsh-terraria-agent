@@ -71,11 +71,15 @@
 返回 `player{ tile,pos,velocity,life,lifeMax,mana,dead,direction,grounded,breath,wet,held,buffs,zones,
 minions,minionSlots,grapCount,hookType,mounted,wingTime,hasWings,itemAnimation,playerIndex }`、
 `world{ name,width,height,dayTime,time,raining,bloodMoon,eclipse,hardmode,tick }`、
-以及 `guard / attack / path / walk / travel` 各作业状态。诊断 `inputDiag` 比对 `Main.myPlayer`、
+以及 `guard / attack / path / walk / travel` 各作业状态。`ropeContact` 额外报告 `pulley`、`ropeCount`、
+碰撞箱内绳格、脚底 `tileFeetY/tileFeetType` 和 `onRopeReal`；动作决策只使用 `onRopeReal`。
+诊断 `inputDiag` 比对 `Main.myPlayer`、
 `Main.LocalPlayer.whoAmI`、`Main.player[Main.myPlayer].whoAmI` 与响应玩家索引；并保留
 `postUpdateInput` 的 Triggers 快照和 `postUpdateRunSpeeds` 的 `Player.control*` 快照（含采样 tick 与 whoAmI），
-用来判断输入在哪个阶段丢失。`dbgCtrlUp` 读 `PlayerInput.Triggers.Current.Up`；`dbgPlayerControlUp` 读原版更新后的
-`Player.controlUp`，Triggers 与 control 的对照以 `inputDiag` 的两阶段快照为准。
+用来判断输入在哪个阶段丢失。`state.flagLeft/flagRight/flagUp/flagDown/flagJump`（`player` 内也有兼容副本）
+是 `ApplyNativeControlFlags()` 返回前保存的当帧控制位，才是控制输出的可信证据；`dbgCtrlUp` 读
+`PlayerInput.Triggers.Current.Up`，`dbgPlayerControlUp` 与 `humaninput.control.*` 都是在原版更新后读取的兼容观察值，
+不能用来证明某一帧是否曾经置过输入。
 
 - **`zones`** 是关键：`corrupt/crimson/jungle/snow/desert/beach/dungeon/glowshroom/meteor/hallow/underworld/rocklayer/dirtlayer/sky/surface`，找群系不用盲挖。
 - `grounded` 要求「本帧与上一帧速度都为 0」，斜坡上站着不会误报。
@@ -112,12 +116,14 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 ### `screentoTile {sx,sy}` — 屏幕坐标 → 瓦片
 回 `{screen, world, tile}`，用来把截图里看到的东西对准到格子。
 
-### `humaninput` — 真人输入原样读回
+### `humaninput` — 真人输入原样读回（兼容观察）
 `{tick, keys, control{left,right,jump,up,down,mouseLeft,mouseRight}, player{playerIndex,tile,velocity,grounded,life}, inputDiag, mouse{left,right,x,y,tileX,tileY,os,source,inClient}}`。
 `inputDiag` 的字段为 `playerIds{myPlayer,localPlayerWhoAmI,indexedPlayerWhoAmI,responsePlayerWhoAmI}`、
 `postUpdateInput{tick,whoAmI,left,right,up,down,jump}`、`postUpdateRunSpeeds{tick,whoAmI,left,right,up,down,jump}`。
 前者采样 ModSystem 注入后的 `PlayerInput.Triggers.Current`，后者采样原版更新后 `Player.control*`；
-两阶段字段各带自己的 tick 和玩家索引，不能把 control 快照当作 Triggers。`state.inputDiag` 提供同一诊断快照，
+两阶段字段各带自己的 tick 和玩家索引。`humaninput.control.*` 是命令线程晚读值，原版可能已经在
+`Player.Update` 后重置，**不能作为当帧控制证据**；要判断桥是否真的置上控制位，读 `state.flag*`（或
+`state.player.flag*`）以及对应的 `flagTick`。`state.inputDiag` 只用于阶段和玩家索引诊断，
 `state.player.playerIndex` 与 `humaninput.player.playerIndex` 标识各自回读的玩家。
 `mouse.source` = `os`（Win32 `GetCursorPos`+`ClientToScreen` 实测，窗口失焦也准）或 `xna`（`Main.mouseX/Y`，窗口不活跃时会冻在最后一次有效值）。
 录示范时必须用它，否则学到的是"操作者为了配合测试而改变的操作"。
@@ -135,9 +141,9 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 
 | 命令 | 说明 | 证据 / 限制 |
 |---|---|---|
-| `move {dir,ms}` | 按住原版方向键输入（速度、碰撞和台阶由游戏计算） | 1.4 秒顶墙位置不变，证明碰撞生效 |
-| `jump {ms}` | 按住原版跳跃键输入（高度由按住时长和游戏物理决定） | 起跳/上台阶 |
-| `climb {dir,ms}` | **只在绳子上**才生效 | 301→291、455→307；绳道分段 28 格 |
+| `move {dir,ms}` | 按住原版方向键输入（速度、碰撞和台阶由游戏计算）；脚底真在绳上时先按下脱绳，再开始左右动作 | 1.4 秒顶墙位置不变，证明碰撞生效；脱绳过程看 `ropeRelease`；无绳/无翅膀时 `up` 只报告输入已发出，不承诺垂直位移 |
+| `jump {ms}` | 按住原版跳跃键输入（高度由按住时长和游戏物理决定）；脚底真在绳上时先按下脱绳，再开始跳跃 | 起跳/上台阶；控制证据看 `state.flagJump` |
+| `climb {dir,ms}` | **只在脚底真实绳格上**才生效；身体中段碰到绳不算挂绳 | `ropeContact.onRopeReal` 与 `tileFeetType` 先确认，再看纵坐标回读 |
 | `walkto {x,y,tol,ms}` | 走到坐标。内部是 **感知→决策→执行** 三层：每 tick 扫 8 列地面（落差/墙高/是否建材/是否门/是否坑），执行层只发方向/跳跃/右键交互输入 | 已能穿过自建房的关门（右键交互由原版处理）、跳过 1~6 格台阶、跨 ≤3 格坑；⚠️「地面→实心屋顶」这种组合仍需实机复测 |
 | `walkmode {mode}` | `legacy` / `reactive` / `new` 切换走路实现，用来同场景对比两套 | 回包带当前模式；层级为首次改动的隔离用 |
 | `path {x,y,ms,dig}` | A* 寻路（离线镜像 `src/path-model.js` 的 C# 版，四类边：走/跨/跳/落） | 失败时回 `why`（含起点终点是否可站、`opened` 计数）。⚠️ 兜底包围盒 ±10 |
@@ -150,7 +156,10 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 
 ### 基础按键输入
 
-移动、跳跃、爬绳、平台下落、使用物品、右键交互、抓钩、坐骑和飞行都只写游戏输入层：方向键/跳跃键走 `PlayerInput.Triggers.Current`，鼠标动作走 `Main.mouseLeft` / `Main.mouseRight` 及释放边沿，物品结果由 `ItemCheck` 和原版物理结算。桥不写 `velocity`、`position`、`pulley`、`grapCount` 或弹幕结果。每个改变世界或角色状态的动作都必须在命令返回后回读确认。
+移动、跳跃、爬绳、平台下落、使用物品、右键交互、抓钩、坐骑和飞行都只写游戏输入层：移动/跳跃最终在
+`SetControls` 的 `Player.control*` 输入标志上落地，`PlayerInput.Triggers.Current` 负责边沿与诊断，鼠标动作走
+`Main.mouseLeft` / `Main.mouseRight` 及释放边沿，物品结果由 `ItemCheck` 和原版物理结算。桥不写 `velocity`、
+`position`、`pulley`、`grapCount` 或弹幕结果。每个改变世界或角色状态的动作都必须在命令返回后回读确认。
 | `fly {ms}` | 飞行/跳跃 | 无翅膀时回 `hasWings:false` + 明确提示，不假装飞起来 |
 | `mount {action}` | 坐骑 | `info` 返回可用坐骑物品；无坐骑时 `{active:false,items:[]}` |
 

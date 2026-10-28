@@ -210,11 +210,12 @@
 3. 长按期间持续回读纵坐标，出现以下任一情况立刻松开：到达目标高度、已落地、血量归零/环境致命。
 4. 落地判据是 `grounded == true` 且纵坐标不再变；只看"跳了一下"会把被天花板挡住的半跳当成功。
 5. **脚本下发的跳跃必须走输入层，而且窗口必须在前台**：`ModSystem.PostUpdateInput`
-   保留 `PlayerInput.Triggers.Current.Jump` 的真人按键诊断；实际桥接输出在
+   保留 `PlayerInput.Triggers.Current.Jump` 的边沿/诊断；实际桥接输出在
    `ModPlayer.SetControls` 里写入 `Player.controlJump`，再交给原版 `Player.Update` 消费。
-   本环境实测 Triggers 单独为真不会驱动 `controlJump`，所以不能只写触发器；而游戏窗口
-   失去焦点时，输入层整条被引擎忽略——同一份代码在前台能跳到上限、在后台一格都跳不起来。
-   **推论**：任何"输入层动作"（跳跃/抓钩/使用）失败时，先查 `focus`，别急着改算法。
+   本环境实测 Triggers 单独为真不会驱动 `controlJump`，所以不能只看 `humaninput.control.jump`
+   或只写触发器；当帧是否真的置上要看 `state.flagJump`（`ApplyNativeControlFlags()` 返回前的快照）。
+   游戏窗口失去焦点时，输入层整条可能被引擎忽略——同一份代码在前台能跳到上限、在后台一格都跳不起来。
+   **推论**：任何输入层动作失败时，先查 `focus` 和 `state.flag*`，别把更新后的晚读 control 当证据。
 6. 脚本侧不要手调时长：`jump{tiles:N}` 直接说"要跳几格"，桥按标定曲线反查按住时长
    （曲线是机器参数，见 `docs/terraria-mechanics.md`）；`N` 超过上限时必须改走台阶/钩爪。
 
@@ -257,7 +258,12 @@
   指望 `climb` 自己开路会永远卡在原地。
 - **绳子用完立刻会掉下来**（录像里绳子归零后按"下"，人直接落到地面）。爬之前先数绳够不够。
 - 下爬用方向"下"，不需要按住左键。
-- 绳子的位置判定很窄：只有人**正对绳子那一列**才算挂上，横向偏半格就滑落。
+- 绳子的动作判定看**脚底所在格**：`tileFeetY = floor((position.Y + height) / 16)`，
+  `onRopeReal` 只在脚底中心格是绳子时为真。身体中段覆盖到绳子、但脚站在土/平台上时，
+  `bodyHasRopeTile` 可以为真而 `onRopeReal` 必须为假；不能用 `ropeCount` 或身体范围替代这个判据。
+- 原版挂绳时会忽略水平移动和跳跃。`move left/right` 与 `jump` 若发现 `onRopeReal:true`，
+  命令层先发真实 `controlDown`，等脚底离开绳格后再开始原动作；不清 `pulley`、不改速度，
+  脱绳失败会在 `state.ropeRelease.failed` 留证据。
 - 工具层：`climb {dir:"up", lay:true}` 就是"手持绳按住上 + 按住左键"这一套；实测
   6 秒升 25.6 格、绳子 49→24（**每升 1 格耗 1 根**），和真人录像的 31 格/10 秒同量级。
   `lay:false` 只能爬已经铺好的绳，到顶就停。
@@ -475,18 +481,12 @@
 
 **动作顺序**：`jump {ms:150}` → 等人在半空（原站立格所在行空出来）→ `place {x:列, y:站立格+1, type:方块}` → 等落地 → 复查 `pos.y` 是否真的减少 1。
 
-### 未解决：爬绳（controlUp 通道）
+### 输入控制位与绳状态的统一判据
 
-**现象**：绳已铺在人脚下（`onRope:true`、诊断 `dbgRopeTile:true`），发 `climb up` 或 `move up`，7 帧采样全是 `y` 不变、`vy 0.00`、`dbgCtrlUp false`、`dbgPulley false`。
-
-**已排除**：绳的位置（回读确认 `type 213`）、假速度（源码里已无任何 `velocity.Y` 赋值）、跳跃键（`controlJump` 不再被设）。
-
-**矛盾点**：同一个 `SetControls()` 钩子里写的 `controlLeft/controlRight` **被原版认**（今天走了几千格），但 `controlUp` 到 `PostUpdateRunSpeeds` 时读出来是 `false`。
-
-**两个待分辨的假设**（下次开游戏第一件事）：
-1. 原版在 `SetControls()` 之后、`PulleyMovement` 之前用真实键盘重写了 `controlUp`（而左右没被重写）；
-2. `Player.pulley` 的判定不看 `controlUp`，直接读 `Main.keyState`。
-
-**分辨方法**：在 `PostUpdateRunSpeeds` 里同时记录 `Main.keyState.IsKeyDown(Keys.Up)` 与 `Player.controlUp` 两个值，通过 `state` 回读。
-
-**不允许的绕法**：伪造 `Main.keyState`（等于塞 OS 按键）、自己写 `velocity.Y`。可以考虑的只剩 `Player.pulley = true` 单标志（不碰速度）或 IL 钩子。
+- `humaninput.control.*` 是命令线程晚读值，`Player.Update` 结束后原版可能已经重置；它只能兼容观察，
+  不能证明某一帧桥是否发出了控制。
+- 当帧控制位以 `state.flagLeft/flagRight/flagUp/flagDown/flagJump` 为准；这些值在
+  `ApplyNativeControlFlags()` 返回前保存，另带 `flagTick`。`inputDiag.postUpdateInput` 是 Triggers 阶段，
+  用来查边沿与顺序，不能替代 `flag*`。
+- `state.ropeContact.bodyHasRopeTile` 只说明碰撞箱扫到了绳，`onRopeReal` 才说明脚底真实挂绳；
+  `pulley` 与 `ropeCount` 原样保留为引擎诊断，不参与动作决策。

@@ -314,7 +314,9 @@ namespace DshTerrariaBridge
         private static bool BridgeJumpHeld, BridgeLeftHeld, BridgeRightHeld, BridgeUpHeld, BridgeDownHeld;
         // Movement decisions are made before Player.Update.  Keep them as input intents so
         // PostUpdateInput can present the same key state to vanilla in the correct phase.
-        private static bool IntentLeft, IntentRight, IntentUp, IntentDown, IntentJump;
+        // internal 而不是 private：Commands.cs 的 state 回包要只读地暴露这五个意图位，
+        // 用来区分「意图没置上」和「意图置上了但 control 没跟随」这两种完全不同的故障。
+        internal static bool IntentLeft, IntentRight, IntentUp, IntentDown, IntentJump;
         private static ulong MovementAppliedTick = ulong.MaxValue;
 
         // These helpers are the actual keyboard-level output.  Keep the intent bit for the
@@ -390,10 +392,32 @@ namespace DshTerrariaBridge
             // environment has proven that trigger-only output does not reach control*.
             player.controlLeft |= IntentLeft || (triggers.Left && LeftUntil > now);
             player.controlRight |= IntentRight || (triggers.Right && RightUntil > now);
-            player.controlUp |= IntentUp || (triggers.Up && (UpUntil > now || ClimbUpUntil > now));
-            player.controlDown |= IntentDown || (triggers.Down && (DownUntil > now || ClimbDownUntil > now));
+            // 上下不能只靠 triggers：实测 `climb dir:down` 时 triggers.Down 为真、intentDown 为假，
+            // 于是这一行原本算出来是 false，control 一次都没置上、人一格都不降。
+            // 上下这条链上真正带时间窗的是 UpUntil/DownUntil/ClimbUpUntil/ClimbDownUntil，
+            // 它们必须直接参与判断，不能躲在 triggers 后面。
+            player.controlUp |= IntentUp || UpUntil > now || ClimbUpUntil > now;
+            player.controlDown |= IntentDown || DownUntil > now || ClimbDownUntil > now;
             player.controlJump |= IntentJump || (triggers.Jump && JumpUntil > now);
+            // 诊断：只在这个函数返回前把 control 的当帧值记下来。命令线程读到 control* 时
+            // Player.Update 早已跑完、原版已经重置，所以 humaninput 里的 control 不能当证据。
+            DbgFlagsTick = (long)now;
+            DbgFlagsLeft = player.controlLeft;
+            DbgFlagsRight = player.controlRight;
+            DbgFlagsUp = player.controlUp;
+            DbgFlagsDown = player.controlDown;
+            DbgFlagsJump = player.controlJump;
+            DbgFlagsIntentRight = IntentRight;
+            DbgFlagsIntentJump = IntentJump;
+            DbgFlagsRightUntilLive = RightUntil > now;
+            DbgFlagsJumpUntilLive = JumpUntil > now;
         }
+
+        // 诊断快照：ApplyNativeControlFlags 结束时 control* 的真实值。
+        internal static long DbgFlagsTick;
+        internal static bool DbgFlagsLeft, DbgFlagsRight, DbgFlagsUp, DbgFlagsDown, DbgFlagsJump;
+        internal static bool DbgFlagsIntentRight, DbgFlagsIntentJump;
+        internal static bool DbgFlagsRightUntilLive, DbgFlagsJumpUntilLive;
 
         private static bool ReadKey(string key)
         {
@@ -1689,6 +1713,12 @@ namespace DshTerrariaBridge
             if (p == null || !p.active || p.dead) return;
             ulong now = Main.GameUpdateCount;
 
+            // Vanilla deliberately suppresses horizontal movement and jumping
+            // while the feet are on a rope.  Release that state with a genuine
+            // Down input before starting a queued move/jump; never clear pulley
+            // or manufacture position/velocity.
+            if (TickRopeRelease(p, now)) return;
+
             if (ExactActive)
             {
                 float cur = p.position.X / 16f;
@@ -2268,6 +2298,136 @@ namespace DshTerrariaBridge
             IntentJump = true;
         }
 
+        private static void ArmRopeRelease(string kind)
+        {
+            RopeDeferredKind = kind;
+            RopeReleasePending = true;
+            RopeReleaseFailed = false;
+            RopeReleaseFailureTick = 0;
+            RopeReleaseUntil = Now + Ticks(1200);
+            // Keep only the native down input alive while the old action waits.
+            LeftUntil = RightUntil = UpUntil = JumpUntil = 0;
+            DownUntil = RopeReleaseUntil;
+            ExactActive = false;
+            MoveStopTiles = 0f;
+            IntentLeft = IntentRight = IntentUp = IntentDown = IntentJump = false;
+            MovementAppliedTick = ulong.MaxValue;
+        }
+
+        internal static bool QueueRopeReleaseMove(string dir, int ms, float tiles)
+        {
+            if (!OnRopeNow(Main.LocalPlayer)) return false;
+            RopeDeferredDir = dir;
+            RopeDeferredMs = ms;
+            RopeDeferredTiles = tiles;
+            RopeDeferredTargetX = 0f;
+            ArmRopeRelease("move");
+            return true;
+        }
+
+        internal static bool QueueRopeReleaseExactMove(float targetX, int ms)
+        {
+            if (!OnRopeNow(Main.LocalPlayer)) return false;
+            RopeDeferredDir = "";
+            RopeDeferredMs = ms;
+            RopeDeferredTiles = 0f;
+            RopeDeferredTargetX = targetX;
+            ArmRopeRelease("moveto");
+            return true;
+        }
+
+        internal static bool QueueRopeReleaseJump(int ms, string dir, int moveMs)
+        {
+            if (!OnRopeNow(Main.LocalPlayer)) return false;
+            RopeDeferredDir = dir ?? "";
+            RopeDeferredMs = ms;
+            RopeDeferredMoveMs = moveMs;
+            RopeDeferredTiles = 0f;
+            RopeDeferredTargetX = 0f;
+            ArmRopeRelease("jump");
+            return true;
+        }
+
+        private static void ActivateDeferredRopeAction(Player p)
+        {
+            string kind = RopeDeferredKind;
+            string dir = RopeDeferredDir;
+            int ms = RopeDeferredMs;
+            int moveMs = RopeDeferredMoveMs > 0 ? RopeDeferredMoveMs : ms;
+            float tiles = RopeDeferredTiles;
+            float targetX = RopeDeferredTargetX;
+            RopeDeferredKind = "";
+            RopeDeferredDir = "";
+            RopeDeferredMs = RopeDeferredMoveMs = 0;
+            RopeDeferredTiles = RopeDeferredTargetX = 0f;
+            RopeReleasePending = false;
+            DownUntil = 0;
+
+            ulong until = Now + Ticks(ms);
+            if (kind == "moveto")
+            {
+                ExactActive = true;
+                ExactTargetX = targetX;
+                ExactUntil = (int)until;
+                return;
+            }
+            if (kind == "jump")
+            {
+                BeginJump(until);
+                if (dir == "left") LeftUntil = Now + Ticks(moveMs);
+                else if (dir == "right") RightUntil = Now + Ticks(moveMs);
+                return;
+            }
+            if (kind == "move")
+            {
+                if (tiles > 0f)
+                {
+                    MoveFromX = p.Center.X / 16f;
+                    MoveFromY = p.Center.Y / 16f;
+                    MoveStopTiles = tiles;
+                    MoveStopAxis = (dir == "up" || dir == "down") ? 1 : 0;
+                    LeftUntil = RightUntil = UpUntil = DownUntil = 0;
+                    if (dir == "left") LeftUntil = ulong.MaxValue;
+                    else if (dir == "right") RightUntil = ulong.MaxValue;
+                    else if (dir == "up") UpUntil = ulong.MaxValue;
+                    else if (dir == "down") DownUntil = ulong.MaxValue;
+                }
+                else if (dir == "left") { LeftUntil = until; RightUntil = 0; }
+                else if (dir == "right") { RightUntil = until; LeftUntil = 0; }
+                else if (dir == "up") { UpUntil = until; DownUntil = 0; }
+                else if (dir == "down") { DownUntil = until; UpUntil = 0; }
+            }
+        }
+
+        private static bool TickRopeRelease(Player p, ulong now)
+        {
+            if (!RopeReleasePending) return false;
+            if (!OnRopeNow(p))
+            {
+                ActivateDeferredRopeAction(p);
+                return false;
+            }
+            if (now < RopeReleaseUntil)
+            {
+                DownUntil = RopeReleaseUntil;
+                RequestDown();
+                return true;
+            }
+
+            // A real Down input did not get the player off the rope in the
+            // bounded window. Cancel the deferred action instead of sending
+            // horizontal/jump input that vanilla will ignore forever.
+            RopeReleasePending = false;
+            RopeReleaseFailed = true;
+            RopeReleaseFailureTick = now;
+            RopeDeferredKind = "";
+            RopeDeferredDir = "";
+            RopeDeferredMs = RopeDeferredMoveMs = 0;
+            RopeDeferredTiles = RopeDeferredTargetX = 0f;
+            DownUntil = 0;
+            return true;
+        }
+
 
         /// <summary>
         /// Performs a real player-owned hit against a hostile NPC.  This uses
@@ -2488,6 +2648,15 @@ namespace DshTerrariaBridge
         // 不写 controlUp/controlDown 的最终结果，也不写 velocity、position 或 pulley。
         internal static ulong ClimbUpUntil, ClimbDownUntil, LayRopeUntil;
         internal static int ClimbTargetY;
+        // 横移/跳跃在原版挂绳状态下会被有意忽略。命令层看到脚底是真绳时，
+        // 先排队发一小段真实 Down 输入，等脚底离开绳子后再开始原动作。
+        // 这里保存的是待执行的输入参数，不保存或制造任何物理结果。
+        internal static bool RopeReleasePending, RopeReleaseFailed;
+        internal static ulong RopeReleaseUntil, RopeReleaseFailureTick;
+        private static string RopeDeferredKind = "";
+        private static string RopeDeferredDir = "";
+        private static int RopeDeferredMs, RopeDeferredMoveMs;
+        private static float RopeDeferredTiles, RopeDeferredTargetX;
         // 抓钩：原版是 Player.controlHook（真人按住左键时由输入层置位）驱动的。
         // 之前只置 mouseLeft 没用——钩子根本不会飞出去（实测 grapCount 一直 0）。
         // 自动防守：真持武器、真瞄准、真松开，伤害全部由原版弹幕/挥击产生。
@@ -2549,10 +2718,14 @@ namespace DshTerrariaBridge
     internal static bool OnRopeNow(Player p)
     {
         if (p == null) return false;
-        if (p.ropeCount > 0) return true;
-        int tx = (int)(p.Center.X / 16f), ty = (int)(p.Center.Y / 16f);
-        for (int dy = -1; dy <= 2; dy++) if (IsRopeTile(tx, ty + dy)) return true;
-        return false;
+        // `ropeCount` and a rope tile anywhere in the body are only contact
+        // diagnostics.  Vanilla ignores horizontal movement/jump while the
+        // player's feet are on a rope, so the command layer must use the same
+        // foot-cell test.  A rope crossing the torso while the player stands on
+        // soil must not be reported as "on rope".
+        int tx = (int)((p.position.X + p.width * 0.5f) / 16f);
+        int feetY = (int)((p.position.Y + p.height) / 16f);
+        return IsRopeTile(tx, feetY);
     }
 
     /// <summary>Checks rope tiles intersecting the player's current hitbox without using ropeCount.</summary>
@@ -2599,6 +2772,11 @@ namespace DshTerrariaBridge
         ClimbUpUntil = ClimbDownUntil = LayRopeUntil = 0; ClimbTargetY = 0;
         IntentLeft = IntentRight = IntentUp = IntentDown = IntentJump = false;
         BridgeJumpHeld = BridgeLeftHeld = BridgeRightHeld = BridgeUpHeld = BridgeDownHeld = false;
+        RopeReleasePending = RopeReleaseFailed = false;
+        RopeReleaseUntil = RopeReleaseFailureTick = 0;
+        RopeDeferredKind = RopeDeferredDir = "";
+        RopeDeferredMs = RopeDeferredMoveMs = 0;
+        RopeDeferredTiles = RopeDeferredTargetX = 0f;
         // 抓钩也算"会自己动"的状态：不清的话松手后角色还被挂在钩上。
         HookHeld = false; HookUntil = 0; HookReleasePending = true;
         ClearAttack();

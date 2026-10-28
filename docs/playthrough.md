@@ -1203,27 +1203,15 @@ for t in 200..700: tiledata(t)  → 只留名字里带 Rope 的
 在 (2099, 302/301/300/299) 依次 `place type:366`，四格全部回读成 WebRope。
 所以"从脚下往上铺一条绳道"是可行的，每格一次真实放置。
 
-### 3. 只按 controlUp 爬不动 —— 物理输入这条路在本机不通
-第一版 `climb` 只写 `player.controlUp`，结果 1.5 秒里 y 完全没变、velocity 恒为 0。
-对照实验：`jump` 也一样——**本机游戏窗口不接管键盘，control\* 标志不会被原版移动采纳**，
-唯一能驱动角色的还是逐帧写速度（走路就是这么做的）。
+### 3. 旧观测已废弃：控制位必须看当帧快照
 
-第二版改成"写速度，但**只在贴着绳子时**才写"：
+早期把命令线程晚读到的 `humaninput.control.*` 当成当帧证据，得出过“输入没进引擎”的错误结论；
+也曾用身体范围内任意绳格判断 `onRope`，把站在地面、身体中段碰到绳的情况误报成挂绳。
+这两种观测都已废弃：`state.flagLeft/Right/Up/Down/Jump` 是
+`ApplyNativeControlFlags()` 返回前保存的当帧控制位，`state.ropeContact.onRopeReal` 只看脚底中心格。
 
-```csharp
-if (ClimbUpUntil > now && OnRopeNow(p)) { p.controlUp = true; p.velocity.Y = Math.Min(p.velocity.Y, -2.2f); }
-```
-
-`OnRopeNow` 先看原版 `Player.ropeCount`，再兜底直接查脚下 4 格是不是绳子方块
-（213/353/365/366/504）。**没有绳子按 climb 一点都不会动**，所以它不是悬停外挂。
-
-### 4. 实测（有绳子 / 到顶之后）
-```
-y=303.70 → 301.20 → 298.70 → 296.80   （绳顶在 299，冲过去 2 格）
-之后 vel 变正，自然落回 303.70
-```
-爬升 7 格、离地（`ground=false`）、到顶后受重力落回——都是原版重力在做，
-我们只负责在绳子范围内给一个向上的速度。
+桥始终只发真实输入，绝不写 `velocity`、`position` 或 `pulley`。`climb` 交给原版绳索物理；
+`move left/right` 和 `jump` 若 `onRopeReal:true`，先发真实 `Down` 脱绳，脚底离开绳格后再执行动作。
 
 ### `travel down` 会顺着地表漂走（实测）
 
@@ -1332,8 +1320,8 @@ if (PathIdxStuck > 90) { StopPath("no-progress"); return; }
 
 以前走到门口就判"前方是建材"→ 重新规划 → 无路可选 → 停下。正确做法是**放开门的控制、
 让原版自己开**（用户纠正："这是你自己之前做的 NPC 的房子"、"你进入了房子走到了最右边
-被墙挡住了"）。现在 `open-door` 这条规则会调 `WorldGen.OpenDoor`（引擎自己的开门逻辑，
-不挖不炸），房 A 那道关门实测能过。
+被墙挡住了"）。现在 `open-door` 走 `BeginTileInteraction` 的真实右键输入，
+不挖不炸，门状态必须回读确认。
 
 **自建房的出口设计**（写进 `docs/kb/build-standard.md`）
 

@@ -166,6 +166,19 @@ test('真实输入/按键层审计 → 命中 atomic_action', () => {
   }
 })
 
+test('晚读 control 与脚底绳观测纠正 → 命中 atomic_action', () => {
+  const cases = [
+    ['humaninput.control 不是当帧控制位，要看 state.flagJump', false],
+    ['身体碰到绳不算挂绳，先看脚底真实绳格再脱绳', false],
+    ['必须更正观测错误：humaninput.control 不是当帧控制位，先看脚底真实绳格再脱绳', true],
+  ]
+  for (const [q, correction] of cases) {
+    const r = route(q)
+    assert.ok(r.tags.includes('atomic_action'), `${q} 应该命中 atomic_action，实际 ${r.tags.join(',')}`)
+    if (correction) assert.ok(r.tags.includes('task_correct'), `${q} 应该命中 task_correct，实际 ${r.tags.join(',')}`)
+  }
+})
+
 test('一次任务的真实原话必须命中"动手要用的那几个库"（漏了就白干一轮）', () => {
   // 2026-10-27 实测十句真实任务原话，三句明显漏：挖铁没命中装备线、水下没命中世界规则、
   // 砍树没命中物品库。这些都是"知道有这条知识、但检索没到"，等于没写。

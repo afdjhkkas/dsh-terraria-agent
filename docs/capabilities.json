@@ -237,6 +237,8 @@
       "returns": [
         "untilTick",
         "tick",
+        "inputOnly",
+        "note",
         "native",
         "compatibilityNativeFalse",
         "tiles",
@@ -245,7 +247,6 @@
         "held",
         "interact",
         "method",
-        "note",
         "off",
         "radius",
         "hostileInRange",
@@ -887,7 +888,11 @@
       ],
       "returns": [
         "untilTick",
-        "tick"
+        "tick",
+        "deferred",
+        "ropeRelease",
+        "note",
+        "inputOnly"
       ],
       "summary": ""
     },
@@ -901,7 +906,10 @@
       "returns": [
         "from",
         "target",
-        "delta"
+        "delta",
+        "deferred",
+        "ropeRelease",
+        "note"
       ],
       "summary": ""
     },
@@ -1310,6 +1318,17 @@
         "world",
         "player",
         "ropeContact",
+        "ropeRelease",
+        "flagTick",
+        "flagLeft",
+        "flagRight",
+        "flagUp",
+        "flagDown",
+        "flagJump",
+        "flagIntentRight",
+        "flagIntentJump",
+        "flagRightUntilLive",
+        "flagJumpUntilLive",
         "inputDiag",
         "guard",
         "attack",

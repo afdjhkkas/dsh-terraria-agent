@@ -314,8 +314,12 @@ namespace DshTerrariaBridge
             int ropeTiles = 0;
             for (int x = lx; x <= rx; x++)
                 for (int y = ty; y <= by; y++)
-                    if (TileTypeAt(x, y) == TileID.Rope) { bodyRope = true; ropeTiles++; }
+                    if (BridgeSystem.IsRopeTile(x, y)) { bodyRope = true; ropeTiles++; }
             int cx = (lx + rx) / 2, cy = (ty + by) / 2;
+            int feetX = (int)((pl.position.X + pl.width * 0.5f) / 16f);
+            int feetY = (int)((pl.position.Y + pl.height) / 16f);
+            int feetType = TileTypeAt(feetX, feetY);
+            bool onRopeReal = BridgeSystem.OnRopeNow(pl);
             return new
             {
                 pulley = pl.pulley,
@@ -329,15 +333,18 @@ namespace DshTerrariaBridge
                 tileLeftX = lx,
                 tileRightX = rx,
                 tileTopY = ty,
-                tileFeetY = by,
-                footLeftTile = TileTypeAt(lx, by),
-                footRightTile = TileTypeAt(rx, by),
+                tileFeetY = feetY,
+                tileFeetX = feetX,
+                tileFeetType = feetType,
+                onRopeReal,
+                footLeftTile = TileTypeAt(lx, feetY),
+                footRightTile = TileTypeAt(rx, feetY),
                 centerTile = TileTypeAt(cx, cy),
                 centerTileX = cx,
                 centerTileY = cy,
                 // 脚下一格（站立格）左右两列的 tile type：判断"脚下是绳还是平台/土"。
-                underLeftTile = TileTypeAt(lx, by + 1),
-                underRightTile = TileTypeAt(rx, by + 1),
+                underLeftTile = TileTypeAt(lx, feetY + 1),
+                underRightTile = TileTypeAt(rx, feetY + 1),
             };
         }
 
@@ -592,13 +599,39 @@ namespace DshTerrariaBridge
                     // openChest = Main.player[myPlayer].chest：-1=没开，否则是 Main.chest 的下标。
                     openChest = pl.chest,
                     playerInventory = Main.playerInventory,
-                    // 爬绳的三项读回（和 openChest 同一个思路：能自己验证“到底在不在绳上”，
-                    // 而不是靠“位置变了没”倒推）。ropeCount>0 才是引擎认定的“抓住了绳子”。
+                    // 爬绳诊断：onRope 只看脚底真实绳格；ropeCount/pulley 仍原样保留，
+                    // 用来发现引擎状态与实际地形不一致。
                     pulley = pl.pulley,
                     ropeCount = pl.ropeCount,
                     onRope = BridgeSystem.OnRopeNow(pl),
                     mouseRight = Main.mouseRight,
                     mouseRightRelease = Main.mouseRightRelease,
+                    // 输入链路三问（只读）：意图有没有置上、两个玩家索引是否相等。
+                    // 实测「Triggers 为真、control 为假、位移 0」时，只有这三种断点：
+                    //   intentRight=false            → ApplyMovement 那句没执行（RightUntil 没设 / tick 不匹配）
+                    //   intentRight=true 但索引不等 → ApplyNativeControlFlags 的 whoAmI 判断把整段 return 掉了
+                    //   三者都正常而 control 仍假        → 写了被同帧覆盖，得换写入时机
+                    intentLeft = BridgeSystem.IntentLeft,
+                    intentRight = BridgeSystem.IntentRight,
+                    intentUp = BridgeSystem.IntentUp,
+                    intentDown = BridgeSystem.IntentDown,
+                    intentJump = BridgeSystem.IntentJump,
+                    myPlayer = Main.myPlayer,
+                    localWhoAmI = Main.LocalPlayer == null ? -1 : Main.LocalPlayer.whoAmI,
+                    rightUntil = BridgeSystem.RightUntil,
+                    gameTick = (long)Main.GameUpdateCount,
+                    // ApplyNativeControlFlags() 返回瞬间的 control* 真值。命令线程读 control*
+                    // 时原版已经重置过，只有这里是当帧证据。
+                    flagTick = BridgeSystem.DbgFlagsTick,
+                    flagLeft = BridgeSystem.DbgFlagsLeft,
+                    flagRight = BridgeSystem.DbgFlagsRight,
+                    flagUp = BridgeSystem.DbgFlagsUp,
+                    flagDown = BridgeSystem.DbgFlagsDown,
+                    flagJump = BridgeSystem.DbgFlagsJump,
+                    flagIntentRight = BridgeSystem.DbgFlagsIntentRight,
+                    flagIntentJump = BridgeSystem.DbgFlagsIntentJump,
+                    flagRightUntilLive = BridgeSystem.DbgFlagsRightUntilLive,
+                    flagJumpUntilLive = BridgeSystem.DbgFlagsJumpUntilLive,
                     // 出生点：魔镜/床这类回城手段的判据。没有这个坐标就只能靠"动了多远"猜，
                     // 而人本来就站在出生点旁边时，回城位移不到两格，会被误判成失败。
                     spawn = new { x = Main.spawnTileX, y = Main.spawnTileY },
@@ -606,6 +639,25 @@ namespace DshTerrariaBridge
                 // 绳子接触诊断（只读）：pulley/ropeCount 单独看不出来"人到底贴着哪一格绳"，
                 // 所以把碰撞箱换算成格子坐标，再逐格查绳，并报左右脚底格的 tile type。
                 data["ropeContact"] = RopeContact(pl);
+                data["ropeRelease"] = new
+                {
+                    pending = BridgeSystem.RopeReleasePending,
+                    untilTick = BridgeSystem.RopeReleaseUntil,
+                    failed = BridgeSystem.RopeReleaseFailed,
+                    failureTick = BridgeSystem.RopeReleaseFailureTick,
+                };
+                // 顶层别名：命令线程最容易直接读取 state.flag*；player 内的同名字段
+                // 继续保留，兼容上一轮已经使用嵌套路径的客户端。
+                data["flagTick"] = BridgeSystem.DbgFlagsTick;
+                data["flagLeft"] = BridgeSystem.DbgFlagsLeft;
+                data["flagRight"] = BridgeSystem.DbgFlagsRight;
+                data["flagUp"] = BridgeSystem.DbgFlagsUp;
+                data["flagDown"] = BridgeSystem.DbgFlagsDown;
+                data["flagJump"] = BridgeSystem.DbgFlagsJump;
+                data["flagIntentRight"] = BridgeSystem.DbgFlagsIntentRight;
+                data["flagIntentJump"] = BridgeSystem.DbgFlagsIntentJump;
+                data["flagRightUntilLive"] = BridgeSystem.DbgFlagsRightUntilLive;
+                data["flagJumpUntilLive"] = BridgeSystem.DbgFlagsJumpUntilLive;
                 data["inputDiag"] = InputDiagnostics(pl);
                 data["guard"] = new
                 {
@@ -2871,6 +2923,18 @@ namespace DshTerrariaBridge
             if (float.IsNaN(x)) return Json.Error("moveto 需要 x（目标格坐标，可以是小数）");
             int ms = Math.Clamp(Json.Int(p, "ms", 4000), 200, 15000);
             BridgeSystem.LeftUntil = 0; BridgeSystem.RightUntil = 0;
+            BridgeSystem.ExactActive = false;
+            if (BridgeSystem.QueueRopeReleaseExactMove(x, ms))
+            {
+                float fromRope = P.position.X / 16f;
+                return Json.Ok(new
+                {
+                    from = MathF.Round(fromRope, 2), target = x,
+                    delta = MathF.Round(x - fromRope, 2), ms,
+                    deferred = true, ropeRelease = true,
+                    note = "脚底在绳上：先按下脱绳，离开真实绳格后再执行 moveto",
+                });
+            }
             BridgeSystem.ExactActive = true;
             BridgeSystem.ExactTargetX = x;
             BridgeSystem.ExactUntil = (int)(BridgeSystem.Now + BridgeSystem.Ticks(ms));
@@ -2890,8 +2954,24 @@ namespace DshTerrariaBridge
             BridgeSystem.GuardUntil = 0; BridgeSystem.GuardDefault = false; BridgeSystem.GuardEngaged = false;
             string dir = (Json.Str(p, "dir", "right") ?? "right").ToLowerInvariant();
             int ms = Math.Clamp(Json.Int(p, "ms", 500), 1, 5000);
+            if (dir != "left" && dir != "right" && dir != "up" && dir != "down")
+                return Json.Error($"dir 只能是 left/right/up/down，收到 {dir}");
+            float tiles = Json.Float(p, "tiles", 0f);
             ulong until = BridgeSystem.Now + BridgeSystem.Ticks(ms);
             var from = new[] { MathF.Round(P.Center.X / 16f, 1), MathF.Round(P.Center.Y / 16f, 1) };
+            bool upInputOnly = dir == "up"
+                && !BridgeSystem.OnRopeNow(P)
+                && P.wings <= 0
+                && (P.mount == null || !P.mount.Active);
+            if ((dir == "left" || dir == "right") && BridgeSystem.QueueRopeReleaseMove(dir, ms, tiles))
+            {
+                return Json.Ok(new
+                {
+                    dir, ms, tiles, from, untilTick = BridgeSystem.RopeReleaseUntil,
+                    tick = BridgeSystem.Now, deferred = true, ropeRelease = true,
+                    note = "脚底在绳上：先按下脱绳，离开真实绳格后再执行水平移动",
+                });
+            }
             switch (dir)
             {
                 // A new direction replaces its opposite. Without this,
@@ -2903,7 +2983,6 @@ namespace DshTerrariaBridge
                 default: return Json.Error($"dir 只能是 left/right/up/down，收到 {dir}");
             // 结果驱动：给 tiles 就按"走够几格"停，不再靠时长猜。
             // 被墙挡住时固定时长会立刻失效——人还在原地，键已经松开。
-            float tiles = Json.Float(p, "tiles", 0f);
             var c0 = new[] { MathF.Round(P.Center.X / 16f, 1), MathF.Round(P.Center.Y / 16f, 1) };
             if (tiles > 0)
             {
@@ -2926,7 +3005,12 @@ namespace DshTerrariaBridge
             // Apply once immediately so a short command is not lost between
             // the request tick and the next Player update.
             BridgeSystem.ApplyMovement();
-            return Json.Ok(new { dir, ms, from, untilTick = until, tick = BridgeSystem.Now });
+            return Json.Ok(new
+            {
+                dir, ms, from, untilTick = until, tick = BridgeSystem.Now,
+                inputOnly = upInputOnly,
+                note = upInputOnly ? "上键已按下；当前无绳、无翅膀、未骑乘，原版不会产生垂直位移" : null,
+            });
         }
 
         private static string Jump(JsonElement p)
@@ -2961,12 +3045,25 @@ namespace DshTerrariaBridge
                 wantTiles = hv.GetDouble();
                 ms = MsForTiles(wantTiles.Value);
             }
+            string? dir = p.TryGetProperty("dir", out var dv) && dv.ValueKind == JsonValueKind.String ? dv.GetString() : null;
+            int moveMs = Json.Int(p, "moveMs", ms);
+            if (BridgeSystem.QueueRopeReleaseJump(ms, dir ?? "", moveMs))
+            {
+                return Json.Ok(new
+                {
+                    ms, native = true, compatibilityNativeFalse = legacyNativeFalse,
+                    tiles = wantTiles,
+                    from = new[] { MathF.Round(pl.Center.X / 16f, 1), MathF.Round(pl.Center.Y / 16f, 1) },
+                    grounded = pl.velocity.Y == 0f && pl.oldVelocity.Y == 0f,
+                    untilTick = BridgeSystem.RopeReleaseUntil,
+                    tick = BridgeSystem.Now, deferred = true, ropeRelease = true,
+                    note = "脚底在绳上：先按下脱绳，离开真实绳格后再执行跳跃",
+                });
+            }
             BridgeSystem.BeginJump(BridgeSystem.Now + BridgeSystem.Ticks(ms));
             // 真人跳远是起跳的同时按住方向：两个 control 位在同一帧一起置上。
             // 之前只能先 jump 再 left/right，跳跃 400ms 内发出的横移会和落地后的输入抢，
             // 结果永远是原地垂直跳。这里把横移并进同一条命令，保证空中每帧都有横向输入。
-            string? dir = p.TryGetProperty("dir", out var dv) && dv.ValueKind == JsonValueKind.String ? dv.GetString() : null;
-            int moveMs = Json.Int(p, "moveMs", ms);
             if (dir == "left") BridgeSystem.LeftUntil = BridgeSystem.Now + BridgeSystem.Ticks(moveMs);
             else if (dir == "right") BridgeSystem.RightUntil = BridgeSystem.Now + BridgeSystem.Ticks(moveMs);
             return Json.Ok(new
