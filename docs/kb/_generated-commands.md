@@ -3,7 +3,7 @@
 > 本文件由 `node scripts/kb-sync.mjs` 从 `DshTerrariaBridge/Commands.cs` 与
 > `index.js` 生成。**不要手改**；要改就改代码再重新生成。
 
-## mod 桥命令（107 个）
+## mod 桥命令（109 个）
 
 | 命令 | 参数 |
 |---|---|
@@ -30,6 +30,7 @@
 | `eclipse` | — |
 | `equip` | `slot` |
 | `event` | — |
+| `fields` | `type` `filter` |
 | `fill` | `x1` `y1` `x2` `y2` `type` |
 | `find` | `type` `x1` `x2` `y1` `y2` `max` |
 | `fly` | `ms` |
@@ -61,6 +62,7 @@
 | `liquidop` | `x` `y` `ms` |
 | `map` | `step` |
 | `martian` | — |
+| `methods` | `type` `filter` |
 | `mine` | `x` `y` `ms` |
 | `minion` | `slot` |
 | `mirror` | — |

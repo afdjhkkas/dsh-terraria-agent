@@ -385,6 +385,21 @@
       "summary": ""
     },
     {
+      "name": "fields",
+      "kind": "read",
+      "params": [
+        "type",
+        "filter"
+      ],
+      "returns": [
+        "type",
+        "found",
+        "count",
+        "fields"
+      ],
+      "summary": ""
+    },
+    {
       "name": "fill",
       "kind": "act",
       "params": [
@@ -632,6 +647,8 @@
         "tick",
         "paused",
         "focus",
+        "playerIndex",
+        "inputDiag",
         "control",
         "left",
         "right",
@@ -786,6 +803,21 @@
       "kind": "act",
       "params": [],
       "returns": [],
+      "summary": ""
+    },
+    {
+      "name": "methods",
+      "kind": "read",
+      "params": [
+        "type",
+        "filter"
+      ],
+      "returns": [
+        "type",
+        "found",
+        "count",
+        "methods"
+      ],
       "summary": ""
     },
     {
@@ -1272,6 +1304,7 @@
         "mouseTile",
         "world",
         "player",
+        "inputDiag",
         "guard",
         "attack",
         "path",

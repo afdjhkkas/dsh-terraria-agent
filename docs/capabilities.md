@@ -69,9 +69,13 @@
 
 ### `state` — 角色 + 世界
 返回 `player{ tile,pos,velocity,life,lifeMax,mana,dead,direction,grounded,breath,wet,held,buffs,zones,
-minions,minionSlots,grapCount,hookType,mounted,wingTime,hasWings,itemAnimation }`、
+minions,minionSlots,grapCount,hookType,mounted,wingTime,hasWings,itemAnimation,playerIndex }`、
 `world{ name,width,height,dayTime,time,raining,bloodMoon,eclipse,hardmode,tick }`、
-以及 `guard / attack / path / walk / travel` 各作业状态。
+以及 `guard / attack / path / walk / travel` 各作业状态。诊断 `inputDiag` 比对 `Main.myPlayer`、
+`Main.LocalPlayer.whoAmI`、`Main.player[Main.myPlayer].whoAmI` 与响应玩家索引；并保留
+`postUpdateInput` 的 Triggers 快照和 `postUpdateRunSpeeds` 的 `Player.control*` 快照（含采样 tick 与 whoAmI），
+用来判断输入在哪个阶段丢失。`dbgCtrlUp` 读 `PlayerInput.Triggers.Current.Up`；`dbgPlayerControlUp` 读原版更新后的
+`Player.controlUp`，Triggers 与 control 的对照以 `inputDiag` 的两阶段快照为准。
 
 - **`zones`** 是关键：`corrupt/crimson/jungle/snow/desert/beach/dungeon/glowshroom/meteor/hallow/underworld/rocklayer/dirtlayer/sky/surface`，找群系不用盲挖。
 - `grounded` 要求「本帧与上一帧速度都为 0」，斜坡上站着不会误报。
@@ -109,7 +113,12 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 回 `{screen, world, tile}`，用来把截图里看到的东西对准到格子。
 
 ### `humaninput` — 真人输入原样读回
-`{tick, keys, control{left,right,jump,up,down,mouseLeft,mouseRight}, player{tile,velocity,grounded,life}, mouse{left,right,x,y,tileX,tileY,os,source,inClient}}`。
+`{tick, keys, control{left,right,jump,up,down,mouseLeft,mouseRight}, player{playerIndex,tile,velocity,grounded,life}, inputDiag, mouse{left,right,x,y,tileX,tileY,os,source,inClient}}`。
+`inputDiag` 的字段为 `playerIds{myPlayer,localPlayerWhoAmI,indexedPlayerWhoAmI,responsePlayerWhoAmI}`、
+`postUpdateInput{tick,whoAmI,left,right,up,down,jump}`、`postUpdateRunSpeeds{tick,whoAmI,left,right,up,down,jump}`。
+前者采样 ModSystem 注入后的 `PlayerInput.Triggers.Current`，后者采样原版更新后 `Player.control*`；
+两阶段字段各带自己的 tick 和玩家索引，不能把 control 快照当作 Triggers。`state.inputDiag` 提供同一诊断快照，
+`state.player.playerIndex` 与 `humaninput.player.playerIndex` 标识各自回读的玩家。
 `mouse.source` = `os`（Win32 `GetCursorPos`+`ClientToScreen` 实测，窗口失焦也准）或 `xna`（`Main.mouseX/Y`，窗口不活跃时会冻在最后一次有效值）。
 录示范时必须用它，否则学到的是"操作者为了配合测试而改变的操作"。
 

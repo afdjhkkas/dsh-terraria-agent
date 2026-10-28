@@ -370,6 +370,20 @@ namespace DshTerrariaBridge
             if (bridgeUp) PlayerInput.Triggers.Current.Up = true;
             if (bridgeDown) PlayerInput.Triggers.Current.Down = true;
             if (bridgeJump) PlayerInput.Triggers.Current.Jump = true;
+            // 左右也走输入层：SetControls 里写的 controlLeft/Right 会被 Triggers 重算覆盖（m23078）。
+            // 只加 true、不清零，真人按键与桥互不干扰。
+            if (LeftUntil > now) PlayerInput.Triggers.Current.Left = true;
+            if (RightUntil > now) PlayerInput.Triggers.Current.Right = true;
+            var triggers = PlayerInput.Triggers.Current;
+            DbgInputTriggerTick = (long)now;
+            DbgInputTriggerPlayer = player.whoAmI;
+            DbgInputTriggerLeft = triggers.Left;
+            DbgInputTriggerRight = triggers.Right;
+            DbgInputTriggerUp = triggers.Up;
+            DbgInputTriggerDown = triggers.Down;
+            DbgInputTriggerJump = triggers.Jump;
+            // Compatibility field now follows the native trigger, which is the actual input source.
+            DbgCtrlUp = triggers.Up;
             // 采集边沿事件：只记“变化”，同一状态不重复记。
             long tick = (long)now;
             // 本模组自己下发的输入不算人的操作，否则示范库里会混进脚本自己的动作。
@@ -547,8 +561,13 @@ namespace DshTerrariaBridge
 
         /// <summary>最近一次寻路的诊断串（只读，path/travelstatus 回传）</summary>
         internal static string LastPathWhy = "";
-        internal static bool DbgPulley, DbgCtrlUp, DbgRopeTile;
+        internal static bool DbgPulley, DbgCtrlUp, DbgPlayerControlUp, DbgRopeTile;
         internal static float DbgVelY;
+        // Input timing snapshots: native Triggers after PostUpdateInput and controls after engine processing.
+        internal static long DbgInputTriggerTick = -1, DbgInputControlTick = -1;
+        internal static int DbgInputTriggerPlayer = -1, DbgInputControlPlayer = -1;
+        internal static bool DbgInputTriggerLeft, DbgInputTriggerRight, DbgInputTriggerUp, DbgInputTriggerDown, DbgInputTriggerJump;
+        internal static bool DbgInputControlLeft, DbgInputControlRight, DbgInputControlUp, DbgInputControlDown, DbgInputControlJump;
 
         internal static List<(int x, int y)> ComputePath(int sx, int sy, int tx, int ty, out string why, int margin = 10)
         {
@@ -1592,9 +1611,10 @@ namespace DshTerrariaBridge
                 }
                 else
                 {
-                    // 只按方向键；距离远时短按、近时点按，靠原版加速/摩擦收敛。
-                    p.controlLeft |= dx < 0f;
-                    p.controlRight |= dx > 0f;
+                    // 只按方向键（同时写 Triggers：Player.Update 会用触发器重建 controlLeft/Right，
+                    // 只写 control* 会被覆盖，所以两边都给）。距离远时按住、近时靠摩擦收敛。
+                    if (dx < 0f) { p.controlLeft = true; PlayerInput.Triggers.Current.Left = true; }
+                    else { p.controlRight = true; PlayerInput.Triggers.Current.Right = true; }
                 }
                 return;
             }
@@ -2469,6 +2489,20 @@ namespace DshTerrariaBridge
         return false;
     }
 
+    /// <summary>Checks rope tiles intersecting the player's current hitbox without using ropeCount.</summary>
+    internal static bool HasRopeTileInPlayerBody(Player p)
+    {
+        if (p == null) return false;
+        int left = (int)MathF.Floor((p.position.X + 1f) / 16f);
+        int right = (int)MathF.Floor((p.position.X + p.width - 1f) / 16f);
+        int top = (int)MathF.Floor((p.position.Y + 1f) / 16f);
+        int bottom = (int)MathF.Floor((p.position.Y + p.height - 1f) / 16f);
+        for (int x = left; x <= right; x++)
+            for (int y = top; y <= bottom; y++)
+                if (IsRopeTile(x, y)) return true;
+        return false;
+    }
+
     /// <summary>
     /// 到达 climb 命令指定的目标格后，释放方向输入。
     /// </summary>
@@ -2678,8 +2712,15 @@ namespace DshTerrariaBridge
         {
             if (Player.whoAmI != Main.myPlayer) return;
             // 诊断：原版算完重力后、位置积分前，把关键状态留一份给 state 回读。
-            BridgeSystem.DbgPulley = Player.pulley; BridgeSystem.DbgVelY = Player.velocity.Y; BridgeSystem.DbgCtrlUp = Player.controlUp;
-            BridgeSystem.DbgRopeTile = BridgeSystem.OnRopeNow(Player);
+            BridgeSystem.DbgPulley = Player.pulley; BridgeSystem.DbgVelY = Player.velocity.Y; BridgeSystem.DbgPlayerControlUp = Player.controlUp;
+            BridgeSystem.DbgRopeTile = BridgeSystem.HasRopeTileInPlayerBody(Player);
+            BridgeSystem.DbgInputControlTick = (long)Main.GameUpdateCount;
+            BridgeSystem.DbgInputControlPlayer = Player.whoAmI;
+            BridgeSystem.DbgInputControlLeft = Player.controlLeft;
+            BridgeSystem.DbgInputControlRight = Player.controlRight;
+            BridgeSystem.DbgInputControlUp = Player.controlUp;
+            BridgeSystem.DbgInputControlDown = Player.controlDown;
+            BridgeSystem.DbgInputControlJump = Player.controlJump;
         }
 
         public override void PostUpdate()

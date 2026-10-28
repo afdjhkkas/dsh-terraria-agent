@@ -4,7 +4,7 @@
 > 元自检的第 4、5 维（动作原语 / 状态读取）就是拿这张表对照的：
 > 表里没有的接口和命令，一律视为不存在，不许在计划里使用。
 
-## 一、状态读取能力（51 个命令）
+## 一、状态读取能力（53 个命令）
 
 | 命令 | 能读到什么（返回值顶层字段） |
 |---|---|
@@ -16,6 +16,7 @@
 | `chatpoll` | — |
 | `eclipse` | — |
 | `event` | `dayTime` `time` `day` `bloodMoon` `eclipse` `invasionType` `invasionSize` `pumpkinMoon` `snowMoon` `raining` `hardMode` `downedEye` `downedEater` `downedSkeletron` `downedWall` `downedPlantera` `downedGolem` |
+| `fields` | `type` `found` `count` `fields` |
 | `find` | `scanned` |
 | `frost` | — |
 | `frostmoon` | — |
@@ -24,13 +25,14 @@
 | `hookdebug` | `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `mouseWorldTile` |
 | `housediag` | `x` `y` `tiles` `box` |
 | `housing` | `townNPCs` |
-| `humaninput` | `inWorld` `tick` `paused` `focus` `control` `left` `right` `up` `down` `jump` `useItem` `useTile` `grapple` `mount` |
+| `humaninput` | `inWorld` `tick` `paused` `focus` `playerIndex` `inputDiag` `control` `left` `right` `up` `down` `jump` `useItem` `useTile` `grapple` `mount` |
 | `idmap` | `rows` |
 | `interact` | `interact` `after` `method` |
 | `inventory` | `selected` `count` `free` `freeMain` `freeAll` `items` `equipment` `canFly` |
 | `items` | `count` `items` |
 | `keyevents` | `lastTick` `count` `time` `stride` |
 | `map` | `mapWidth` `mapHeight` `sampled` `revealedPercent` `explored` |
+| `methods` | `type` `found` `count` `methods` |
 | `navrules` | `reload` `state` |
 | `needs` | `worldFields` `npc` `name` `homeless` `homeTile` `position` |
 | `nodig` | `cleared` `count` `zones` |
@@ -49,7 +51,7 @@
 | `shopdebug` | `npc` `npcType` |
 | `shops` | `scanned` |
 | `snowmoon` | — |
-| `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `world` `player` `guard` `attack` `path` `walk` `input` `hint` |
+| `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `world` `player` `inputDiag` `guard` `attack` `path` `walk` `input` `hint` |
 | `tile` | `hasTile` `type` `name` `wall` `liquid` `liquidName` `slope` `halfBlock` `actuator` |
 | `tiledata` | `name` `hasObjectData` `frameImportant` `width` `height` `originX` `originY` `styleHorizontal` `styleWrapLimit` |
 | `travelstatus` | — |

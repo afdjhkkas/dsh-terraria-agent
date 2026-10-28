@@ -292,6 +292,93 @@ namespace DshTerrariaBridge
             float wy = Main.screenPosition.Y + ry;
             return (true, inClient, pos.X, pos.Y, ox, oy, wx, wy, cw, ch);
         }
+        /// <summary>只读：取某格 tile type，越界或空返回 -1。</summary>
+        internal static int TileTypeAt(int x, int y)
+        {
+            if (x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY) return -1;
+            Tile t = Main.tile[x, y];
+            return (t != null && t.HasTile) ? (int)t.TileType : -1;
+        }
+
+        /// <summary>
+        /// 只读：玩家碰撞箱与绳子的接触情况。
+        /// 为什么需要它：pulley=true 但人明明站在 3 格外的平台上时，
+        /// 只有把 hitbox 换算成格坐标、逐格查绳，才能说清"引擎认定的绳在哪"。
+        /// </summary>
+        private static object RopeContact(Player pl)
+        {
+            Rectangle ht = pl.Hitbox;
+            int lx = ht.Left / 16, rx = (ht.Right - 1) / 16;
+            int ty = ht.Top / 16, by = (ht.Bottom - 1) / 16;
+            bool bodyRope = false;
+            int ropeTiles = 0;
+            for (int x = lx; x <= rx; x++)
+                for (int y = ty; y <= by; y++)
+                    if (TileTypeAt(x, y) == TileID.Rope) { bodyRope = true; ropeTiles++; }
+            int cx = (lx + rx) / 2, cy = (ty + by) / 2;
+            return new
+            {
+                pulley = pl.pulley,
+                ropeCount = pl.ropeCount,
+                bodyHasRopeTile = bodyRope,
+                bodyRopeTiles = ropeTiles,
+                leftX = MathF.Round(ht.Left / 16f, 3),
+                rightX = MathF.Round(ht.Right / 16f, 3),
+                topY = MathF.Round(ht.Top / 16f, 3),
+                feetY = MathF.Round(ht.Bottom / 16f, 3),
+                tileLeftX = lx,
+                tileRightX = rx,
+                tileTopY = ty,
+                tileFeetY = by,
+                footLeftTile = TileTypeAt(lx, by),
+                footRightTile = TileTypeAt(rx, by),
+                centerTile = TileTypeAt(cx, cy),
+                centerTileX = cx,
+                centerTileY = cy,
+                // 脚下一格（站立格）左右两列的 tile type：判断"脚下是绳还是平台/土"。
+                underLeftTile = TileTypeAt(lx, by + 1),
+                underRightTile = TileTypeAt(rx, by + 1),
+            };
+        }
+
+        private static object InputDiagnostics(Player responsePlayer)
+        {
+            Player local = Main.LocalPlayer;
+            int indexedWho = -1;
+            if (Main.player != null && Main.myPlayer >= 0 && Main.myPlayer < Main.player.Length)
+                indexedWho = Main.player[Main.myPlayer]?.whoAmI ?? -1;
+            return new
+            {
+                playerIds = new
+                {
+                    myPlayer = Main.myPlayer,
+                    localPlayerWhoAmI = local?.whoAmI ?? -1,
+                    indexedPlayerWhoAmI = indexedWho,
+                    responsePlayerWhoAmI = responsePlayer?.whoAmI ?? -1,
+                },
+                postUpdateInput = new
+                {
+                    tick = BridgeSystem.DbgInputTriggerTick,
+                    whoAmI = BridgeSystem.DbgInputTriggerPlayer,
+                    left = BridgeSystem.DbgInputTriggerLeft,
+                    right = BridgeSystem.DbgInputTriggerRight,
+                    up = BridgeSystem.DbgInputTriggerUp,
+                    down = BridgeSystem.DbgInputTriggerDown,
+                    jump = BridgeSystem.DbgInputTriggerJump,
+                },
+                postUpdateRunSpeeds = new
+                {
+                    tick = BridgeSystem.DbgInputControlTick,
+                    whoAmI = BridgeSystem.DbgInputControlPlayer,
+                    left = BridgeSystem.DbgInputControlLeft,
+                    right = BridgeSystem.DbgInputControlRight,
+                    up = BridgeSystem.DbgInputControlUp,
+                    down = BridgeSystem.DbgInputControlDown,
+                    jump = BridgeSystem.DbgInputControlJump,
+                },
+            };
+        }
+
         private static string HumanInput()
         {
             if (Main.gameMenu || Main.LocalPlayer == null) return Json.Ok(new { inWorld = false });
@@ -318,6 +405,8 @@ namespace DshTerrariaBridge
                 tick = (long)Main.GameUpdateCount,
                 paused = Main.gamePaused,
                 focus = Main.hasFocus,
+                playerIndex = pl.whoAmI,
+                inputDiag = InputDiagnostics(pl),
                 control = new Dictionary<string, object>
                 {
                     ["left"] = pl.controlLeft,
@@ -452,6 +541,7 @@ namespace DshTerrariaBridge
                 };
                 data["player"] = new
                 {
+                    playerIndex = pl.whoAmI,
                     tile = new[] { MathF.Round(pl.Center.X / 16f, 1), MathF.Round(pl.Center.Y / 16f, 1) },
                     pos = new[] { MathF.Round(pl.position.X / 16f, 2), MathF.Round(pl.position.Y / 16f, 2) },
                     velocity = new[] { MathF.Round(pl.velocity.X, 2), MathF.Round(pl.velocity.Y, 2) },
@@ -495,6 +585,7 @@ namespace DshTerrariaBridge
                     dbgPulley = BridgeSystem.DbgPulley,
                     dbgVelY = MathF.Round(BridgeSystem.DbgVelY, 3),
                     dbgCtrlUp = BridgeSystem.DbgCtrlUp,
+                    dbgPlayerControlUp = BridgeSystem.DbgPlayerControlUp,
                     dbgRopeTile = BridgeSystem.DbgRopeTile,
                     // 开箱子状态：没有这几项，“箱子打开了吗”只能靠人看屏幕，
                     // 我把内容读出来了也说不清界面到底弹没弹（实测被当场指出“假操作”）。
@@ -512,6 +603,10 @@ namespace DshTerrariaBridge
                     // 而人本来就站在出生点旁边时，回城位移不到两格，会被误判成失败。
                     spawn = new { x = Main.spawnTileX, y = Main.spawnTileY },
                 };
+                // 绳子接触诊断（只读）：pulley/ropeCount 单独看不出来"人到底贴着哪一格绳"，
+                // 所以把碰撞箱换算成格子坐标，再逐格查绳，并报左右脚底格的 tile type。
+                data["ropeContact"] = RopeContact(pl);
+                data["inputDiag"] = InputDiagnostics(pl);
                 data["guard"] = new
                 {
                     active = BridgeSystem.GuardUntil > BridgeSystem.Now,
