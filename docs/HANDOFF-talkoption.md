@@ -27,8 +27,9 @@
 
 ## 一、要做的事
 
-在**已经打开对话**的状态下，用鼠标点中对话选项按钮。四个按钮分别是
-「商店 / 幸福度 / 关闭 / 其他」，原版用 `Main.npcChatFocus1..4` 标记哪个按钮被悬停。
+在**已经打开对话**的状态下，用鼠标点中对话选项按钮。命令的 `index` 直接对应
+原版的 `Main.npcChatFocus1..4`：`1=关闭`、`2=第一个业务按钮（通常是商店）`、
+`3=第二个业务按钮`、`4=幸福度`。没有对应按钮的焦点位会一直是 `false`。
 
 `talkoption {index:1..4}` 就是干这个的：扫描屏幕找按钮 → 把鼠标准星挪上去 → 点一下。
 **现在扫 455 个点，一个都命中不了。**
@@ -79,7 +80,7 @@
 
 | 位置 | 作用 |
 |---|---|
-| `BridgeSystem.cs:540` `StepTalkOption()` | **核心，扫描态机**（NPC 对话按钮）。扫上半屏 `y0=80..h/2`、`step=40`、`x=100..w-100`；命中判据 `Main.npcChatFocus1..4`；命中后 phase 2 发 `mouseLeft=false / mouseLeftRelease=true`，phase 3 发 `mouseLeft=true / mouseLeftRelease=false` |
+| `BridgeSystem.cs:540` `StepTalkOption()` | **核心，扫描态机**（NPC 对话按钮）。扫上半屏 `y0=80..h/2`、`step=40`、`x=100..w-100`；命中判据 `Main.npcChatFocus1..4`；命中后 phase 2 发 `mouseLeft=false / mouseLeftRelease=true`，phase 3 发 `mouseLeft=true / mouseLeftRelease=true` |
 | `BridgeSystem.cs:618` `ApplyTalkInputBeforeMouseOver()` | 每帧（绘制阶段）写 `ProbeMouseX/Y` → `Main.mouseX/Y`，然后驱动 `StepTalkOption()` 与 `talk` 的右键帧 |
 | `BridgeSystem.cs:661` `ModifyInterfaceLayers()` | **插入位置**，下面第四节就是这里 |
 | `Commands.cs:1791` `TalkOption(JsonElement p)` | 入口：`index` 必填（1..4）才启动扫描；`index<=0` 只读状态；`stop:true` 中止 |
@@ -88,58 +89,24 @@
 全仓 `Main.mouseX =` 共 7 处：`BridgeSystem.cs:429`、`:459`、`:471`（抓钩瞄准）、
 `:592`（`TalkOptX`）、`:599`（`TalkOptHitX`）、`:623`（`ProbeMouseX`）、`:2434`（`ApplyAim`）。
 
-## 四、我改了一处（推测，**未验证**）
+## 四、代码核对结论与修复
 
-`ModifyInterfaceLayers()` 原来插在 `"Vanilla: Mouse Over"` 之前：
+反编译当前 tModLoader 的 `Terraria.Main` 后确认：桥的输入层位于
+`Vanilla: Player Chat` 之前，因此鼠标坐标会在原版绘制并处理对话按钮前写入；层序不是这次
+点击失败的已知根因。
 
-```csharp
-int mouseOver = layers.FindIndex(layer => layer.Name == "Vanilla: Mouse Over");
-layers.Insert(mouseOver, new LegacyGameInterfaceLayer("DshTerrariaBridge: Talk Input", ...));
-```
+原版 `GUIChatDrawInner()` 的点击分支要求 `mouseLeft && mouseLeftRelease` 同时为真，成功后
+会把 `mouseLeftRelease` 清为 false。桥原先在点击帧写 `mouseLeft=true`、
+`mouseLeftRelease=false`，因此无论目标坐标是否正确，原版都不会执行按钮回调。修复后点击帧
+同时写入两个 true，并在下一帧释放左键。
 
-**推测的层序**（原版 `Main.DrawInterface`）：
+另一个已确认的语义错误是焦点编号：`npcChatFocus1` 是关闭按钮，`npcChatFocus2` 是第一个
+业务按钮（通常是商店），`npcChatFocus3` 是第二个业务按钮，`npcChatFocus4` 是幸福度。
+所以要点商店用 `index:2`，关闭用 `index:1`。
 
-```
-Vanilla: Chat
-Vanilla: Player Chat     ← 对话按钮在这里画，读 Main.mouseX 判悬停
-Vanilla: Mouse Text
-Vanilla: Mouse Over
-...
-```
-
-如果这个顺序成立，插在 `Mouse Over` 之前就等于排在 `Player Chat` **之后** ——
-这一帧按钮已经用**系统鼠标**画完了，我们再挪 `Main.mouseX`，要等到下一帧才被读到，
-而下一帧 `Main.Update` 又把它还原成系统鼠标。于是 `npcChatFocus1..4` 永远是 false。
-
-**已改成**插在 `"Vanilla: Player Chat"` 之前，找不到就退到 `"Vanilla: Chat"` 之前，
-再找不到就 `idx = 0`（`BridgeSystem.cs:661-680`）。
-
-**这一处只是推断，没有铁证**：
-- `ilspycmd` 反编译 `Terraria.Main` 输出 0 行（失败），层名是照 `ModifyInterfaceLayers`
-  里能查到的字符串推的。
-- 改完还没编译、没打包、没重启，所以**不知道有没有用**。
-
-**请先确认层序**（反编译 `Main.DrawInterface` 找 `AddLayer` / `layers.Add` 的调用顺序，
-或直接在 `ModifyInterfaceLayers` 里把 `layers` 的 `Name` 全打印出来看一眼）。
-如果 `Player Chat` 确实在 `Mouse Over` 之前，我这个改法方向是对的。
-
-## 五、如果层序不是问题，还有三个候选方向
-
-1. **`npcChatFocus1..4` 的重算时机**：也许它不是绘制时算的，而是在
-   `Main.Update` 里用系统鼠标算的。如果是这样，绘制阶段写 `Main.mouseX` 完全无效，
-   必须改成**在 `Main.Update` 之前**写（`PostUpdateInput` 或 `PreUpdate`），
-   并让它撑过整个 `Main.Update` 不被覆盖。这是三种可能里最难但最根本的一种。
-
-2. **失焦时原版是否根本不重算**：`humaninput.focus = false`。有些 UI 悬停逻辑
-   写在 `if (Main.hasFocus)` 里（`releaseMount` 那个坑就是这么来的）。
-   可以照 `OpenMountInputGate()` 的做法，在扫描窗口内把 `Main.hasFocus` 临时置真
-   （`Main.Update` 每帧用 `IsActive` 重算，不会残留）。
-
-3. **坐标基准**：`InterfaceScaleType.Game` 与对话按钮的 `InterfaceScaleType.UI`
-   缩放不同。`Main.mouseX` 是**未缩放**的屏幕坐标，但如果扫描用的是世界坐标
-   或缩放后的坐标，455 个点会整体偏掉。可以用 `talkfocus` 手动把鼠标移到
-   **玩家亲眼看到的按钮位置**（比如截图量出按钮中心），看 `f1` 会不会亮 ——
-   亮了就说明是坐标基准错，不是时序错。
+**尚未做真机验证**：`GUIChatDrawInner()` 会在 `PlayerInput.IgnoreMouseInterface` 为 true 时跳过
+悬停与点击判定；游戏窗口失焦时扫描能否命中，仍需通过状态回读确认。代码发送左键输入不等于
+按钮效果已发生，必须检查 `talkNPC`、`chatText` 或 `npcShop` 的变化。
 
 ## 六、怎么验
 
@@ -152,14 +119,14 @@ Vanilla: Mouse Over
 2) talkfocus { x: <按钮中心x>, y: <按钮中心y> }
    判据：f1 或 f2 变成 true —— 这一步不通，后面全不用试
 
-3) talkoption { index:1 }
-   判据：phase 走到 4 且 hitX/hitY 不再是 -1
+3) talkoption { index:2 }
+   判据：phase 走到 6（inputSent）且 hitX/hitY 不再是 -1；该状态只证明左键输入已发送，仍须检查第 4 步的商店回读
 
 4) 商店真的开了没有
    判据：Main.npcShop > 0（现在 shopIndex 恒 0 说明没开）
 
 5) 关闭按钮
-   talkoption { index:3 } 或按 Escape
+   talkoption { index:1 } 或按 Escape
    判据：talkNPC 变回 -1、chatText 变空
 ```
 

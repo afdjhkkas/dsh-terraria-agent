@@ -92,6 +92,24 @@ test('抓钩：releaseHook 必须置 true，否则 QuickGrapple 一次都不会�
     '必须有 ApplyHookAimAfterZoom：zoom 变换后写最终屏幕坐标')
 })
 
+test('talkoption：点击帧必须同时给 mouseLeft 与 mouseLeftRelease', async () => {
+  const src = await read(BRIDGE)
+  const phase3 = src.match(/if\s*\(TalkOptPhase\s*==\s*3\)[\s\S]{0,500}/)
+  assert.ok(phase3, '找不到 talkoption 的按下阶段')
+  assert.match(phase3[0], /Main\.mouseLeft\s*=\s*true\s*;/,
+    '按下阶段必须给 Main.mouseLeft=true')
+  assert.match(phase3[0], /Main\.mouseLeftRelease\s*=\s*true\s*;/,
+    '按下阶段必须同时给 Main.mouseLeftRelease=true；原版按钮点击条件要求两个都为真')
+  assert.doesNotMatch(phase3[0], /Main\.mouseLeftRelease\s*=\s*false\s*;/,
+    '按下阶段不能把 mouseLeftRelease 清掉，否则 GUIChatDrawInner 不会触发按钮')
+})
+
+test('talkoption：索引语义必须明确为原版 focus1=关闭、focus2=第一个业务按钮', async () => {
+  const src = await read(CMDS)
+  assert.match(src, /index 只能是 1\.\.4：1=关闭，2=第一个业务按钮/,
+    'talkoption 的错误提示必须明确 focus1/focus2 的真实语义，避免把商店误叫成 index 1')
+})
+
 test('爬绳：climb 必须先判定脚底是不是绳，没绳就直接拒', async () => {
   const src = await read(CMDS)
   const fn = src.match(/private static string Climb\s*\(JsonElement p\)\s*\{([\s\S]*?)\n\s{8}\}/)

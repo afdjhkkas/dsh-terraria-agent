@@ -1808,7 +1808,7 @@ namespace DshTerrariaBridge
             if (index <= 0) return Json.Ok(TalkOptionStatus());   // 只读状态
 
             if (pl.talkNPC < 0) return Json.Error("还没有和 NPC 对话：先用 talk 建立对话，再 talkoption");
-            if (index > 4) return Json.Error("index 只能是 1..4（原版一次最多两个按钮：1=左，2=右）");
+            if (index > 4) return Json.Error("index 只能是 1..4：1=关闭，2=第一个业务按钮，3=第二个业务按钮，4=幸福度");
 
             BridgeSystem.TalkOptIndex = index;
             BridgeSystem.TalkOptPhase = 1;
@@ -1890,11 +1890,13 @@ namespace DshTerrariaBridge
                 : phase == 1 ? "scanning"
                 : phase == 2 ? "releasing"
                 : phase == 3 ? "pressing"
-                : phase == 4 ? "done" : "failed";
+                : phase == 4 ? "releasingAfterClick"
+                : phase == 5 ? "failed"
+                : phase == 6 ? "inputSent" : "unknown";
             Player pl = P;
             return new
             {
-                active = phase != 0,
+                active = phase >= 1 && phase <= 4,
                 phase,
                 phaseName,
                 index = BridgeSystem.TalkOptIndex,

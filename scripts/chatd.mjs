@@ -161,11 +161,12 @@ const say = (kind, text) => { sendToGame(kind, text); log(`[DO:${kind}] ${text}`
 const nap = (ms) => new Promise(r => setTimeout(r, ms))
 
 async function runIntent(intent) {
-  // 急停闸拦在入口：只有 cancel / resume / stop 三条能穿过它。
-  // 这样即使上层 agent 卡住没收到取消消息，角色也不会被后续指令推着继续动。
+  // 急停闸的边界：拦的是「自动流程」，不是「玩家的下一句话」。
+  // 玩家停了一下、想好了直接说「往左走三格」——那就是明确指示，自动解闸照做；
+  // 硬拦着反而要玩家多喊一句「继续」，那是工具在给玩家添麻烦。
   if (isStopped() && !['cancel', 'resume', 'stop'].includes(intent.kind)) {
-    log(`[GATE] 急停闸生效，拒绝执行 ${intent.kind}`)
-    return false
+    log(`[GATE] 玩家直接下了新指令 ${intent.kind}，自动解闸`)
+    clearStop()
   }
   switch (intent.kind) {
     case 'where': {
@@ -187,8 +188,14 @@ async function runIntent(intent) {
       return true
     }
     case 'stop': {
+      // 「停」= 暂停，不是取消。三层和 cancel 一样（松手 + 立闸 + 通知上层），
+      // 区别只在措辞和对上层的要求：任务保留，等玩家想好了说「继续」就接着干。
+      // 之前这里只做了 bridge stop，结果角色不动了但任务还在跑，等于没停住。
+      raiseStop('用户暂停')
       await bridge('stop', {})
-      say('say', '已松手停下')
+      say('say', '停了。想好了说「继续」，或者直接说下一步要干什么')
+      wakeAgent('【暂停】玩家在游戏里说了停，已松手并立起急停闸。请立刻停下手头正在做的事，'
+        + '任务先保留不要丢弃，回报你停在哪一步，然后等玩家下一句指示。')
       return true
     }
     case 'cancel': {

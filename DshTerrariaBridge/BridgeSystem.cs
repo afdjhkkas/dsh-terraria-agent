@@ -562,6 +562,15 @@ namespace DshTerrariaBridge
 
             if (TalkOptPhase == 1)
             {
+                // 原版在 itemAnimation>0 时会把鼠标界面整体屏蔽；保持当前探针点不前进，
+                // 等动作结束后再让 Player Chat 计算 npcChatFocus，避免把整块按钮扫漏。
+                if (PlayerInput.IgnoreMouseInterface)
+                {
+                    Main.mouseX = TalkOptX;
+                    Main.mouseY = TalkOptY;
+                    TalkOptMsg = "等待原版允许鼠标界面后继续扫描";
+                    return;
+                }
                 if (hit && TalkOptHitX < 0)
                 {
                     TalkOptHitX = TalkOptX;
@@ -600,6 +609,8 @@ namespace DshTerrariaBridge
             Main.mouseY = TalkOptHitY;
             if (TalkOptPhase == 2)
             {
+                // 先给原版一个完整的释放帧。下一帧再同时给 down + release，
+                // 才能满足 GUIChatDrawInner 的 click 条件。
                 Main.mouseLeft = false;
                 Main.mouseLeftRelease = true;
                 TalkOptPhase = 3;
@@ -607,11 +618,20 @@ namespace DshTerrariaBridge
             }
             if (TalkOptPhase == 3)
             {
+                // 原版 GUIChatDrawInner 要求 mouseLeft && mouseLeftRelease 同时为真。
+                // mouseLeftRelease=false 只表示“按住”，不会触发对话按钮。
                 Main.mouseLeft = true;
-                Main.mouseLeftRelease = false;
+                Main.mouseLeftRelease = true;
                 TalkOptPhase = 4;
-                TalkOptMsg = $"已点击按钮 {TalkOptIndex} @ ({TalkOptHitX},{TalkOptHitY})";
+                TalkOptMsg = $"已发送原版左键输入到按钮 {TalkOptIndex} @ ({TalkOptHitX},{TalkOptHitY})；请回读对话/商店状态确认效果";
                 return;
+            }
+            if (TalkOptPhase == 4)
+            {
+                // 点击已经交给原版处理；下一帧主动释放，并停止拦截正常鼠标输入。
+                Main.mouseLeft = false;
+                Main.mouseLeftRelease = true;
+                TalkOptPhase = 6;
             }
         }
 
@@ -628,7 +648,7 @@ namespace DshTerrariaBridge
             }
 
             // talkoption 与 talk 互斥：它自己管鼠标，别让 talk 的右键帧把它顶掉。
-            if (TalkOptPhase != 0) { StepTalkOption(); return true; }
+            if (TalkOptPhase > 0 && TalkOptPhase < 5) { StepTalkOption(); return true; }
             if (TalkTargetNpc < 0) return true;
             ulong now = Main.GameUpdateCount;
             if (TalkUntil <= now) return true;
@@ -3272,7 +3292,7 @@ namespace DshTerrariaBridge
         // 原版每帧绘制对话按钮时读 Main.mouseX/mouseY 判断悬停，把结果写进 npcChatFocusN。
         // 所以「设一个点 → 下一帧读焦点位」是唯一可行的探测方式：一帧只能测一个点。
         internal static volatile int TalkOptIndex;      // 0=idle, 1..4=目标按钮序号
-        internal static volatile int TalkOptPhase;      // 1=扫描 2=释放 3=按下 4=完成 5=失败
+        internal static volatile int TalkOptPhase;      // 1=扫描 2=释放 3=按下 4=点击后释放 5=失败 6=输入已发送
         internal static volatile int TalkOptX, TalkOptY;
         internal static volatile int TalkOptHitX = -1, TalkOptHitY = -1;
         internal static ulong TalkOptStart;
