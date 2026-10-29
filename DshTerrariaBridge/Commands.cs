@@ -1810,10 +1810,23 @@ namespace DshTerrariaBridge
 
             if (pl.talkNPC < 0) return Json.Error("还没有和 NPC 对话：先用 talk 建立对话，再 talkoption");
             if (index > 4) return Json.Error("index 只能是 1..4：1=关闭，2=第一个业务按钮，3=第二个业务按钮，4=幸福度");
+            if (!BridgeSystem.TalkOptionHookInstalled)
+            {
+                string hookError = BridgeSystem.TalkOptionHookError;
+                return Json.Error(hookError.Length > 0
+                    ? "talkoption hook 未安装：" + hookError
+                    : "talkoption hook 尚未安装；请稍后重试");
+            }
 
             BridgeSystem.TalkOptIndex = index;
             BridgeSystem.TalkOptPhase = 1;
             BridgeSystem.TalkOptScanned = 0;
+            BridgeSystem.TalkOptBlocked = 0;
+            BridgeSystem.TalkOptLastIgnoreMouseInterface = false;
+            BridgeSystem.TalkOptLastUsingGamepad = false;
+            BridgeSystem.TalkOptLastItemAnimation = -1;
+            BridgeSystem.TalkOptLastMouseX = 0;
+            BridgeSystem.TalkOptLastMouseY = 0;
             BridgeSystem.TalkOptHitX = -1;
             BridgeSystem.TalkOptHitY = -1;
             // 与 BridgeSystem 的 GUIChatDrawInner 扫描带保持一致：按钮在台词下方（上半屏），
@@ -1903,6 +1916,11 @@ namespace DshTerrariaBridge
                 cursorY = BridgeSystem.TalkOptY,
                 hitX = BridgeSystem.TalkOptHitX,
                 hitY = BridgeSystem.TalkOptHitY,
+                blocked = BridgeSystem.TalkOptBlocked,
+                lastIgnoreMouseInterface = BridgeSystem.TalkOptLastIgnoreMouseInterface,
+                lastUsingGamepad = BridgeSystem.TalkOptLastUsingGamepad,
+                lastItemAnimation = BridgeSystem.TalkOptLastItemAnimation,
+                lastMouse = new { x = BridgeSystem.TalkOptLastMouseX, y = BridgeSystem.TalkOptLastMouseY },
                 talkNPC = pl != null ? pl.talkNPC : -1,
                 chatText = Main.npcChatText ?? "",
                 npcShop = Main.npcShop,

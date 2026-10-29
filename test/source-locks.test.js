@@ -126,10 +126,10 @@ test('talkoption：坐标必须在 GUIChatDrawInner 原版读取前注入', asyn
     '必须安装 talkoption 的 GUIChatDrawInner 钩子')
   assert.match(src, /GetMethod\("GUIChatDrawInner"/,
     '必须挂到原版聊天绘制入口，而不是只依赖独立界面层')
-  assert.match(src, /Action<Action, Main>/,
-    '实例方法 detour 必须保留 orig 与 Main 实例参数')
-  assert.match(src, /PrepareTalkOptionInput\s*\(\);[\s\S]{0,120}orig\(\);[\s\S]{0,120}FinishTalkOptionInput\s*\(\);/,
-    '必须按“写输入 → 原版处理 → 读焦点/推进状态”顺序执行')
+  assert.match(src, /Action<Action<Main>, Main>/,
+    '实例方法 detour 的 orig 必须接收 Main 实例，否则 hook 会进入 phase 1 但不执行原版绘制')
+  assert.match(src, /PrepareTalkOptionInput\s*\(\);[\s\S]{0,160}orig\(self\);[\s\S]{0,160}FinishTalkOptionInput\s*\(\);/,
+    '必须按“写输入 → 原版处理 → 读焦点/推进状态”顺序执行，并把 self 传给 orig')
   assert.match(src, /if\s*\(TalkOptPhase\s*>\s*0\s*&&\s*TalkOptPhase\s*<\s*5\)\s*return true;/,
     '独立界面层不得再提前执行旧扫描逻辑')
 })

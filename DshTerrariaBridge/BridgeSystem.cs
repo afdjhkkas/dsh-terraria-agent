@@ -976,14 +976,22 @@ namespace DshTerrariaBridge
                     BindingFlags.Instance | BindingFlags.NonPublic);
                 if (mi == null) { TalkOptionHookError = "找不到 Main.GUIChatDrawInner"; return; }
 
-                // For an instance parameterless method MonoModHooks supplies the
-                // original delegate first, followed by the target instance.
-                Terraria.ModLoader.MonoModHooks.Add(mi, (Action<Action, Main>)((orig, self) =>
+                // For an instance parameterless method the orig delegate still
+                // receives the target instance.  Passing Action here silently
+                // creates an incompatible detour: the command enters phase 1,
+                // but GUIChatDrawInner never reaches the scanner.
+                Terraria.ModLoader.MonoModHooks.Add(mi, (Action<Action<Main>, Main>)((orig, self) =>
                 {
                     TalkOptionHookCalls++;
-                    PrepareTalkOptionInput();
-                    orig();
-                    FinishTalkOptionInput();
+                    try
+                    {
+                        PrepareTalkOptionInput();
+                        orig(self);
+                    }
+                    finally
+                    {
+                        FinishTalkOptionInput();
+                    }
                 }));
                 TalkOptionHookInstalled = true;
             }
@@ -1053,8 +1061,14 @@ namespace DshTerrariaBridge
         private static void FinishTalkOptionInput()
         {
             if (TalkOptPhase == 0) return;
+            TalkOptLastIgnoreMouseInterface = PlayerInput.IgnoreMouseInterface;
+            TalkOptLastItemAnimation = Main.LocalPlayer?.itemAnimation ?? -1;
+            TalkOptLastUsingGamepad = PlayerInput.UsingGamepad;
+            TalkOptLastMouseX = Main.mouseX;
+            TalkOptLastMouseY = Main.mouseY;
             if (PlayerInput.IgnoreMouseInterface)
             {
+                TalkOptBlocked++;
                 TalkOptMsg = "等待原版允许鼠标界面后继续扫描/点击";
                 return;
             }
@@ -3353,6 +3367,11 @@ namespace DshTerrariaBridge
         internal static volatile int TalkOptHitX = -1, TalkOptHitY = -1;
         internal static ulong TalkOptStart;
         internal static volatile int TalkOptScanned;
+        internal static volatile int TalkOptBlocked;
+        internal static volatile bool TalkOptLastIgnoreMouseInterface;
+        internal static volatile bool TalkOptLastUsingGamepad;
+        internal static volatile int TalkOptLastItemAnimation = -1;
+        internal static volatile int TalkOptLastMouseX, TalkOptLastMouseY;
         internal static volatile string TalkOptMsg = "";
         // talkfocus 的单帧探针：>=0 表示这一帧要把鼠标写到这里，写完立刻置 -1
         internal static volatile int ProbeMouseX = -1, ProbeMouseY = -1;

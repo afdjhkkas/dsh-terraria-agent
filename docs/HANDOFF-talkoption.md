@@ -111,6 +111,16 @@ UI 缩放上下文中，点击阶段也由原版自己的按钮回调完成。
 
 另一个已确认的语义错误是焦点编号：`npcChatFocus1` 是关闭按钮，`npcChatFocus2` 是第一个
 业务按钮（通常是商店），`npcChatFocus3` 是第二个业务按钮，`npcChatFocus4` 是幸福度。
+
+## 最新修复：扫描 phase 1 但 `scanned=0`
+
+实测如果 `talkoption` 回到 `phase=1`、长时间 `scanned=0`，先看回包里的 `hookInstalled`、
+`hookError`、`hookCalls`。`GUIChatDrawInner` 是实例无参方法，但 MonoMod 的 `orig` 委托仍然
+带 `Main` 实例参数；正确形状是 `Action<Action<Main>, Main>`，并且必须调用 `orig(self)`。
+旧写法 `Action<Action, Main>` 会让命令进入扫描状态，却没有真正执行原版聊天绘制，因而扫描器
+永远收不到焦点结果。当前版本已修正，并把 `blocked`、`lastIgnoreMouseInterface`、
+`lastItemAnimation`、`lastUsingGamepad`、`lastMouse` 暴露到 `talkoption` 状态，方便区分 hook
+未触发和原版鼠标门禁长期为真的两类问题。
 所以要点商店用 `index:2`，关闭用 `index:1`。
 
 **尚未做真机验证**：`GUIChatDrawInner()` 会在 `PlayerInput.IgnoreMouseInterface` 为 true 时跳过
