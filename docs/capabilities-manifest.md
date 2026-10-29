@@ -8,7 +8,7 @@
 
 | 命令 | 能读到什么（返回值顶层字段） |
 |---|---|
-| `api` | `type` `count` `members` |
+| `api` | `type` `count` `truncated` `members` |
 | `blood` | — |
 | `bloodmoon` | — |
 | `bobber` | `count` `bobbers` |

@@ -154,3 +154,80 @@ Host & Play 下掉落物由服务端生成再同步，可能只是延迟；但�
 看起来像"已经算好要走 4.12 格"，但角色实际只从 4235.88 挪到 4236。
 `state.exact.stopReason` 报 `"manual-move"` —— 说明它被后面的 `move` 覆盖掉了。
 需要确认 `moveto` 是同步执行还是异步下达；如果是异步，就不该在返回值里写 `from/target` 让人以为已到位。
+
+## 修复验证（15:10 打包后复测）
+
+在 `talk` 阈值 5 格 + 视线检查、`accessory` 默认只读、`shop` 中文名解析、新增 `talkclose` 四处改动打包
+（`Mods/DshTerrariaBridge.tmod` 200412 字节，15:10:15）后逐项复测。
+
+**先踩一次坑**：第一次打包（14:38）用的是 14:30:28 的旧 dll，而 `talk` 的改动是 14:30 之后才写的 ——
+包里跑的还是旧代码（返回"离 巫医Abibe 太远（61 格）"，旧文案 `{d/16f:F0}`），差点把"没生效"当成"没修好"。
+**铁律：改完源码先 `dotnet build -c Release --no-incremental`，再 `-eac` 打包。**
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| `accessory` 默认只读 | ✓ | `{action:"list", equipped:[…], note:"只读清单。卸下要显式 off:true…"}`，装备没有被摘 |
+| `talkclose` | ✓ | `{beforeTalkNPC:4, talkNPC:-1, hadChat:true, chatText:"", closed:true}` |
+| `talk` 视线检查 | ✓ | `talk {npc:353}` → `Error: 看不到 发型师Kati：中间隔着方块（你在 y=446，他在 y=441），得走到同一层再谈` |
+| `talk` 成功路径（3 格） | ✓ | 挖开 448/454 楼板落到 459 楼板层后 `talk {npc:38}` → `alreadyTalking:true, talkNPC:4, chatText:"如果这个世界可以炸得一干二净，何须再净化它？"` |
+| `shop {npc:38}` 中文名解析 | ✓ | `{shopId:4, items:[手榴弹75/炸弹300/雷管2000/狱炎箭100/地雷50000/爆炸粉1200]}` —— `ShopKeyOf` 把 `Terraria/Demolitionist/爆破专家Oten` 截成两段后命中 |
+| `fly` | ✗ 仍不工作（此版）→ 见「缺陷 12」，15:51 那版已修 | 连试 5 次（ms 600/900/1500）全部 `velY:0`、位置一格不动 |
+
+> `fly` 在 15:51 打包（200438 字节）后复测通过：从 (4198.5,484.7) 连飞两次，
+> 第一次 900ms 升到 **462.7**（+22 格），第二次 600ms 再升到 **449.7**（+13 格），
+> `hasWings:true, wingTimeMax:180`，`velY` 仍是 0（垂直速度由引擎每帧重算，不是本桥写的）。
+> **纯垂直飞行在这套环境成立的前提就是 `Fly` 开头那句 `StopAutomatedMovement`。**
+
+## 缺陷 12（已修，已验证）：`fly` 缺 `StopAutomatedMovement`
+
+`fly` 在 15:10 那版已经走 `BeginJump`（`IntentJump=true`），但**仍然一格不动**；
+而同一位置 `jump {ms:800, dir:"right", moveMs:2500}` 能把角色从 (4221.3,462.7) 送上 16 格并横移 59 格。
+
+差别只在开头：`Jump`（`Commands.cs:3237`）第一句是 `BridgeSystem.StopAutomatedMovement("manual-jump")`，
+`Fly` 没有。`ApplyMovement`（`BridgeSystem.cs:1990`）在 `ExactActive`/`PathActive`/`WalkActive`/`FollowActive`
+任一分支里都会 **提前 return**（2005 / 2071 / 2072 / 2089），走到 `if (JumpUntil > now)`（2102）之前就退出了。
+只要有残留的自动状态，`controlJump` 一次都不会被置上。
+
+**修法**：`Fly` 里补 `BridgeSystem.StopAutomatedMovement("manual-fly")`，与 `Jump` 对齐。
+
+**修复后的实测（`Mods/DshTerrariaBridge.tmod` 200438 字节，15:51）**：角色 why（`hasWings:true, wingTimeMax:180`），
+在出生点 (4198.5,484.7)：
+
+| 调用 | 结果 |
+|---|---|
+| `fly {ms:900}` | y 484.7 → **462.7**（+22 格） |
+| `fly {ms:600}` | y 462.7 → **449.7**（+13 格） |
+
+两次都稳定上升，`velY` 恒为 0 —— 垂直速度是引擎每帧按按键状态重算的，桥不写它（符合 §0.55）。
+**一次 fly 大约升 20 格/秒，够跨一层楼板（每层 5–10 格）。**
+
+## 16:15 版复测（`Mods/DshTerrariaBridge.tmod` 201569 字节，16:15:03）
+
+改了 `api` 的参数名、`heal` 的诊断字段、`drop` 的同步说明之后重新打包复测。
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| `api` 的 `filter` | ✓ 修好 | `api {type:"Terraria.Chest", filter:"name"}` → `{count:2, shown:2, truncated:false, filter:"name", members:[…name, …MaxNameLength]}`。改之前同样调用返回全部 38 条 —— 代码读的是 `member` 而不是 `filter` |
+| `api` 的 `limit` | ✓ 新增 | 默认 200，另给 `shown` / `truncated`；`Terraria.Main` 的 772 个成员不会再一次吐完 |
+| `heal` 诊断 | ✓ 修好 | 满血时返回 `{healed:0, hasPotion:false, potionDelay:0, candidate:"超级治疗药水", candidateSlot:42, hint:"背包里有 超级治疗药水，但已经满血（500/500），不浪费"}` |
+| `drop` 的同步说明 | ✓ | 多人客户端下仍 `idx:-1`，但返回 `note` 讲清"服务端创建物品再广播回来，本帧读 Main.item 必然为空" |
+| `drop` 复查 | ✗ 仍不落地 | 2 秒后 `grab` / `items` 都看不到那个火把（`actives:5`、`nearest:"凝胶"` 8.3 格）—— 不是延迟，是 Host&Play 客户端下 `DropSelectedItem()` 没能让服务端建出掉落物。**只在多人模式复现，单人待测** |
+| `fly` 二次确认 | ⧗ 位置不利 | 这次 why 在地下 (2095.5,219.7)，`fly {ms:700}` 后位置不变；`tile (2095,217)` 是空的，但 `gravity` 显示 `grounded:true, standing:221`。出生点开阔处已两次验证（+22 / +13 格），这次不作为反证 |
+| `moveto` | ✓ 撤销缺陷 11 | 在基地 `moveto {x:4250,tol:1,ms:4000}` 从 4197.88 走到 **4250.6** 到位。之前"只回报不执行"是柱子阻挡 + 后面的 `move` 覆盖了 `exact`，不是命令缺陷 |
+| `mirror` | ✗ 名单窄 | why 背包里有**贝壳电话（家园）5358**，`mirror` 却报"背包里没有魔镜（Magic Mirror / Ice Mirror / Cell Phone）"—— 检测名单没把 Shellphone 算进去 |
+| `keyevents` / `travelstatus` / `gravity` / `roomcheck` / `minion` | ✓ | 都返回结构化数据或诚实拒绝（`minion` → "背包里没有召唤物品"，`roomcheck` 在地下报 `HoleInWallIsTooBig` + 三步诊断） |
+
+## 教训
+
+1. **编译通过 ≠ 包里是新代码**。`tmod` 打的是 `bin/Release/net8.0/*.dll`，改完源码必须 `--no-incremental`
+   重新 build 再 `-eac`；验字符串要注意 .NET 字符串在 dll 里是 **UTF-16LE**
+   （`grep` 中文永远 0 命中，要用 `node -e "…toString('utf16le').includes(…)"`）。
+2. **"这个功能坏了"之前先找同族命令的差异**。`fly` 与 `jump` 的行为差异最终只有一行代码不同，
+   而这行不在 `BeginJump` 里、也不在 `controlJump` 那行，而在命令开头抢控制权的位置。
+3. **纯竖直输入在 `StopAutomatedMovement` 修好之前天然不成立**：15:10 之前所有能动的实测都带横向 `dir`。
+   修好之后 `fly` 单独用就能升 22 格 —— 所以"必须带 dir"是缺陷的现象，不是环境的限制。
+4. **楼层会骗人**：基地每层都是连续实心楼板（459 / 448 / 443），`path`/`walkto` 又把平台（19/30）不当地板，
+   所以"走过去"和"跳上去"会同时失效 —— 最后是靠**挖开楼板掉下去**落到目标层的（挖 4258/4259 的 457/458
+   打通后，`talk` 距离从 9 格降到 3 格才成功）。楼层也可以靠 `fly` 直接上去，不必挖。
+5. **选角色必须双击、且每次滚动后重新截图读行**：玩家列表行高约 100 屏幕像素，滚动后整体平移；
+   三次重启里有两次点错进了没有翅膀的 `qqa`，白跑一轮。

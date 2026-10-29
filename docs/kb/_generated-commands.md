@@ -8,7 +8,7 @@
 | 命令 | 参数 |
 |---|---|
 | `accessory` | `off` `from` `slot` |
-| `api` | `type` `member` |
+| `api` | `type` `filter` `member` `limit` |
 | `attack` | `who` `r` `ms` `interval` `slot` |
 | `blood` | — |
 | `bloodmoon` | — |

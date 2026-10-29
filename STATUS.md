@@ -46,6 +46,19 @@
 `Main.DrawNPCChatButtons(Int32, Color, Int32, String, String)`、`Main.DrawNPCChatBubble(Int32)`。
 前两条已经用上；`DrawNPCChatButtons` 是下一步做「点对话选项」的抓手。
 
+### 零-0、同一轮的后续（16:15 那版，`tmod` 201569 字节）
+
+**又修了 3 处、撤销 1 条误报**（详见记录文件的「16:15 版复测」表）：
+
+| 项 | 结果 |
+|---|---|
+| `fly` | **✓ 真修好了**。补 `BridgeSystem.StopAutomatedMovement("manual-fly")` 后，在出生点 `fly {ms:900}` 升 **+22 格**、再 `{ms:600}` 升 **+13 格**。之前"必须带 `dir` 才动"是缺陷现象，不是环境限制 |
+| `api` 的 `filter` | **✓** 代码读的是 `member` 而不是 `filter`；两个都认了，另加 `limit`（默认 200）+ `shown`/`truncated`，`Terraria.Main` 不再一次吐 772 条 |
+| `heal` | **✓** 加了 `potionDelay` / `candidate` / `candidateSlot` / `hint`。满血时明确说"背包里有超级治疗药水，但已经满血，不浪费"，不再让 `hasPotion:false` 看着像 bug |
+| `moveto`（缺陷 11） | **✓ 撤销**。基地里 `moveto {x:4250,tol:1}` 从 4197.88 走到 4250.6 到位；之前那次是柱子阻挡 + 后面的 `move` 覆盖了 `exact` |
+| `drop`（缺陷 10） | **✗ 确认是真缺陷**：Host&Play 客户端下丢出去的东西，2 秒后 `grab`/`items` 都看不到 → `DropSelectedItem()` 没能让服务端建掉落物。**只在多人复现，单人待测**；返回里已加 `note` 讲清同步时序 |
+| `mirror` | **新缺陷**：`why` 背包里有贝壳电话（5358），`mirror` 仍报"没有魔镜" —— 检测名单没算 Shellphone |
+
 ## 零-1、上一轮（第 193 轮）：用例库不再虚报缺口
 
 这一轮没碰游戏代码，清的是自检工具的账：`npm run tc:dry` 报的 9 条缺口里，只有 2 条是真的。
@@ -133,6 +146,10 @@
 
 ## 四、当前进度
 
+> **⚠️ §四～§六 是早期「从零开荒」阶段的记录（当时用的是另一个角色，无护甲、只到过 x=3385）。
+> 保留作历史对照。当前状态见 §零～§零-0 与文末「§八」** —— 现在的实测角色 `why` 是 500 血、
+> 耀斑套装、天顶剑、有翅膀的成型号，基地在 (4260,462) 附近，30 个 NPC 常驻。
+
 - **最远到达**：东 x=3385（丛林深处）／西 x=1557（雪原边界）
 - **装备**：铁弓、铁镐×4、铁锭 3、**无护甲**
 - **资源**：晶状体 19（够做可疑眼球）、蛛网 99、木材 357
@@ -166,6 +183,36 @@ docs/
   testcases/           用例库 + 离线预检报告（56/58 通过，缺口 2 条）
 test/                  330 项测试（328 通过，2 项主机差异跳过）
 ```
+
+---
+
+## 八、当前状态与下一步
+
+**环境**：tModLoader 1.4.4.9（`D:/STEAM/steamapps/common/tModLoader`），桥 `127.0.0.1:47777`，
+**必须用多人模式（开服并开始游戏）** —— 单人模式一失焦就 `paused`，所有动作命令拿到 `moved:false`；
+Host & Play 下 `paused:false` 与 `hasFocus:false` 能同时成立，后台发输入就是真实输入。
+
+**当前进度的准确说法**：
+
+- 桥命令 **110 条**（只读 50 / 动作 56 / 看参数 4），本轮真机实测覆盖 **90+ 条**，
+  通过/诚实拒绝的占绝大多数，失败项全部带行号根因记录在 [`docs/live-test-round194.md`](docs/live-test-round194.md)。
+- 已修 **7 处**：`fly`（两处：`BeginJump` 的 `IntentJump` + `StopAutomatedMovement`）、
+  `accessory` 破坏性默认、`shop` 中文名解析、新增 `talkclose`、`talk` 阈值 12→5 格 + 视线检查、
+  `api` 的 `filter`/`limit`、`heal` 诊断字段。
+- 已知未修 **4 条**：`drop` 在 Host & Play 客户端不落地、`mirror` 不认贝壳电话、
+  `path`/`walkto` 不把平台当地板、`save` 在客户端不落盘。
+- **N04/F04 两条用例**（渔夫任务交付、护士治疗）仍缺「点对话选项」原语。
+  设计已明确：`Main.DrawNPCChatButtons` + `npcChatFocus1..4` 跨帧扫描反推按钮矩形，
+  再发真实左键 —— 需要**跨帧状态机**（每帧只能测一个点，扫完约 15 秒），
+  且必须打包重启才能验证，故留作独立一轮。
+
+**下一步（按价值排序）**：
+
+1. 做 `talkoption {index}`，把 N04/F04 补上，用例库 58/58。
+2. 修 `drop`：多人客户端下改用 `Item.NewItem(...)` + 显式网络同步，而不是 `DropSelectedItem()`。
+3. 修 `mirror`：把 Shellphone(5358) / Cell Phone(5358 变体) / Ice Mirror 一起认。
+4. `path`/`walkto` 把 `solidTop` 平台（19/30）算进可站地板。
+5. 全部改动打包重启后一次性复测，再把 6+ 笔提交 push 到 `origin/main`（**等用户确认**）。
 
 ---
 

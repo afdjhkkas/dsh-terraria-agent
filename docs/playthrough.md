@@ -1490,3 +1490,55 @@ N04/F04 那两条用例卡的正是"渔夫任务交付要点按钮"，而 `npcCh
 **"编译通过"和"引擎真的会动"之间隔着一整层输入合成。** `fly` 写错了三个月没人发现，
 是因为它总是返回 `ok:true`、字段齐全、`hasWings:true`——看起来一切正常，只有位置不动。
 判据要用**引擎算出来的东西**（位置、`grapCount`、背包数量），不能只看命令自己的回包。
+
+## 第 194 轮（续）：打包三次才把「改了的代码」真的送进游戏
+
+### 现象
+
+`fly` / `accessory` / `shop` / `talkclose` / `talk` 五处改完、`npm test` 全绿、`dotnet build` 0 错误，
+打包也报 `Packaging: DshTerrariaBridge` —— 进游戏一测，`fly` 还是**一格不动**，
+`talk` 报的还是旧文案「太远（61 格）」而不是新的「离 … 太远（61.0 格），原版对话判定约 5 格内」。
+
+### 根因：三次"以为生效了"
+
+1. **第一次（14:38）**：打包用的是 `bin/Release/net8.0/*.dll`，那是 **14:30:28** 的产物；
+   而 `talk` 的改动是 14:30 之后写的。`-eac` 只负责把已有的 dll 塞进 tmod，它不负责先编译。
+   **铁律：改完源码先 `dotnet build -c Release --no-incremental`，再 `-eac`。**
+2. **第二次（15:10）**：dll 新了，`talk` ×`5` 格和视线检查都验到了，`shop` 中文名解析也通了，
+   但 `fly` 仍然不动 —— 说明 **`BeginJump` 里的 `IntentJump` 不是唯一的坑**。
+3. **第三次（15:51）**：加 `StopAutomatedMovement("manual-fly")`，`fly` 才真的能升 **+22 格 / +13 格**。
+
+### 为什么是这一句
+
+`ApplyMovement`（`BridgeSystem.cs:1990`）开头 `if (MovementAppliedTick == Now) return;`，
+之后按 `ExactActive`(2005) → `PathActive`(2071) → `WalkActive`(2072) → `FollowActive`(2089)
+依次 **提前 return**，走到 `if (JumpUntil > now) { RequestJump(); }`（2102）就已经退出了。
+只要有残留的自动状态，`controlJump` 一次都不会被置上。
+`Jump` 命令第一句就是 `StopAutomatedMovement("manual-jump")`，`Fly` 没有 —— **差别只有这一行。**
+
+**"必须先找同族命令的差异"**：两个命令看起来都在"设置跳跃意图"，实际差别在有没有抢回控制权。
+
+### 顺带修正的一条误判
+
+上一段记录写着"纯竖直输入在这套环境天然不成立，所有能动的实测都带 `dir`"。
+**这句话是缺陷的现象，不是环境的限制** —— `StopAutomatedMovement` 补上之后，`fly` 单独用就能升 22 格。
+记录里凡是"某类输入不成立"的结论，都要能指出它背后是哪一行代码。
+
+### 16:15 那版又修了三处
+
+- `api` 的 `filter`：代码读的是 `member`，文档和实测都按 `filter` 传 —— 两个都认，另加 `limit`（默认 200）。
+  修完 `api {type:"Terraria.Chest", filter:"name"}` 只回 2 条，`Terraria.Main` 不会再一次吐 772 条。
+- `heal`：加 `potionDelay` / `candidate` / `candidateSlot` / `hint`。
+  满血时明确说"背包里有超级治疗药水，但已经满血，不浪费"，不再让 `hasPotion:false` 看着像 bug。
+- `drop`：确认**在 Host & Play 客户端下丢出去的东西不落地**（2 秒后 `grab`/`items` 都看不到），
+  返回里加 `note` 讲清同步时序；**只在多人复现，单人待测**。
+
+同时**撤销一条误报**：`moveto` 不是"只回报不执行"，基地里 `moveto {x:4250,tol:1}` 从 4197.88
+走到 4250.6 到位。之前那次是柱子阻挡 + 后面的 `move` 覆盖了 `exact`。
+
+### 教训
+
+**改完源码、跑完测试、看到 `Packaging:` 三个字，都不等于游戏里跑的是新代码。**
+唯一可靠的判据是**新代码才会产生的那一句话/那一个数字**：这次的判据是
+`talk` 的 `{F1}` 格式（`61.0 格` vs `61 格`）和 `fly` 的 y 位移（0 vs +22）。
+**先挑一个"旧版绝不可能输出"的字符串当探针，再去打包。**

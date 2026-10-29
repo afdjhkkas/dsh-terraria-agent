@@ -1519,7 +1519,12 @@ namespace DshTerrariaBridge
                 pl.inventory[slot] = rest;
             }
             return Json.Ok(new { dropped = dropped.Name, count = n, idx, onGround = idx >= 0,
-                left = pl.inventory[slot].stack, verify = "grab 能捡回来才算真的落地" });
+                left = pl.inventory[slot].stack,
+                note = idx < 0
+                    ? "背包账目已经减了（left 变小），但本地还没看到掉落物：Host&Play 客户端丢东西是先发请求、"
+                      + "由服务端创建物品再广播回来，本帧读 Main.item 必然还是空的。1 秒后用 items 或 grab 复查。"
+                    : null,
+                verify = "grab 能捡回来才算真的落地" });
         }
 
         private static string HealSelf(JsonElement p)
@@ -1528,9 +1533,34 @@ namespace DshTerrariaBridge
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             Player pl = P;
             int before = pl.statLife;
+            // 先自己看一遍背包：QuickHeal 什么都不做时也要能说出"为什么"，
+            // 别让 hasPotion:false 变成"背包里明明有药"的假象（实测 46 瓶弱效治疗药水时踩过）。
+            string candidate = null;
+            int candidateSlot = -1;
+            for (int i = 0; i < pl.inventory.Length; i++)
+            {
+                Item it = pl.inventory[i];
+                if (it != null && it.type > 0 && it.healLife > 0 && it.stack > 0)
+                { candidate = it.Name; candidateSlot = i; break; }
+            }
             pl.QuickHeal();
             int after = pl.statLife;
-            return Json.Ok(new { before, after, healed = after - before, hasPotion = after > before });
+            int healed = after - before;
+            string hint = null;
+            if (healed <= 0)
+            {
+                if (candidate == null) hint = "背包里没有任何能回血的药水";
+                else if (pl.potionDelay > 0) hint = $"背包里有 {candidate}（slot {candidateSlot}），但还在药水冷却里（{pl.potionDelay} 帧）";
+                else if (before >= pl.statLifeMax2) hint = $"背包里有 {candidate}，但已经满血（{before}/{pl.statLifeMax2}），不浪费";
+                else hint = $"背包里有 {candidate}，QuickHeal 却没有喝 —— 值得查";
+            }
+            return Json.Ok(new
+            {
+                before, after, healed,
+                hasPotion = healed > 0,
+                potionDelay = pl.potionDelay,
+                candidate, candidateSlot, hint,
+            });
         }
 
         private static string BossStatus(JsonElement p)
@@ -1976,7 +2006,10 @@ namespace DshTerrariaBridge
         private static string ApiLookup(JsonElement p)
         {
             string typeName = Json.Str(p, "type", "");
-            string filter = Json.Str(p, "member", "");
+            // 参数名曾经写成 member，而 KB 与实测都按 filter 传 —— 两个都认，别再让调用方踩空。
+            string filter = Json.Str(p, "filter", "");
+            if (filter.Length == 0) filter = Json.Str(p, "member", "");
+            int limit = Json.Int(p, "limit", 200);
             if (typeName.Length == 0) return Json.Error("api 需要 type（例如 Terraria.Chest）");
             Type t = typeof(Main).Assembly.GetType(typeName);
             if (t == null)
@@ -1997,7 +2030,18 @@ namespace DshTerrariaBridge
             foreach (var f in t.GetFields(flags))
                 if (filter.Length > 0 && f.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
                     list.Add("field | " + f.FieldType.Name + " " + f.Name);
-            return Json.Ok(new { type = t.FullName, count = list.Count, members = list });
+            // Terraria.Main 这类大类型有 700+ 成员，一次吐出去会淹掉调用方 —— 默认只回前 200 条并标记 truncated。
+            int shown = Math.Min(Math.Max(limit, 1), list.Count);
+            var page = list.GetRange(0, shown);
+            return Json.Ok(new
+            {
+                type = t.FullName,
+                count = list.Count,
+                shown,
+                truncated = shown < list.Count,
+                filter,
+                members = page,
+            });
         }
 
         /// <summary>
@@ -3731,6 +3775,12 @@ namespace DshTerrariaBridge
             int ms = Math.Clamp(Json.Int(p, "ms", 900), 60, 8000);
             bool wings = pl.wingTimeMax > 0 || pl.equippedWings != null;
             bool mounted = pl.mount != null && pl.mount.Active;
+            // 手动飞也要先抢回控制权：exact/path/walk/follow 只要有一个还活着，
+            // ApplyMovement 就会在那个分支里提前 return（BridgeSystem.cs:2005/2071/2072/2089），
+            // JumpUntil 那一段永远走不到，表现就是"翅膀不开、velY 恒 0"。
+            // 实测：fly 连试 5 次一格不动，而同一位置带 dir 的 jump 能升 16 格 ——
+            // 差别只在 Jump 命令开头有这句 StopAutomatedMovement。
+            BridgeSystem.StopAutomatedMovement("manual-fly");
             // 必须走 BeginJump：它除了写 JumpUntil 还会置 IntentJump=true。
             // BridgeSystem.cs:616 的 controlJump 只在 IntentJump 或真实按键 triggers.Jump 为真时才成立，
             // 这套环境没有物理按键，只写 JumpUntil 会让 controlJump 恒 false（翅膀永远不开，实测 velY 恒 0）。

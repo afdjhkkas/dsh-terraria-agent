@@ -25,11 +25,14 @@
       "kind": "read",
       "params": [
         "type",
-        "member"
+        "filter",
+        "member",
+        "limit"
       ],
       "returns": [
         "type",
         "count",
+        "truncated",
         "members"
       ],
       "summary": ""
@@ -564,8 +567,8 @@
       "kind": "act",
       "params": [],
       "returns": [
-        "healed",
-        "hasPotion"
+        "hasPotion",
+        "potionDelay"
       ],
       "summary": ""
     },
