@@ -252,17 +252,14 @@ while (true) {
       handled.add(line)
       try { await runIntent(intent) } catch (e) { log('[INTENT-ERR] ' + e.message); say('warn', '这条没办成：' + e.message) }
     } else {
-      // 认不出的每一条都要有下文，不能第一条回了之后就一直哑着。
+      // 认不出的句子：写进 pending 兜底，然后把原话直接投进对话。
       //
-      // 两条路一起走：
-      //  ① 写进 pending —— 即使投递失败也不会丢，下次谁看见都能接手；
-      //  ② 调 DSH 的 session/prompt 把原句**直接投进对话**，让那边的 agent 当用户消息
-      //     一样读到它。这一步才是真正叫醒上层；只写文件的话没人会来看。
+      // 游戏框里**不再**说「这条我认不出」——用户明确不要那句解释。
+      // 说了也没用：他要的是事情被办掉，不是听工具报一句自己不会。
+      // 所以这里保持安静，只在日志里留痕。
       appendPending(rec)
       const woke = await wakeAgent(line)
-      sendToGame('think', woke
-        ? '「' + line + '」这条我认不出，已经把原话递到对话里了，等那边接'
-        : '「' + line + '」这条我认不出，已记进待办（对话没连上，暂时没人接手）')
+      log('[UNKNOWN] ' + line + ' → ' + (woke ? '已转给对话' : '对话没连上，留在待办'))
     }
   }
 
