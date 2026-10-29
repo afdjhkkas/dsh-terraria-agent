@@ -512,7 +512,11 @@ namespace DshTerrariaBridge
             if (requested != "inventory" && requested != "escape")
                 return Json.Error("key 目前支持 inventory 或 escape；两者都走 Terraria 的 Inventory 键输入");
 
-            int ms = Math.Clamp(Json.Int(p, "ms", 100), 20, 1000);
+            // 默认 40ms（约 2 帧）。实测按太久会反复 toggle：原版 ToggleInv 之后
+            // releaseInventory 被清成 false，但只要按住期间 controlInv 掉回 false 一帧，
+            // 引擎的 else 分支又把 releaseInventory 置 true，下一帧按住就又 toggle 一次。
+            // 实测 ms=120 时 playerInventory 在 false/true 之间抖了 8 次；ms=40 时一次干净翻转。
+            int ms = Math.Clamp(Json.Int(p, "ms", 40), 20, 1000);
             ulong now = BridgeSystem.NowTick();
             if (BridgeSystem.InventoryUntil > now)
                 return Json.Error("inventory 键输入仍在进行中；等 untilTick 后再发下一次");
@@ -521,7 +525,14 @@ namespace DshTerrariaBridge
             bool beforeInventory = Main.playerInventory;
             int beforeTalkNpc = pl.talkNPC;
             int beforeShop = Main.npcShop;
-            ulong until = now + BridgeSystem.Ticks(ms);
+
+            // 预开闸 6 帧：这几帧只抬 Main.hasFocus、不按键，让原版执行
+            //   else { releaseInventory = true; }
+            // 把边沿准备好；6 帧之后再真正按下，ToggleInv() 才会被调用。
+            // 不加这一步，失焦下 controlInv=true 也进不去（实测 playerInventory 恒 false）。
+            const int preOpen = 6;
+            BridgeSystem.InventoryPreOpenUntil = now + (ulong)preOpen;
+            ulong until = now + (ulong)preOpen + BridgeSystem.Ticks(ms);
             BridgeSystem.InventoryUntil = until;
 
             return Json.Ok(new
@@ -529,9 +540,10 @@ namespace DshTerrariaBridge
                 key = requested,
                 resolvedKey = "inventory",
                 ms,
+                preOpenTicks = preOpen,
                 before = new { playerInventory = beforeInventory, talkNPC = beforeTalkNpc, npcShop = beforeShop },
                 untilTick = until,
-                note = "已发送真实 Inventory/Escape 键输入；等 untilTick 后回读 state.playerInventory、talkNPC、npcShopIndex 确认原版 UI 是否切换",
+                note = "已发送真实 Inventory/Escape 键输入（预开 " + preOpen + " 帧 + 按住 " + ms + "ms）；等 untilTick 后回读 state.playerInventory、talkNPC、npcShopIndex 确认原版 UI 是否切换",
             });
         }
 

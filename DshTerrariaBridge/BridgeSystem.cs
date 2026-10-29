@@ -633,7 +633,7 @@ namespace DshTerrariaBridge
             ulong now = Main.GameUpdateCount;
             // 预开闸窗口也要开：那几帧不按坐骑键（controlMount 保持 false），
             // 引擎才有机会执行 else { releaseMount = true; }，把下骑的前置条件备好。
-            if ((MountUntil > now || MountPreOpenUntil > now) && !Main.hasFocus) Main.hasFocus = true;
+            if ((MountUntil > now || MountPreOpenUntil > now || InventoryUntil > now || InventoryPreOpenUntil > now) && !Main.hasFocus) Main.hasFocus = true;
         }
 
         internal static void ApplyNativeControlFlags(Player player)
@@ -666,7 +666,7 @@ namespace DshTerrariaBridge
             //   站在 type 19 木平台上 fly/jump 全部 velY:0、jumped:false，
             //   因为 ApplyMovement 开头（2069）已经把 IntentJump 清掉，只剩被 triggers 短路的那一半。
             player.controlJump |= IntentJump || JumpUntil > now;
-            player.controlInv |= InventoryUntil > now;
+            player.controlInv |= InventoryUntil > now && InventoryPreOpenUntil <= now;
             // 坐骑不在这里写。实测：在 SetControls 里写 controlMount=true（mountFired 已是 true），
             // 到 PostUpdateMiscEffects 读回来仍是 false —— 原版在 SetControls 之后会用输入层结果
             // 重建 controlMount，写在早阶段的 true 当场被覆盖。这和 controlHook 是同一个病
@@ -790,7 +790,9 @@ namespace DshTerrariaBridge
             // Inventory is Terraria's semantic Escape key. Keep the real trigger and
             // its press/release edges; ApplyNativeControlFlags mirrors the same input
             // into controlInv for this loader build's Player.Update consumer.
-            ApplyBridgeTrigger(InventoryUntil > now, ref BridgeInventoryHeld,
+            // 预开闸期内（InventoryPreOpenUntil > now）刻意不按键：那几帧要留给引擎把
+            // releaseInventory 置回 true，否则 ToggleInv 永远看不到"刚按下"这个边沿。
+            ApplyBridgeTrigger(InventoryUntil > now && InventoryPreOpenUntil <= now, ref BridgeInventoryHeld,
                 t => t.Inventory = true, t => t.Inventory = true, t => t.Inventory = true);
             var triggers = PlayerInput.Triggers.Current;
             DbgInputTriggerTick = (long)now;
@@ -3297,6 +3299,13 @@ namespace DshTerrariaBridge
         // 解法：真正按下之前先开几帧闸但不按，让引擎自己把 releaseMount 置真。
         // 窗口过后引擎每帧会用 IsActive 重新赋值 hasFocus，不残留。
         internal static ulong MountPreOpenUntil;
+        // 背包键和坐骑是同一个病：原版处理 controlInv 的那段是
+        //   if (controlInv) { if (releaseInventory) ToggleInv(); releaseInventory = false; }
+        //   else { releaseInventory = true; }
+        // 而整段挂在 if (Main.hasFocus) 里。失焦时 else 分支不执行，releaseInventory 永远是初值 false，
+        // 于是我们写 controlInv=true 也进不去 ToggleInv（实测：key inventory 回 ok:true，playerInventory 恒 false）。
+        // 预开闸这几帧只抬 hasFocus、不按键，把时间留给引擎执行 else 分支把 releaseInventory 置 true。
+        internal static ulong InventoryPreOpenUntil;
         // 边沿闸门：原版 controlMount 是"刚按下"的复制，持续为真会每帧反复上下坐骑，
         // 所以一个时间窗只允许发一次 true。
         internal static bool MountFired;
