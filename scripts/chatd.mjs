@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { parseIntent, walkTiles, describeStatus, describeInventory } from '../src/chat-intents.mjs'
 import { createBridgeClient } from '../src/bridge-client.js'
+import { say as wakeSession } from './wake.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const DATA = join(ROOT, 'data')
@@ -118,6 +119,24 @@ function sendToGame(kind, text) {
       { encoding: 'utf8', cwd: ROOT, timeout: 20000, stdio: 'pipe' })
     return true
   } catch (e) { log('say 失败: ' + e.message); return false }
+}
+
+/**
+ * 把游戏里的一句话投进 DSH 对话，等于替用户打了一次字。
+ *
+ * 失败不是致命错误：待办已经落盘了，只是没人立刻接手。所以这里吞掉异常、
+ * 返回 false，让调用方能在游戏框里如实说明「对话没连上」，而不是假装成功。
+ */
+async function wakeAgent(line) {
+  try {
+    const r = await wakeSession(line)
+    if (!r?.accepted) { log('[WAKE] DSH 未确认接受'); return false }
+    log('[WAKE] 已投进对话 ' + r.sessionId)
+    return true
+  } catch (e) {
+    log('[WAKE-ERR] ' + e.message)
+    return false
+  }
 }
 
 // ---- 固定指令：不需要 agent 在场也能办的那几条 ----
@@ -234,9 +253,16 @@ while (true) {
       try { await runIntent(intent) } catch (e) { log('[INTENT-ERR] ' + e.message); say('warn', '这条没办成：' + e.message) }
     } else {
       // 认不出的每一条都要有下文，不能第一条回了之后就一直哑着。
-      // 同时写进 pending 队列：真正的「上层」在对话里，靠读这个文件接手。
+      //
+      // 两条路一起走：
+      //  ① 写进 pending —— 即使投递失败也不会丢，下次谁看见都能接手；
+      //  ② 调 DSH 的 session/prompt 把原句**直接投进对话**，让那边的 agent 当用户消息
+      //     一样读到它。这一步才是真正叫醒上层；只写文件的话没人会来看。
       appendPending(rec)
-      sendToGame('think', '「' + line + '」这条我认不出，已记进待办；等我在对话里接手处理')
+      const woke = await wakeAgent(line)
+      sendToGame('think', woke
+        ? '「' + line + '」这条我认不出，已经把原话递到对话里了，等那边接'
+        : '「' + line + '」这条我认不出，已记进待办（对话没连上，暂时没人接手）')
     }
   }
 
