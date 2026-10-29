@@ -11,6 +11,17 @@
 
 ---
 
+## 零-甲、同一轮的最后一个缺陷：**站平台上飞不起来**（已修、已验证）
+
+| 项 | 内容 |
+|---|---|
+| 现象 | 同一角色、同一条 `fly`，站在实心方块上能升 22 格，站在 type 19 木平台上 `velY:0` 一格不动；`jump` 报 `jumped:false` |
+| 根因 | `BridgeSystem.cs:691` 写的是 `controlJump \|= IntentJump \|\| (triggers.Jump && JumpUntil > now)`，而 `ApplyMovement` 开头（2067-2069）**先把所有 Intent 清成 false**，后台控制又没有真键盘 → `triggers.Jump` 恒 false → 整行恒 false |
+| 为什么偶尔能成 | 只有那一次"`ApplyMovement` 还没跑过、`IntentJump` 还在"的凑巧时机才起跳（第一次 fly 升 22 格就是这么来的） |
+| 修法 | 去掉 `triggers.Jump &&`：`controlJump \|= IntentJump \|\| JumpUntil > now;`（与 689-690 行 up/down 的写法一致，那两行早就附了"不能躲在 triggers 后面"的注释） |
+| 验证 | 18:20 打包后真机：484.7 → 462.7（+22，实心地面）→ **441.7（+21，从平台上起跳）**，修复前这一步连试 5 次全失败 |
+| 提交 | `1117dde` |
+
 ## 零、这一轮（第 195 轮）：清单里 16 个命令名调不通
 
 真机复测 `talkoption` 时撞见的：`bloodmoon` 报 `unknown command`，
