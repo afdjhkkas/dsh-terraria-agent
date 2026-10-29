@@ -46,10 +46,18 @@ Terraria 及其素材版权归 Re-Logic 所有；模拟器/工具链（tModLoade
 不要先读文档，先确认"能不能动"。三步都过了再看知识库。
 
 ```bash
-npm run doctor          # 环境九项：Node/数据目录/包是否落后源码/enabled.json/端口占用
+npm run doctor          # 环境九项 + 落盘纪律：Node/数据目录/包是否落后源码/enabled.json/端口占用/工作区是否干净
 npm run bridge state    # 桥直连：应打印 inWorld/paused/hasFocus/位置
-npm test                # 离线 331 项：协议、路径规划、规则闸门、知识库一致性
+npm test                # 离线 340 项：协议、路径规划、规则闸门、知识库一致性、源码锁
 ```
+
+**`npm test` 里有一组 `test/source-locks.test.js`，它的作用是防止「改坏但测试不绿」**——
+这类事故真实发生过：一次名为"同步能力清单"的 chore 提交，把修好的坐骑快捷召唤整段回退成
+直写 `p.controlMount = true`，当时 331 个测试全绿、谁都没发现，直到真机测才发现能骑上但永远下不来。
+那组测试只做静态断言，锁住"必须存在的写法"和"必须不存在的写法"，覆盖坐骑边沿、预开闸条件、
+瞄准缩放换算、抓钩 `releaseHook`、爬绳前置、以及一切直接写 `tile/velocity/position/pulley` 的假操作。
+**加新锁的规矩见 `AGENTS.md §0.66`**（核心一条：把写法改回去、确认锁真的会红，再提交）。
+
 
 **`npm run bridge` 是不依赖编辑器插件的直连通道**（每条命令新开一条 TCP，不存在连接陈旧）：
 

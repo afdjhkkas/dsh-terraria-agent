@@ -27,6 +27,7 @@
 | 感知 | 背包 | `inventory` | ✅ 主背包、货币栏、弹药栏、垃圾桶槽位 |
 | 感知 | 地上掉落物 | `items {r}` | ✅ |
 | 感知 | 玩家列表 | `players` | ✅ |
+| 感知 | 游戏聊天读取 | `chatpoll {since,max}` | ⚠️ 只收原版真实发送的完整消息；输入中和 Esc 取消都有诊断字段 |
 | 感知 | Boss / 事件状态 | `boss` / `event` | ✅ |
 | 感知 | 房屋判定 | `housing {x,y}` / `needs {x,y}` | ✅ |
 | 移动 | 逐帧方向控制 | `move {dir,ms}` / `jump {ms}` | ✅ |
@@ -85,6 +86,29 @@ minions,minionSlots,grapCount,hookType,mounted,wingTime,hasWings,itemAnimation,p
 - **`zones`** 是关键：`corrupt/crimson/jungle/snow/desert/beach/dungeon/glowshroom/meteor/hallow/underworld/rocklayer/dirtlayer/sky/surface`，找群系不用盲挖。
 - `grounded` 要求「本帧与上一帧速度都为 0」，斜坡上站着不会误报。
 - 证据：`state.player.grapCount` 0→1→0、`minions` 0→1、`itemAnimation` 16/8/0 全部读到过。
+
+### `chatpoll {since,max}` — 读取玩家真实发送的聊天
+
+桥挂在原版 `Main.DoUpdate_HandleChat`，只读观察原版聊天流程，不注入键盘、不清空输入框，也不改变
+消息发送。收件条件镜像原版发送分支：`inputTextEnter && chatRelease && chatText.Length > 0`；
+因此输入框每次变长不会产生碎片，按 Esc 取消也不会被误报成已发送消息。
+
+返回字段：
+
+| 字段 | 含义 |
+|---|---|
+| `lines` | 自 `since` 起的完整聊天消息；`/` 开头且被原版命令处理的文本不会进入这里 |
+| `next` / `pending` | 增量游标与尚未读取的消息数 |
+| `hooked` / `hookError` | hook 是否安装成功及错误 |
+| `hookCalls` | `DoUpdate_HandleChat` 被调用次数，用来确认聊天 hook 是否持续运行 |
+| `pendingText` / `pendingSinceTick` | 当前仍在输入框中的文本及开始观察的 tick |
+| `lastEvent` / `lastCandidate` | 最近一次 `sent`、`command` 或 `cancel` 及其原始文本 |
+| `lastSendTick` / `lastCancelTick` | 最近一次真实发送/取消的 tick |
+| `dropped` | 环形缓冲淘汰的旧消息数 |
+
+验收时先记住 `next`，发送一条普通消息后轮询同一个桥，期望 `lastEvent:"sent"`、`lines` 只增加一条
+完整文本、`pendingText:""`。只输入不发送时应只有 `pendingText`；按 Esc 时应为 `lastEvent:"cancel"`，
+`lines` 不增加。`chatpost` 是桥向游戏显示文本的写出命令，不会伪造 `chatpoll` 的输入消息。
 
 ### `scan {x,y,r,walls}` — 网格快照
 返回 `(2r+1)²` 网格，每格 `[type,wall,liquid,shape]`，`r ≤ 48`。**只覆盖已加载区段**（约玩家周围 ±100 格）。

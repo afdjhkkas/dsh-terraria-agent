@@ -212,6 +212,44 @@ node scripts/kb-lint.mjs    # 14 个库全干净
 git rev-list --left-right --count origin/main...HEAD   # 必须是 0 0
 ```
 
+## 0.66 修好一条「一改回去就静默失效」的东西，必须加源码锁（用户 m40874/m40910）
+
+> **"这是等于上保险防止改乱仓库吗"**——用户 m40874。答案是：只防"忘了提交"不算保险，
+> 得防"提交了但内容被改回去"。当晚就有一例：`1cc9353` 一次名叫"同步能力清单"的 chore，
+> 把修好的坐骑快捷召唤整段回退成直写 `p.controlMount = true`。**331 个测试全绿，谁都没发现**，
+> 直到真机 `mount quick` 不生效才暴露——因为没有任何测试关心源码里是哪一行在驱动引擎。
+
+在 `test/source-locks.test.js` 里加一条。**只锁两种形状**：
+
+| 锁什么 | 例子 |
+|---|---|
+| **必须存在的精确写法** | `p.releaseHook = true`（缺了抓钩一次都发射不出去） |
+| **必须不存在的精确写法** | `p.controlMount = true`（直写导致能骑上、永远下不来） |
+
+**不锁行号、不锁格式、不锁函数长度**——正常重构不该误报。下面这些今天已锁：
+
+| 主题 | 关键断言 |
+|---|---|
+| 坐骑边沿 | `t => t.QuickMount = true` 必须有；`p.controlMount = true` 不许有 |
+| 预开闸 | `MountPreOpenUntil` 存在；条件 `MountUntil > now && MountPreOpenUntil <= now` |
+| 闸门范围 | `OpenMountInputGate` 不许无条件置真 `hasFocus` |
+| 瞄准换算 | `ApplyAim` 函数体必须出现 `zoom`/`GameViewMatrix` |
+| 抓钩 | `p.releaseHook = true` 必须有、`= false` 不许有；`ApplyHookAimBeforeZoom`/`AfterZoom` 两段都在 |
+| 爬绳 | `Climb` 必须调 `OnRopeNow`；`!onRope` 时 `ClimbUpUntil = 0` |
+| 预开闸回包 | `preOpenTicks` 在 quick 与 dismount 两处都有 |
+| 假操作 | 不许直接写 `Main.tile[...]` / `velocity.X/Y` / `position` / `Center` / `pulley` / `grapCount` |
+
+**两条硬要求**：
+
+1. **写完必须验证锁会响**：把源码那行改坏 → 跑 `node --test test/source-locks.test.js` →
+   确认对应那条变红 → **还原**。不验证的锁等于没有锁（第 1、7 条都这样验过）。
+2. **正则别把读比较当赋值**：`p.velocity.Y == 0f` 是读取，`\s*=\s*` 会误判成赋值，
+   必须写成 `\s*=(?!=)`。这个坑第一次写就踩到了。
+
+**源码锁的边界**（别指望它兜底）：它只管"写法在不在"。如果写法在、条件也对，但引擎行为变了，
+锁照样绿而真机已经不动。**那种只有进游戏实测才发现。** 所以完整的三层是：
+`doctor`（防没落盘）→ `source-locks`（防落盘后被改回去）→ **真机验证（防写法对但不工作，永远省不掉）**。
+
 ## 0.6 解决完必须回灌（用户 m18346 定的规矩）
 
 > **"你要在不断的解决问题中完善自己的知识库和命中。比如我告诉你可以把部分屋顶换成平台，
