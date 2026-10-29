@@ -491,3 +491,27 @@ Error: 拒绝在出生点 4198,485 附近 100 格内挖（起点 4198,484，终�
 - **不是缺陷**：`talkoption` 的状态机、命令注册、只读状态都正常，只是**这位玩家的存档把人关在一个 1 格宽的竖井下方**。
 - 下次验的三种办法（任选一）：①新建一个平坦世界，NPC 站同一层开阔处；②先把竖井挖成 **≥2 格宽**（玩家碰撞箱 1.25 格，1 格塞不进）；③用 `platform`/`place` 在走廊里垫一条到 457.8 层的台阶。
 - **这条写进用例库的话**：`N04`/`F04` 的"点对话选项交付任务"仍标 **待验证（环境不足）**，不要标通过。
+
+## 缺陷 17（新，未修）：**站在木平台（type 19）上，`fly` 与 `jump` 都起不来**
+
+同一份存档、同一个角色、同一条命令，脚下是**实心方块**和脚下是**平台**的结果完全相反：
+
+| 时刻 | 脚下 | 命令 | 结果 |
+|---|---|---|---|
+| 出生点 (4198.5,484.7) | y=486 实心土 | `fly {"ms":900}` ×2 | **484.7 → 462.7 → 441.7**（+22 / +21 格）✓ |
+| 基地走廊 (4235.2,462.7) | y=464 **type 19 平台**（`solidTop:true`） | `fly {"ms":700}` | `velY:0`，位置不动 ✗ |
+| 同上 | 同上 | `jump {"ms":500}` / `{"ms":800}` | `jumped:false, note:"no height change observed"` ✗ |
+| 同上 | 同上 | `move {"dir":"up","ms":400}` | `moved:false` ✗ |
+| 同上（头顶已挖开 2 格洞 (4292,459)(4293,459)） | 同上 | `fly {"ms":800}` | 仍然 `velY:0`，位置不动 ✗ |
+
+**排除项**：头顶空间不是原因（挖开 2 格宽洞后照样不动）；翅膀不是原因（`hasWings:true, wingTime:180/180`）；
+意图没写进去也不是原因（同一条命令在实心地面上能升 22 格）。
+
+**读数的关键线索**：`fly` 之后立刻读 `state`，`intentJump:false`、`flagJump:false`、`afterCtrlJump:false`、
+`preCtrlJump:false`、`postUpdateInput.jump:false` —— **控制位一条都没留下**，说明 `IntentJump` 在
+`ApplyMovement → RequestJump` 之前或之后被清掉、或者 `ApplyMovement` 这一次执行被
+`MovementAppliedTick == Now` 挡了（`BridgeSystem.cs:1990`）。
+
+**下次修的时候先看这三处**：`BridgeSystem.cs:1990`（`MovementAppliedTick` 早退）、
+`BridgeSystem.cs:2622-2630`（`BeginJump` 只写三个字段）、`ApplyNativeControlFlags`（`BridgeSystem.cs:616`）
+里 `IntentJump` 有没有在写进 `controlJump` 之后被同一个 tick 清掉。**对照实验**：站在实心方块上跑同一条 `fly`。
