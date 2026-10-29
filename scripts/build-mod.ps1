@@ -24,27 +24,31 @@
 .PARAMETER ModName
     tModLoader 的工程名。默认 DshTerrariaBridge。
 
-.PARAMETER SkipInstall
-    只打包，不复制到 Mods 目录（用来检查「源码还能不能编译」）。
+.PARAMETER CompileOnly
+    同步源码并做 Release 编译检查，然后停止，不调用 tModLoader 打包。
 
 .PARAMETER NoSyncArtifact
-    不把成品同步回 artifacts\（CI 或临时试打包时用）。
+    不把成品同步回仓库 artifacts\；仍会执行 -build 并更新用户数据目录的 Mods 包。
 
 .EXAMPLE
     powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-mod.ps1
 
 .EXAMPLE
-    # 只验证源码可编译，不碰 Mods 目录
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-mod.ps1 -SkipInstall
+    # 只验证源码可编译，不打包、不碰 Mods 目录
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-mod.ps1 -CompileOnly
 #>
 [CmdletBinding()]
 param(
     [string]$ModName = 'DshTerrariaBridge',
-    [switch]$SkipInstall,
+    [switch]$CompileOnly,
     [switch]$NoSyncArtifact
 )
 
 $ErrorActionPreference = 'Stop'
+
+# 输出编码：脚本里有中文，默认 5.1 会按控制台代码页（GBK）写管道，
+# 被 bash / node 父进程按 UTF-8 读时就是一片乱码。显式改成 UTF-8。
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
 function Fail($message, $hint) {
     Write-Host ""
@@ -55,6 +59,15 @@ function Fail($message, $hint) {
 
 function Step($text) { Write-Host "`n== $text" -ForegroundColor Cyan }
 function Ok($text) { Write-Host "   ok  $text" -ForegroundColor Green }
+function Restore-PreviousPackage($targetPath, $backupPath) {
+    if ($backupPath -and (Test-Path -LiteralPath $backupPath)) {
+        Copy-Item -LiteralPath $backupPath -Destination $targetPath -Force
+        Write-Host "   restored previous package from $backupPath" -ForegroundColor Yellow
+    } elseif (Test-Path -LiteralPath $targetPath) {
+        Remove-Item -LiteralPath $targetPath -Force
+        Write-Host "   removed invalid package $targetPath" -ForegroundColor Yellow
+    }
+}
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $srcDir = Join-Path $repoRoot $ModName
@@ -162,8 +175,25 @@ if (-not (Test-Path $builtDll)) { Fail "编译成功但找不到 $builtDll" '确
 $dllSize = (Get-Item $builtDll).Length
 Ok ("$ModName.dll  {0:N0} 字节" -f $dllSize)
 
+if ($CompileOnly) {
+    Write-Host "`nRelease 编译检查完成。未打包、未写入 Mods、未启动/重启游戏。" -ForegroundColor Green
+    exit 0
+}
+
 # ---------------------------------------------------------------- 5. 显式打包 + 校验
 Step '5/6 tModLoader -server -build -eac（显式打包并校验）'
+$target = Join-Path $modsDir ($ModName + '.tmod')
+$backup = $null
+if (Test-Path $target) {
+    # 备份放在 artifacts\.backup\ 而不是 artifacts\ 根目录：
+    # 两者名字太接近（DshTerrariaBridge.tmod vs DshTerrariaBridge.previous-installed.tmod），
+    # 放同一层很容易被当成"当前包"，提交上去或被新对话的 AI 误读。
+    $backupDir = Join-Path $repoRoot 'artifacts\.backup'
+    if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir -Force | Out-Null }
+    $backup = Join-Path $backupDir ($ModName + '.previous-installed.tmod')
+    Copy-Item -LiteralPath $target -Destination $backup -Force
+    Ok "打包前备份旧包到 $backup"
+}
 $packLog = @()
 Push-Location $gameDir
 try {
@@ -173,20 +203,28 @@ try {
 if ($packExit -ne 0) {
     $tail = ($packLog | Select-Object -Last 25) -join "`n"
     Write-Host $tail
+    Restore-PreviousPackage $target $backup
     if ($packLog -match 'TML003') {
         Fail '游戏还在跑（TML003）' '把 tModLoader 完整退出到桌面再重跑。只关到主菜单不算关。'
     }
     Fail "打包失败（exit $packExit）" '确认 tModLoader.dll、ModSources 路径和刚生成的 Release DLL 都存在。'
 }
+$packText = $packLog -join "`n"
+if ($packText -notmatch ("Packaging:\s*" + [regex]::Escape($ModName))) {
+    Restore-PreviousPackage $target $backup
+    Fail '打包进程退出成功，但日志没有确认 Packaging 目标' '检查 tModLoader 的构建输出；不要把未确认的新包用于游戏。'
+}
 
-$tmodOut = Join-Path $modSources ($ModName + '.tmod')
+$tmodOut = Join-Path $modsDir ($ModName + '.tmod')
 if (-not (Test-Path $tmodOut)) {
-    Fail "显式打包成功但没生成 $tmodOut" '确认 tModLoader 的 -build 目标目录正确，且命令带了 -eac <刚生成的 DLL>'
+    Restore-PreviousPackage $target $backup
+    Fail "显式打包成功但没生成 $tmodOut" 'tModLoader 的 -build 默认把成品写入用户数据目录 Mods；确认命令带了 -eac <刚生成的 DLL>'
 }
 
 $tmodSize = (Get-Item $tmodOut).Length
 # 空壳判定：正常包 150 KB 以上；不带 -eac 时会掉到几百字节
 if ($tmodSize -lt 50000) {
+    Restore-PreviousPackage $target $backup
     Fail ("打出来只有 {0:N0} 字节，是空壳" -f $tmodSize) '九成是漏了 -eac（csproj 里的 tMLMod.targets 应当自动带），或 dll 没编出来。不要把这个包装进游戏。'
 }
 # -AsByteStream 是 PowerShell 6+ 的参数，5.1 要用 -Encoding Byte；这里两种都兼容
@@ -196,22 +234,17 @@ $bytes = if ($PSVersionTable.PSVersion.Major -ge 6) {
     Get-Content $tmodOut -Encoding Byte -TotalCount 4
 }
 $magic = [System.Text.Encoding]::ASCII.GetString([byte[]]$bytes)
-if ($magic -ne 'TMOD') { Fail "包魔数不是 TMOD（读到 '$magic'）" '产物损坏，删掉 ${tmodOut} 重打' }
+if ($magic -ne 'TMOD') {
+    Restore-PreviousPackage $target $backup
+    Fail "包魔数不是 TMOD（读到 '$magic'）" '产物损坏，删掉当前包并重打'
+}
 Ok ("$ModName.tmod  {0:N0} 字节  magic=TMOD" -f $tmodSize)
 
 # ---------------------------------------------------------------- 6. 安装
-Step '6/6 安装到 Mods 并同步 artifacts'
-if (-not $SkipInstall) {
-    $target = Join-Path $modsDir ($ModName + '.tmod')
-    $backup = Join-Path $modsDir ($ModName + '.tmod.bak')
-    if (Test-Path $target) { Copy-Item $target $backup -Force }
-    Copy-Item $tmodOut $target -Force
-    $sha = (Get-FileHash $target -Algorithm SHA256).Hash
-    Ok "已安装  $target"
-    Write-Host "   sha256  $sha" -ForegroundColor DarkGray
-} else {
-    Ok '跳过安装（-SkipInstall）'
-}
+Step '6/6 校验 Mods 成品并同步 artifacts'
+$sha = (Get-FileHash $target -Algorithm SHA256).Hash
+Ok "已打包到 Mods  $target"
+Write-Host "   sha256  $sha" -ForegroundColor DarkGray
 
 if (-not $NoSyncArtifact) {
     $artifacts = Join-Path $repoRoot 'artifacts'

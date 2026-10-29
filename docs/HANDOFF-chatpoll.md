@@ -171,20 +171,14 @@ Esc 取消走 `lastEvent: "cancel"`，以 `/` 开头且由原版处理的命令�
 
 ## 编译 / 部署
 
+在仓库根目录运行维护脚本；它会检查进程、同步 `ModSources`、只编译一次、显式带 `-eac` 打包，并检查包体与魔数：
+
 ```powershell
-$repo = "D:\deepseek harness\官方版\work\dsh-terraria-agent-repo"
-$sync = "C:\Users\联想\Documents\My Games\Terraria\tModLoader\ModSources\DshTerrariaBridge"
-$dotnet = "C:\Users\联想\AppData\Local\Microsoft\dotnet\dotnet.exe"
-$game = "D:\STEAM\steamapps\common\tModLoader"
-Copy-Item "$repo\DshTerrariaBridge\*.cs" $sync -Force
-& $dotnet build "$sync\DshTerrariaBridge.csproj" -c Release --no-incremental
-Push-Location $game
-& $dotnet tModLoader.dll -server -build $sync -eac "$sync\bin\Release\net8.0\DshTerrariaBridge.dll"
-Pop-Location
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-mod.ps1
 ```
 
-**必须先把游戏关干净**，否则报 `TML003: Please close tModLoader`。
-进程名不是 `tModLoader`（是 `dotnet`），要按命令行判：
+**必须先把游戏关干净**，否则报 `TML003: Please close tModLoader`。脚本会在打包前把已安装包备份到 `artifacts/DshTerrariaBridge.previous-installed.tmod`，打包异常时恢复旧包。
+它不会启动或重启游戏。进程名不是 `tModLoader`（是 `dotnet`），手动确认时按命令行判：
 
 ```powershell
 Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'tModLoader\.dll' }
@@ -193,7 +187,7 @@ Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'tModLoader
 打包成功后 `.tmod` 会自动出现在
 `C:/Users/联想/Documents/My Games/Terraria/tModLoader/Mods/DshTerrariaBridge.tmod`，
 必须检查体积大于 50 KB、前四字节为 `TMOD`，并把同一个包同步到仓库 `artifacts/`。
-本次产物为 215792 字节，魔数 `TMOD`；游戏未启动或重启。
+本次产物为 215948 字节，魔数 `TMOD`；游戏未启动或重启。
 
 ## 验收
 

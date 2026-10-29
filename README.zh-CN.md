@@ -124,13 +124,13 @@ config:
 4. 用带 `-eac` 的 tModLoader 命令显式打包 `.tmod`，再校验包体积和 `TMOD` 魔数。
 
 推荐直接运行仓库脚本，它会执行这四步、拒绝空壳包、安装成品并同步
-`artifacts\DshTerrariaBridge.tmod`，且不会启动或重启游戏：
+`artifacts\DshTerrariaBridge.tmod`。tModLoader 的 `-build` 会直接把包写入用户数据目录的 `Mods\`；脚本会在打包前把已安装包备份为 `artifacts\DshTerrariaBridge.previous-installed.tmod`，且不会启动或重启游戏：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-mod.ps1
 ```
 
-如果需要手工复现，命令必须保持下面的顺序；`ModSources` 没同步或漏掉 `-eac` 都会得到旧包或空壳：
+如果需要手工复现，命令必须保持下面的顺序；`ModSources` 没同步或漏掉 `-eac` 都会得到旧包或空壳。手工打包前也应先备份 `Mods\DshTerrariaBridge.tmod`：
 
 ```powershell
 $repo = (Get-Location).Path
@@ -138,7 +138,7 @@ $sync = "$env:USERPROFILE\Documents\My Games\Terraria\tModLoader\ModSources\DshT
 $dotnet = "$env:LOCALAPPDATA\Microsoft\dotnet\dotnet.exe"
 $game = "D:\STEAM\steamapps\common\tModLoader"
 Copy-Item "$repo\DshTerrariaBridge\*.cs" $sync -Force
-& $dotnet build "$sync\DshTerrariaBridge.csproj" -c Release --no-incremental
+& $dotnet build "$sync\DshTerrariaBridge.csproj" -c Release --no-incremental -p:BuildMod=false
 Push-Location $game
 & $dotnet tModLoader.dll -server -build $sync -eac "$sync\bin\Release\net8.0\DshTerrariaBridge.dll"
 Pop-Location

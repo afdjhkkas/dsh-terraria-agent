@@ -433,13 +433,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-mod.ps1
 5. `dotnet tModLoader.dll -server -build <dir> -eac <dll>` —— **`-eac` 不能漏**
 6. 校验魔数 `TMOD` 与体积（< 50 KB 判为空壳），装进 `Mods\`，同步 `artifacts\`
 
-只要源码可编译、不碰 Mods 目录：
+只要源码可编译、不打包也不碰 Mods 目录：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-mod.ps1 -SkipInstall
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-mod.ps1 -CompileOnly
 ```
 
 **脚本本身不启动、不重启游戏。** 什么时候进游戏由你决定。
+
+**不要手工 `dotnet build` —— 一律走这个脚本。** 手工编译会默认 Debug，而脚本用
+`-c Release --no-incremental`：两种包体积差一截（同一份源码 Debug 约 539 KB、Release 约 492 KB），
+产物落到不同目录，`doctor` 也没法告诉你 Mods 里那个包到底是哪种配置编出来的。
+一旦混着来，就会出现"源码明明改了、包却没变"或"包变了但不知道是哪个版本"。
+备份包放在 `artifacts/.backup/`（已进 `.gitignore`），不要手工复制回 `artifacts/` 根目录。
 
 ### 安装现成的 .tmod（源码没改时）
 
