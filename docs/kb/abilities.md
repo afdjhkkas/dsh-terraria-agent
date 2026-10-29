@@ -78,3 +78,37 @@
 ## 执行前检查
 
 动作开始前至少确认：当前能力是否满足门槛、当前状态是否允许动作、环境是否有不可逆风险、动作结果是否可观测，以及失败后是否有安全退路。任何一项不满足，都应先补状态读取、改走可达性判断或停止执行。
+
+## 坐骑快捷召唤：为什么必须走输入层，不能写 Player.controlMount
+
+2026-10-29 实证。`controlMount` 这个字段和 `controlLeft/Right/Up/Down/Jump` 不是一类。
+
+反编译 `tModLoader.dll` 的 `Player.Update` 行号顺序：
+
+```
+23673  ResetControls()                     ← 清空所有 control*
+23674  if (Main.hasFocus) {
+23678      PlayerInput.Triggers.Current.CopyInto(this)   ← 输入层复制进 control*
+23783      if (controlMount) { if (releaseMount) QuickMount(); }
+23960  PlayerLoader.SetControls(...)      ← mod 的 SetControls 钩子在这里
+24956  PostUpdateMiscEffects(...)         ← 更晚
+26297  QuickGrapple()                     ← 抓钩读点
+```
+
+**结论一**：`controlMount` 的唯一读点（23783）比 mod 能拿到的每一个写入点（23960、24956）都早。
+所以无论写在 `SetControls` 还是 `PostUpdateMiscEffects`，都活不到 23783 那一行 ——
+实测 `DbgPrePhysicsMount` 读到 `true`，`mounted` 却始终 `false`。
+
+**结论二**：抓钩能用是因为它的读点（26297）在写入点之后。两者位置不同，不能套用同一个写法。
+
+**结论三**：唯一有效写法是写输入层，让 23678 的 `CopyInto` 把它带进 `controlMount`：
+
+```csharp
+ApplyBridgeTrigger(MountUntil > now, ref BridgeMountHeld,
+    t => t.QuickMount = true, t => t.QuickMount = true, t => t.QuickMount = true);
+```
+
+改后实测：骑上（`mounted true`、`mountType 7`）、再按一次下骑，连续 3 轮 3/3 稳定。
+
+**判据**：一个控制位该写在哪，取决于它的读点在 `Player.Update` 里有多早 —— 早于 23678
+就必须写输入层（`TriggersSet`）；晚于 24956 才能直接写 `Player.control*`。
