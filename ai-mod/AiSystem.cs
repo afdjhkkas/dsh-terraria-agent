@@ -23,6 +23,18 @@ namespace DshAiMini
         private static AiPanel _panel;
         public static bool IsOpen { get; private set; }
 
+        // ── 游戏聊天框监听 ─────────────────────────────────────────────────
+        // 面板关着的时候，玩家在聊天框里说的那句话也得有人接。
+        // 判据用"回车上升沿 + 上一帧的 chatText"：
+        //   · 不能用"chatText 变空" —— 输入法 mod（InputMethodFixer）在拼音组合期
+        //     会反复清空/重填 chatText，用它会把 n / ni / nih 每个中间态都当一句话
+        //     （桥那边就吃过这个亏，一条消息记成 725 条）。
+        //   · 不能用当帧 chatText —— 原版发完就把它清空了，读到的是空串。
+        private static bool _prevEnter;
+        private static string _prevChat = "";
+        private static string _lastSent = "";
+        private static long _lastSentTick;
+
         public override void Load()
         {
             if (Main.dedServ) return;
@@ -70,6 +82,34 @@ namespace DshAiMini
         {
             if (Main.dedServ || Main.gameMenu) return;
             AiToolExec.Tick();
+            PollGameChat();
+        }
+
+        /// <summary>面板关着时，把游戏聊天框里说的话当成问题送给 AI。</summary>
+        static void PollGameChat()
+        {
+            bool enterEdge = Main.inputTextEnter && !_prevEnter;
+            string prev = _prevChat;
+            string cur = Main.chatText ?? "";
+
+            // 面板开着的时候聊天框被输入法桥占用（AiInput.ImeBridge），这段必须让开，
+            // 否则玩家在面板输入框里打的字会被当成"对 AI 的提问"再发一次。
+            if (!IsOpen && enterEdge)
+            {
+                string q = (prev ?? "").Trim();
+                long now = (long)Main.GameUpdateCount;
+                bool dup = q.Length > 0 && q == _lastSent && now - _lastSentTick <= 4;
+                if (q.Length > 0 && !dup)
+                {
+                    _lastSent = q;
+                    _lastSentTick = now;
+                    try { AiPanel.Current?.AskFromGameChat(q); }
+                    catch (System.Exception ex) { ModContent.GetInstance<DshAiMini>()?.Logger?.Warn("[ai-mini] 聊天框提问失败: " + ex.Message); }
+                }
+            }
+
+            _prevEnter = Main.inputTextEnter;
+            _prevChat = cur;
         }
 
         public override void ModifyInterfaceLayers(List<GameInterfaceLayer> layers)

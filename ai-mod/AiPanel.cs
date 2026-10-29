@@ -423,50 +423,98 @@ namespace DshAiMini
         /// </summary>
         private void Send()
         {
-            if (_busy) { Say("上一句还在等回复…", new Color(255, 200, 150)); return; }
-            if (_log == null || _ask == null) return;
+            if (_ask == null) return;
+            Ask((_ask.Text ?? "").Trim(), false);
+        }
 
-            string q = (_ask.Text ?? "").Trim();
-            if (q.Length == 0) { Say("先说一句想问的", new Color(255, 200, 150)); return; }
+        /// <summary>
+        /// 从游戏聊天框来的一句话。面板可以关着，所以这里不强依赖 _log / _ask：
+        /// 有面板就画进消息区，没有就用原版 NewText 把回答打到聊天框。
+        ///
+        /// 为什么要有这条：玩家关掉面板之后说的是"我走了"，不是"我要开面板"。
+        /// 让他为了问一句话专门按 F7，等于把这个 AI 变成必须开窗口才能用的东西。
+        /// </summary>
+        public void AskFromGameChat(string q)
+        {
+            Ask(q, true);
+        }
+
+        private void Ask(string q, bool fromGameChat)
+        {
+            if (_busy) { Say("上一句还在等回复…", new Color(255, 200, 150)); return; }
+            if (q.Length == 0) return;
 
             var cfg = AiConfig.Load();
             if (string.IsNullOrWhiteSpace(cfg.BaseUrlResolved)) { Say("先去配置页填接口地址", new Color(255, 170, 150)); return; }
             if (string.IsNullOrWhiteSpace(cfg.ApiKeyResolved)) { Say("先去配置页填 API 密钥", new Color(255, 170, 150)); return; }
 
-            _ask.Text = "";
+            if (_ask != null) _ask.Text = "";
             _busy = true;
 
-            _log.Add(AiLog.Kind.User, q);
-            _log.Wrap();
+            AddLog(AiLog.Kind.User, q);
             ChatStore.Append("user", q);
 
             bool full = string.Equals(cfg.KnowledgeMode, "full", System.StringComparison.OrdinalIgnoreCase);
             string trace = "思考… " + cfg.ModelResolved
                          + (cfg.UseKnowledge ? (full ? " · 知识库全文" : " · 知识库按题命中") : " · 无知识库")
                          + (cfg.IncludeGameState ? " · 带实时状态" : "");
-            _log.Add(AiLog.Kind.Think, trace);
-            _log.Wrap();
+            AddLog(AiLog.Kind.Think, trace);
             Say("已发出，等回复…", new Color(180, 220, 255));
 
             AiAgent.Ask(cfg, q,
                 (kind, line) =>
                 {
                     // 过程实时推上来：它在做什么，玩家当场就能看到
-                    _log.Add(kind, line);
-                    _log.Wrap();
+                    AddLog(kind, line);
                     Say(AiToolExec.Busy ? ("执行中：" + AiToolExec.Note) : "思考中…", new Color(180, 220, 255));
                 },
                 msg =>
                 {
                     _busy = false;
                     bool bad = msg.StartsWith("[") || msg.StartsWith("失败");
-                    _log.Add(bad ? AiLog.Kind.Error : AiLog.Kind.Answer, msg);
-                    _log.Wrap();
+                    AddLog(bad ? AiLog.Kind.Error : AiLog.Kind.Answer, msg);
                     ChatStore.Append("assistant", msg);
                     Say(bad ? ("失败：" + Short(msg)) : ("回复完成（" + msg.Length + " 字）"),
                         bad ? new Color(255, 150, 150) : new Color(150, 255, 170));
-                _log.Wrap();
-            });
+
+                    // 从聊天框问的，回答也回到聊天框 —— 玩家没开面板，不能让他去翻面板
+                    if (fromGameChat)
+                    {
+                        Color c = bad ? new Color(255, 150, 150) : new Color(150, 220, 255);
+                        foreach (string ln in ClampLines(msg, 3, 110))
+                            Main.NewText(ln, c.R, c.G, c.B);
+                    }
+                });
+        }
+
+        /// <summary>没有面板时 _log 是 null，这里统一兜住。</summary>
+        void AddLog(AiLog.Kind kind, string line)
+        {
+            if (_log == null) return;
+            _log.Add(kind, line);
+            _log.Wrap();
+        }
+
+        /// <summary>把长回答按行数与行宽切开，免得一口气刷满聊天框。</summary>
+        static List<string> ClampLines(string text, int maxLines, int maxLen)
+        {
+            var outp = new List<string>();
+            if (string.IsNullOrEmpty(text)) return outp;
+            string t = text.Replace("\r", "");
+            var raw = t.Split('\n');
+            foreach (string one in raw)
+            {
+                string line = one.Trim();
+                while (line.Length > maxLen)
+                {
+                    outp.Add(line.Substring(0, maxLen));
+                    line = line.Substring(maxLen);
+                    if (outp.Count >= maxLines) return outp;
+                }
+                if (line.Length > 0) outp.Add(line);
+                if (outp.Count >= maxLines) return outp;
+            }
+            return outp;
         }
 
         // ===== 配置页：提供商列表 + 详情 =====
