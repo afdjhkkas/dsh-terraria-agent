@@ -1,6 +1,29 @@
-# 交接：`talkoption` 点不到对话按钮
+# 交接：NPC 对话里的「点按钮」点不到（`talkoption`）
 
 给改 C# 的人。所有现象都是真机实测，不是推测；推测的部分会明确标注。
+
+## 〇、这是 NPC 社交那一整块里的最后一环
+
+`docs/capabilities.md` 里 NPC 社交共五步，**前四步都通了，卡在第五步**：
+
+| 步 | 命令 | 状态 |
+|---|---|---|
+| 1. 走到 NPC 旁 | `walkto` / `move` | ✅ |
+| 2. 右键开对话 | `talk`（内部走真实右键）| ✅ 通了 |
+| 3. 读到台词 | 回包 `chatText` | ✅ 通了 |
+| 4. 读到货架 | `shop`（直接读数据）| ✅ 通了 |
+| 5. **点按钮（商店/关闭）** | `talkoption` | ❌ **就是这里** |
+
+所以这次要修的不是"对话打不开"，而是**对话打开之后，点不到里面的按钮**。
+
+相关命令一共四条，都在 NPC 对话这条链上，改的时候要一起看：
+
+| 命令 | 入口 | 作用 |
+|---|---|---|
+| `talk` | `Commands.cs` `TalkTo()` | 走到 NPC 旁 → 真实右键 → 建立对话 |
+| `talkfocus` | `Commands.cs` `TalkFocus()` | 探针：读 `Main.npcChatFocus1..4` + 当前鼠标 |
+| `talkoption` | `Commands.cs:1791 TalkOption()` | **要修的那个**：扫描按钮 → 挪鼠标 → 点 |
+| `shop` | `Commands.cs` `Shop()` | 读 `Main.shopInventory`/`Main.npcShop` 的货架 |
 
 ## 一、要做的事
 
@@ -12,8 +35,20 @@
 
 ## 二、真机现象
 
+**复现用的就是下面这个 NPC 和这个位置，照着做能重现：**
+
+| 项 | 值 |
+|---|---|
+| NPC | **爆破专家**（Demolitionist），`whoAmI = 4`，`type = 38`，站在 `4281.8, 457.8` |
+| 玩家 | `4282.2, 461.4`（就在 NPC 右边 5 格内，有视线） |
+| 对话文本 | `我不明白为什么我们不能干脆炸掉这些传送门。` |
+| 这台机器其他友好 NPC | 26 个（向导/护士/商人/军火商…），`npc {radius:80}` 可列 |
+
+**对话框里那四个按钮**（原版布局）：左上角竖排，「商店」通常是第 1 个，
+之后是「幸福度」「关闭」等 —— 具体第几个取决于这个 NPC 有没有商店。
+
 环境：游戏窗口在副屏（`x:66982, y:5558`），`humaninput.focus = false`（真失焦），
-屏幕逻辑尺寸 `1673 x 1046`。玩家站在爆破专家 who 4 旁边。
+屏幕逻辑尺寸 `1673 x 1046`。
 
 ```
 1) 右键对话 —— 成功
@@ -44,7 +79,7 @@
 
 | 位置 | 作用 |
 |---|---|
-| `BridgeSystem.cs:540` `StepTalkOption()` | 扫描态机。扫上半屏 `y0=80..h/2`、`step=40`、`x=100..w-100`；命中判据 `Main.npcChatFocus1..4`；命中后 phase 2 发 `mouseLeft=false / mouseLeftRelease=true`，phase 3 发 `mouseLeft=true / mouseLeftRelease=false` |
+| `BridgeSystem.cs:540` `StepTalkOption()` | **核心，扫描态机**（NPC 对话按钮）。扫上半屏 `y0=80..h/2`、`step=40`、`x=100..w-100`；命中判据 `Main.npcChatFocus1..4`；命中后 phase 2 发 `mouseLeft=false / mouseLeftRelease=true`，phase 3 发 `mouseLeft=true / mouseLeftRelease=false` |
 | `BridgeSystem.cs:618` `ApplyTalkInputBeforeMouseOver()` | 每帧（绘制阶段）写 `ProbeMouseX/Y` → `Main.mouseX/Y`，然后驱动 `StepTalkOption()` 与 `talk` 的右键帧 |
 | `BridgeSystem.cs:661` `ModifyInterfaceLayers()` | **插入位置**，下面第四节就是这里 |
 | `Commands.cs:1791` `TalkOption(JsonElement p)` | 入口：`index` 必填（1..4）才启动扫描；`index<=0` 只读状态；`stop:true` 中止 |
