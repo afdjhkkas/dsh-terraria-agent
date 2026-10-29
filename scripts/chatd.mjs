@@ -24,6 +24,7 @@ import { createBridgeClient } from '../src/bridge-client.js'
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const DATA = join(ROOT, 'data')
 const INBOX = join(DATA, 'chat-inbox.jsonl')
+const PENDING = join(DATA, 'chat-pending.jsonl')
 const OUTBOX = join(DATA, 'chat-outbox.jsonl')
 const CURSOR = join(DATA, 'chatd-cursor.json')
 const PIDFILE = join(DATA, 'chatd.pid')
@@ -43,6 +44,13 @@ function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}`
   console.log(line)
   try { appendFileSync(LOG, line + '\n') } catch {}
+}
+
+// 认不出的指令进这张表，等对话里的「上层」来读。处理完由上层写
+// data/chat-pending.done 标记，或用 `npm run chatd -- --drain-pending` 清空。
+function appendPending(rec) {
+  try { appendFileSync(PENDING, JSON.stringify({ ...rec, done: false }) + '\n') }
+  catch (e) { log('pending 写入失败: ' + e.message) }
 }
 
 const client = createBridgeClient({ host: HOST, port: PORT, timeoutMs: TIMEOUT_MS })
@@ -198,7 +206,6 @@ let since = loadCursor()
 const handled = new Set()
 let lastWalkDir = null
 let bridgeUp = false
-let announced = false
 log(`chatd 启动 pid=${process.pid} 起始游标=${since}`)
 
 while (true) {
@@ -206,7 +213,7 @@ while (true) {
   let polled = null
   try {
     polled = await bridge('chatpoll', { since, max: 500 })
-    if (!bridgeUp) { bridgeUp = true; announced = false; log('桥已连上') }
+    if (!bridgeUp) { bridgeUp = true; log('桥已连上') }
   } catch (e) {
     if (bridgeUp) { bridgeUp = false; log('桥断开: ' + e.message) }
     if (ONCE) { console.log(JSON.stringify({ ok: false, reason: 'bridge-down', since })); process.exit(3) }
@@ -225,9 +232,11 @@ while (true) {
     if (intent) {
       handled.add(line)
       try { await runIntent(intent) } catch (e) { log('[INTENT-ERR] ' + e.message); say('warn', '这条没办成：' + e.message) }
-    } else if (!announced) {
-      announced = true
-      sendToGame('think', '收到了，这条我拿不准，等会儿由上层处理')
+    } else {
+      // 认不出的每一条都要有下文，不能第一条回了之后就一直哑着。
+      // 同时写进 pending 队列：真正的「上层」在对话里，靠读这个文件接手。
+      appendPending(rec)
+      sendToGame('think', '「' + line + '」这条我认不出，已记进待办；等我在对话里接手处理')
     }
   }
 
