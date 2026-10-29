@@ -106,7 +106,7 @@ NEED_KNOWLEDGE:safety_limit,world_biome
 NEED_KNOWLEDGE:safety_limit,world_biome,loot_source
 ```
 
-**要读的库**（3 个）：safety_limit(1464字) / world_biome(3625字) / loot_source(3067字)
+**要读的库**（3 个）：safety_limit(1464字) / world_biome(3625字) / loot_source(3495字)
 
 **声明需要的命令**：find, travel, scan
 　全部在清单里
@@ -212,7 +212,7 @@ NEED_KNOWLEDGE:safety_limit,item_operation
 NEED_KNOWLEDGE:safety_limit,loot_source,game_rule
 ```
 
-**要读的库**（3 个）：safety_limit(1464字) / game_rule(5069字) / loot_source(3067字)
+**要读的库**（3 个）：safety_limit(1464字) / game_rule(5069字) / loot_source(3495字)
 
 **声明需要的命令**：find, mine, grab, state
 　全部在清单里
@@ -229,7 +229,7 @@ NEED_KNOWLEDGE:safety_limit,loot_source,game_rule
 NEED_KNOWLEDGE:safety_limit,loot_source
 ```
 
-**要读的库**（2 个）：safety_limit(1464字) / loot_source(3067字)
+**要读的库**（2 个）：safety_limit(1464字) / loot_source(3495字)
 
 **声明需要的命令**：mine, grab, inventory
 　全部在清单里
@@ -246,7 +246,7 @@ NEED_KNOWLEDGE:safety_limit,loot_source
 NEED_KNOWLEDGE:safety_limit,loot_source
 ```
 
-**要读的库**（2 个）：safety_limit(1464字) / loot_source(3067字)
+**要读的库**（2 个）：safety_limit(1464字) / loot_source(3495字)
 
 **声明需要的命令**：chest, inventory, grab
 　全部在清单里
@@ -454,7 +454,7 @@ NEED_KNOWLEDGE:safety_limit,item_operation
 NEED_KNOWLEDGE:safety_limit,loot_source,item_operation
 ```
 
-**要读的库**（3 个）：safety_limit(1464字) / loot_source(3067字) / item_operation(5128字)
+**要读的库**（3 个）：safety_limit(1464字) / loot_source(3495字) / item_operation(5128字)
 
 **声明需要的命令**：craft, recipes, inventory
 　全部在清单里
@@ -630,7 +630,7 @@ NEED_KNOWLEDGE:safety_limit,npc_town,build_standard
 NEED_KNOWLEDGE:safety_limit,loot_source
 ```
 
-**要读的库**（2 个）：safety_limit(1464字) / loot_source(3067字)
+**要读的库**（2 个）：safety_limit(1464字) / loot_source(3495字)
 
 **声明需要的命令**：bobber, castline, reel, select, state, use
 　全部在清单里
@@ -649,7 +649,7 @@ NEED_KNOWLEDGE:safety_limit,loot_source
 NEED_KNOWLEDGE:safety_limit,loot_source
 ```
 
-**要读的库**（2 个）：safety_limit(1464字) / loot_source(3067字)
+**要读的库**（2 个）：safety_limit(1464字) / loot_source(3495字)
 
 **声明需要的命令**：capture, inventory, npc, select, use
 　全部在清单里
@@ -846,7 +846,7 @@ NEED_KNOWLEDGE:safety_limit
 NEED_KNOWLEDGE:safety_limit,item_operation,loot_source
 ```
 
-**要读的库**（3 个）：safety_limit(1464字) / loot_source(3067字) / item_operation(5128字)
+**要读的库**（3 个）：safety_limit(1464字) / loot_source(3495字) / item_operation(5128字)
 
 **声明需要的命令**：drop, find, inventory, tile
 　全部在清单里

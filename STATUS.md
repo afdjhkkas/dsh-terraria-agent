@@ -1,4 +1,4 @@
-# 项目状态（截至第 194 轮）
+# 项目状态（截至第 195 轮）
 
 一个人工智能体玩泰拉瑞亚的工程记录。本文只写**有证据的结论**，
 没验证过的不写、测不准的标注"未验证"。
@@ -11,7 +11,51 @@
 
 ---
 
-## 零、这一轮（第 194 轮）：真机实测 87 条命令，修掉 4 个 bug
+## 零、这一轮（第 195 轮）：清单里 16 个命令名调不通
+
+真机复测 `talkoption` 时撞见的：`bloodmoon` 报 `unknown command`，
+而**同一条错误信息里的可用清单就写着 bloodmoon**。写脚本比对
+`DshTerrariaBridge/Commands.cs:495` 的 `CommandNames` 与顶层 `switch (cmd)`：
+
+| | 数量 |
+|---|---|
+| 顶层 `case` | 91 |
+| `CommandNames` | 97 |
+| **列表有、调不通** | **16** |
+
+16 个分两批，来路不同：
+
+- `left` / `right` / `up` / `down` —— 是 `move` 的 `dir` 取值（`Commands.cs:3317-3320` 的内层 switch）；
+- `blood` / `bloodmoon` / `eclipse` / `frost` / `frostmoon` / `goblin` / `martian` /
+  `pirate` / `pumpkin` / `pumpkinmoon` / `snowman` / `snowmoon` —— 是 `startevent` 的 `event` 取值
+  （`Commands.cs:4529-4549` 的内层 switch）。
+
+而 `scripts/kb-caps.mjs:339` 与 `scripts/kb-sync.mjs:86` 都**全文扫 `case xxx:`**，
+把两个内层 switch 的取值当成了命令，于是 capabilities.json / capabilities-manifest.md /
+_generated-commands.md / AGENTS.md 的能力块一起虚高 16 条（111 → 实际 91）。
+
+**修法**：① `CommandNames` 删掉这 16 个 → 91，与顶层 case 双向差异为空；
+② 两个生成器先定位 `switch (cmd)` 再用 `braceDelta` 配平出行范围，只在这个范围内扫 case；
+③ 重跑生成器 → 91 commands；`npm test` 330/328/0/2；`npm run tc:dry` 56/58 不变。
+
+**为什么一直没被发现**：`npm test` 比对的是生成物是否等于生成器的输出，
+生成器和生成物一起错，两边一致就绿。**只有反向问清单里每个名字都能调通吗才会红。**
+
+### 同一轮的其它结果
+
+- **`fly` 单用即可升空**（203713 字节那版）：出生点 `fly {ms:900}` 两次，
+  (4198.5,484.7) → (4198.5,462.7) → (4198.5,441.7)，各 +22 / +21 格，**不再需要横向 `dir`**。
+- **`talkoption` 端到端未验证**：命令存在、状态机 `phase:0/idle` 正常，但玩家落在基地
+  462.7 层一条 5 格宽的死槽里（`scan` 显示 x=4231–4235、槽底 y=464 平台、槽顶 y=459 楼板，
+  缺口正上方是 449–458 层的柱子），所有 town NPC 都在 391.8–457.8 层、垂直 21 格以上，
+  `talk` 的 5 格阈值必然拒绝。**不是代码缺陷，是场景不可达**（换角色/换世界可复测）。
+- 新测通过：`walkmode` / `navrules` / `idmap`（693 tiles / 347 walls / 5519 items）/
+  `nodig` / `fields` / `methods` / `hookdebug` / `housediag` / `travelstatus` /
+  `gravity` / `shoot`；`chest` 附近无箱时诚实拒绝。
+
+---
+
+## 零-1、上一轮（第 194 轮）：真机实测 87 条命令，修掉 4 个 bug
 
 这一轮是**阶段③（游戏内逐条实测）**，完整记录见 [`docs/live-test-round194.md`](docs/live-test-round194.md)。
 结论先摆：**多人模式（Host & Play）是这套桥的正确工作模式** —— 铁的事实是

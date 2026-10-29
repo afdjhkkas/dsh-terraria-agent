@@ -1,6 +1,6 @@
 {
   "schema": "terraria-testcases/1",
-  "ranAt": "2026-10-29T05:10:48.405Z",
+  "ranAt": "2026-10-29T09:31:23.015Z",
   "phase": null,
   "category": null,
   "total": 58,
@@ -141,9 +141,7 @@
       "task": "打开一个宝箱，把有用的拿走，不要全清空",
       "status": "PASS",
       "gaps": [],
-      "warnings": [
-        "库里没直接出现：宝箱（确认是不是换了说法）"
-      ]
+      "warnings": []
     },
     {
       "id": "G08",
@@ -261,9 +259,7 @@
       "task": "做一张虫网和一根木钓竿，需要哪些前置材料",
       "status": "PASS",
       "gaps": [],
-      "warnings": [
-        "库里没直接出现：蛛网（确认是不是换了说法）"
-      ]
+      "warnings": []
     },
     {
       "id": "K05",

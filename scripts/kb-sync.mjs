@@ -81,13 +81,33 @@ export function extractCommands(cs) {
   const paramsOf = (text) =>
     [...new Set([...text.matchAll(/Json\.\w+\(\s*p\s*,\s*"([^"]+)"/g)].map((x) => x[1]))]
 
+  // 只扫顶层 Handle 的 switch：内层 switch 的 case 是"参数取值"
+  // （startevent 的 event=bloodmoon、move 的 dir=left），不是命令名。
+  let handleStart = 0
+  let handleEnd = lines.length - 1
+  {
+    const sw = lines.findIndex((l) => /switch\s*\(\s*cmd\s*\)/.test(l))
+    if (sw >= 0) {
+      handleStart = sw
+      let depth = 0
+      let opened = false
+      for (let i = sw; i < lines.length; i++) {
+        depth += braceDelta(lines[i])
+        if (depth > 0) opened = true
+        if (opened && depth <= 0) {
+          handleEnd = i
+          break
+        }
+      }
+    }
+  }
   const out = []
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = handleStart; i <= handleEnd; i++) {
     const m = lines[i].match(/case\s+"([a-z_]+)"\s*:/)
     if (!m) continue
     const name = m[1]
     let body = ''
-    for (let j = i; j < lines.length; j++) {
+    for (let j = i; j <= handleEnd; j++) {
       if (j > i && /case\s+"[a-z_]+"\s*:/.test(lines[j])) break
       if (j > i && /^\s*default\s*:/.test(lines[j])) break
       body += lines[j] + '\n'

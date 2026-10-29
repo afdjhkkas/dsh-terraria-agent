@@ -231,3 +231,85 @@ Host & Play 下掉落物由服务端生成再同步，可能只是延迟；但�
    打通后，`talk` 距离从 9 格降到 3 格才成功）。楼层也可以靠 `fly` 直接上去，不必挖。
 5. **选角色必须双击、且每次滚动后重新截图读行**：玩家列表行高约 100 屏幕像素，滚动后整体平移；
    三次重启里有两次点错进了没有翅膀的 `qqa`，白跑一轮。
+
+## 16:40 版复测（`Mods/DshTerrariaBridge.tmod` 203713 字节，16:40）+ 缺陷 13
+
+这一版带着 `talkoption`（跨帧扫 NPC 对话按钮）打包，用来验证"点对话选项"到底能不能做。
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| `talkoption` 命令存在 | ✓ | `talkoption {index:0}` → `{active:false, phase:0, phaseName:"idle", index:0, scanned:0, cursorX:0, cursorY:0, hitX:-1, hitY:-1, talkNPC:-1, chatText:"", npcShop:0, msg:""}` |
+| `fly` 单用能升空 | ✓ | `fly {ms:900}` 两次：(4198.5,484.7) → (4198.5,462.7)（+22 格）→ (4198.5,441.7)（再 +21 格）。**不再需要横向 `dir`** |
+| `talkoption` 端到端点按 | ⧗ 地形卡死 | 见下面「为什么没验成」 |
+| `walkmode` | ✓ | `{useNew:false, reactive:false, dual:true}` |
+| `navrules` | ✓ | 返回规则文件路径 + `source:"written"` + 空的 thresholds/priorities |
+| `idmap` | ✓ | `{path, tiles:693, walls:347, items:5519, rows:6559}` |
+| `nodig` | ✓ | `{count:0, zones:[]}` |
+| `fields` / `methods` | ✓ | `fields {type:"Terraria.Chest"}` → 21 个字段；`methods` → 43 个方法（含两个 `SetupShop` 重载） |
+| `hookdebug` | ✓ | 26 个字段：`controlHook/releaseHook/mouseLeft/mouseInterface/grapCount/grappling0/hookEquip/hookShoot/projHook646/hookAimInput{rawX,rawY,finalX,finalY}/post{…}` |
+| `housediag` | ✓ | 12 条 `missing` 逐项列（含 `HoleInWallIsTooBig`、`空间太大：9001 > 7500`、`背墙不全：0/9001`）|
+| `travelstatus` | ✓ | 含 `walk{active,target,tol,stop,repaths,hasWp,greedy,reactive,rule,kind}` |
+| `gravity` | ✓ | feet 9 格逐格 `hasTile/type/solid/solidTop/slope`，配合 `standing:464`、`fallStart`、`jumpSpeed:5.21` |
+| `shoot` | ✓ | `{held:{type:1294,shoot:0,useTime:5}, projectilesBefore:2, ammoBefore:39}` |
+| `chest` | ✓ 诚实拒绝 | 附近 6 格没箱子 → `Error: 附近 6 格内没有箱子` |
+| `mirror` | ✗ 复核确认 | why 这次确实没有魔镜类物品（`inventory` 里没有 5358），报错是对的；之前那条"不认贝壳电话"要等有贝壳电话的角色再验 |
+| `bloodmoon` / `pumpkinmoon` 等 12 个 | ✗ 见缺陷 13 | `Error: unknown command: bloodmoon` |
+
+### 为什么 `talkoption` 没验成（地形，不是代码）
+
+进世界后 why 落回出生点 (4198.5,484.7)，`fly` 两次升到 441.7 层，但**每次都掉回 462.7**：
+
+- `scan (4231,462) r=8 ascii` 读到的是一条 **5 格宽的死槽**（x=4231–4235），槽底是 y=464 的木平台（type 19），
+  槽顶 y=459 在 x≥4236 才是实心楼板、x=4234–4235 是缺口；缺口正上方 x=4234 是 449–458 层的柱子。
+- `scan (4246,445) r=14` 与 `scan (4246,461) r=12` 拼起来：443 / 447 / 459 / 464 是四条连续实心楼板，
+  层间全是「3 空 + 2 实」的柱子阵，竖直方向只有两条真实通道（4234–4235 与 4246–4247），且都被柱子夹住。
+- 所有 town NPC 都在 391.8 / 409.8 / 425.8 / 441.8 / 457.8 五层，玩家在 462.7 层，**垂直距离 21 格以上**，
+  `talk` 的 5 格阈值 + 视线检查必然拒绝。
+
+试过的其它手段（都失败，记录以省下一轮）：`walkto {x:4272,y:457}` → `stop:"no-path"`；
+`jump {ms:800,dir:"right",moveMs:2500}` → 升 23 格但横向 0 格（被 4234 的 458 柱子挡住）；
+`jump {ms:400,dir:"right",moveMs:500}` → 升 9 格横向 0 格；`fly` 在槽里 → `velY:0`（头顶就是楼板/柱子）；
+在 (4234.1,462.7) 连 `jump` 都 `jumped:false`（换到 (4231.8,462.7) 才能跳）。
+
+**结论**：`talkoption` 的状态机、参数、只读回读都已就位，缺的是"走到任何 town NPC 5 格内"这个前置，
+而这一步在当前角色位置 + 出生点 100 格不挖的约束下走不通。**不是代码缺陷，是测试场景不可达。**
+
+### 缺陷 13：`help` 里有 16 个命令名根本调不通
+
+`bloodmoon` 报 `unknown command`，但同一条错误信息里的"可用"清单**明明写着 bloodmoon**。
+写脚本比对 `Commands.cs:495` 的 `CommandNames` 数组与顶层 `Handle` 的 `switch (cmd)` 分支：
+
+```
+顶层 case 91 个；CommandNames 97 个
+列表有 / 顶层 case 无（16）：blood bloodmoon eclipse frost frostmoon goblin martian
+                             pirate pumpkin pumpkinmoon snowman snowmoon
+                             left right up down
+```
+
+两批来路不同：
+
+- `left/right/up/down` 是 **`move` 的 `dir` 取值**（`Commands.cs:3317-3320` 的内层 switch），不是命令；
+- 其余 12 个是 **`startevent` 的 `event` 取值**（`Commands.cs:4529-4549` 的内层 switch），不是命令。
+
+而 `scripts/kb-caps.mjs`（第 339 行）与 `scripts/kb-sync.mjs`（第 86 行）都**全文扫 `case "xxx":`**，
+把这两个内层 switch 的取值当成了命令 —— 于是 `docs/capabilities.json`、`docs/capabilities-manifest.md`、
+`docs/kb/_generated-commands.md`、`AGENTS.md` 的能力块一起虚高 16 条（111 → 实际 91）。
+
+**修法（三处）**：
+
+1. `CommandNames` 删掉这 16 个 → 91 个，与顶层 case 一一对应（脚本验证：双向差异为空）；
+2. `kb-caps.mjs` / `kb-sync.mjs` 都先定位 `switch (cmd)` 再用 `braceDelta` 配平出该 switch 的行范围，
+   只在这个范围内扫 `case`；
+3. 重跑两个生成器 → `91 commands`；`npm test` 330/328/0/2；`npm run tc:dry` 56/58 不变。
+
+**教训**：`case` 不是"命令"的同义词——它也可能是"参数取值"。凡是"清单由代码扫描生成"的地方，
+扫描范围必须钉死在**命令入口那个 switch** 上，否则参数值会冒充命令，而且这种虚高不会让任何测试变红
+（生成物和生成器一起错，`npm test` 比对的是"生成物是否等于生成器的输出"，两边一致就绿）。
+
+### 教训（本轮新增）
+
+6. **"位置不动"要先分清是代码不工作还是地形不让动**。`fly` 在同一会话里前半段升 22 格（出生点上方开阔）、
+   后半段 0 格（基地 5 格宽死槽），差别全在地形。判断依据：`state.ropeContact.tileFeet*` 看脚下、
+   `scan` 看头顶、`gravity.standing` 看站在第几行。
+7. **扫描生成的清单要反向验证**：不只问"代码里的每个 case 都在清单里吗"，还要问
+   "清单里的每个名字都能调通吗"。后者才是用户视角，前者一直是对的，所以一直没被发现。

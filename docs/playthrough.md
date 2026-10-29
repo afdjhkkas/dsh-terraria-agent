@@ -1542,3 +1542,64 @@ N04/F04 那两条用例卡的正是"渔夫任务交付要点按钮"，而 `npcCh
 唯一可靠的判据是**新代码才会产生的那一句话/那一个数字**：这次的判据是
 `talk` 的 `{F1}` 格式（`61.0 格` vs `61 格`）和 `fly` 的 y 位移（0 vs +22）。
 **先挑一个"旧版绝不可能输出"的字符串当探针，再去打包。**
+
+## 第 195 轮：清单里 16 个命令名根本调不通（生成器的盲区）
+
+### 现象
+
+真机复测 `talkoption` 时顺手敲了 `bloodmoon`，回来的是：
+
+```
+Error: unknown command: bloodmoon（可用：accessory/api/attack/blood/bloodmoon/…）
+```
+
+**同一条错误信息里，"不可用"的那个名字正躺在"可用"清单里。** `right` / `left` 也一样。
+
+### 查证
+
+写脚本比对 `DshTerrariaBridge/Commands.cs:495` 的 `CommandNames` 数组与顶层 `switch (cmd)` 的 `case`：
+
+```
+顶层 case 91 个；CommandNames 97 个
+列表有 / 顶层 case 无（16）：blood bloodmoon eclipse frost frostmoon goblin martian
+                             pirate pumpkin pumpkinmoon snowman snowmoon left right up down
+```
+
+16 个分两批，来路完全不同：
+
+- `left/right/up/down` → `move` 的 `dir` 取值（`Commands.cs:3317-3320` 的内层 switch）；
+- 其余 12 个 → `startevent` 的 `event` 取值（`Commands.cs:4529-4549` 的内层 switch）。
+
+`scripts/kb-caps.mjs:339` 和 `scripts/kb-sync.mjs:86` 都是**全文扫 `case "xxx":`**，于是参数值冒充了命令名，
+一路虚高到 capabilities.json / capabilities-manifest.md / _generated-commands.md / AGENTS.md 的能力块：
+**111 条命令，实际 91 条。**
+
+### 修法
+
+1. `CommandNames` 删掉这 16 个 → 91 个，与顶层 case 双向差异为空；
+2. 两个生成器都改成：先 `findIndex(/switch\s*\(\s*cmd\s*\)/)` 定位命令入口，再用 `braceDelta` 配平出
+   这个 switch 的行范围，**只在该范围内扫 case**；
+3. 重跑 → `91 commands`；`npm test` 330 tests / 328 pass / 0 fail / 2 skip；`npm run tc:dry` 56/58 不变。
+
+### 为什么能瞒这么久
+
+`npm test` 里关于生成物的测试问的是"**生成物是否等于生成器的输出**"。生成器和生成物一起错，
+两边一致，测试就绿。**它从来没有问过"清单里每个名字都能调通吗"。**
+
+这和 193 轮那次"用例库虚报缺口"是同一个形状的毛病：**判据只在一个方向上闭合**。
+上次是"声明的缺口是否还在"没有反查，这次是"声明的命令是否真能调"没有反查。
+两次都是靠**反向问一句**才暴露，不是靠跑测试。
+
+### 同一轮的其它结果
+
+- **`fly` 单用即可升空**（203713 字节那版）：出生点 `fly {ms:900}` 两次，
+  (4198.5,484.7) → (4198.5,462.7) → (4198.5,441.7)，各 +22 / +21 格。上一轮补的
+  `StopAutomatedMovement("manual-fly")` 确认是正解，"必须带横向 dir 才能动"只是缺陷现象。
+- **`talkoption` 端到端仍未验证**：命令存在、`talkoption {index:0}` 回 `{phase:0, phaseName:"idle", talkNPC:-1}`，
+  但玩家落回基地 462.7 层一条 5 格宽的死槽（`scan` 证明 x=4231–4235，槽底 y=464 平台，槽顶 y=459 楼板，
+  缺口正上方 x=4234 是 449–458 层的柱子），所有 town NPC 在 391.8–457.8 层、垂直 21 格以上，
+  `talk` 的 5 格阈值 + 视线检查必然拒绝。`walkto` 报 `stop:"no-path"`，`jump` 带 dir 升 23 格但横向 0 格。
+  **结论：不是代码缺陷，是场景不可达**；换一个有翅膀且站在开阔处的角色即可复测。
+- 新测通过：`walkmode` / `navrules` / `idmap`（693 tiles / 347 walls / 5519 items / 6559 rows）/
+  `nodig` / `fields` / `methods` / `hookdebug` / `housediag` / `travelstatus` / `gravity` / `shoot`；
+  `chest` 在附近没箱子时诚实拒绝。

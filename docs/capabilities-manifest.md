@@ -4,23 +4,18 @@
 > 元自检的第 4、5 维（动作原语 / 状态读取）就是拿这张表对照的：
 > 表里没有的接口和命令，一律视为不存在，不许在计划里使用。
 
-## 一、状态读取能力（55 个命令）
+## 一、状态读取能力（46 个命令）
 
 | 命令 | 能读到什么（返回值顶层字段） |
 |---|---|
 | `api` | `type` `count` `truncated` `members` |
-| `blood` | — |
-| `bloodmoon` | — |
 | `bobber` | `count` `bobbers` |
 | `boss` | `active` `bosses` |
 | `chatpoll` | — |
-| `eclipse` | — |
 | `event` | `dayTime` `time` `day` `bloodMoon` `eclipse` `invasionType` `invasionSize` `pumpkinMoon` `snowMoon` `raining` `hardMode` `downedEye` `downedEater` `downedSkeletron` `downedWall` `downedPlantera` `downedGolem` |
 | `fields` | `type` `found` `count` `fields` |
 | `find` | `scanned` |
 | `follow` | `follow` `target` `targetIndex` `guard` `range` `dist` `note` |
-| `frost` | — |
-| `frostmoon` | — |
 | `help` | — |
 | `hook` | — |
 | `hookdebug` | `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `grapplingAll` `misc4Shoot` `projHook646` `mouseWorldTile` |
@@ -40,8 +35,6 @@
 | `path` | `from` |
 | `ping` | — |
 | `players` | `count` `players` |
-| `pumpkin` | — |
-| `pumpkinmoon` | — |
 | `quest` | `anglerPresent` `note` |
 | `recipes` | `count` `recipes` |
 | `research` | `item` `alreadyFull` `researched` `have` `unlocked` |
@@ -50,7 +43,6 @@
 | `shop` | `npc` `shop` `npcType` `distance` |
 | `shopdebug` | `npc` `npcType` |
 | `shops` | `scanned` |
-| `snowmoon` | — |
 | `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `talkNPC` `npcChatText` `npcShopIndex` `npcChatRelease` `talkInput` `world` `player` `ropeContact` `ropeRelease` `flagTick` `flagLeft` `flagRight` `flagUp` `flagDown` `flagJump` `flagIntentRight` `flagIntentJump` `flagRightUntilLive` `flagJumpUntilLive` `afterTick` `preTick` `preCtrlLeft` `preCtrlRight` `preCtrlUp` `preCtrlDown` `preCtrlJump` `preVelX` `afterCtrlLeft` `afterCtrlRight` `afterCtrlUp` `afterCtrlDown` `afterCtrlJump` `afterTrigLeft` `afterTrigRight` `afterTrigUp` `afterTrigDown` `afterTrigJump` `afterVelX` `prePhysicsTick` `prePhysicsUp` `prePhysicsDown` `prePhysicsHook` `prePhysicsMount` `prePhysicsReleaseMount` `prePhysicsUseItem` `prePhysicsUseTile` `postControlMount` `postReleaseMount` `inputDiag` `guard` `attack` `path` `walk` `exact` `input` `hint` |
 | `talkclose` | `beforeTalkNPC` `talkNPC` `chatText` `npcShop` `closed` `note` |
 | `talkoption` | — |
@@ -60,11 +52,10 @@
 | `walkdiff` | `dual` `newRule` `newPriority` `newKind` `oldRule` `oldKind` `same` |
 | `walkmode` | `useNew` `reactive` `dual` |
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
-| `down` | `untilTick` `tick` `inputOnly` `note` `native` `compatibilityNativeFalse` `tiles` `from` `slot` `held` `interact` `method` `off` `radius` `hostileInRange` `weaponSlot` `weapon` `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `grapplingAll` `misc4Shoot` `projHook646` `mouseWorldTile` `grapCountBefore` `proj` `equipped` `hasWings` `wingTimeMax` `wingTime` `velY` `hint` `activeAfter` `mountSlot` `mountItem` `action` `active` `type` `flight` `items` `slots` `follow` `target` `targetIndex` `guard` `range` `dist` `idle` `count` `players` `attacking` `who` `selected` `free` `freeMain` `freeAll` `special` `coinSlots` `ammoSlots` `trashSlot` `equipment` `miscEquips` `canFly` `item` `name` `reason` `perCraft` `groupsUsed` `npcs` |
 | `guard` | `off` `note` `untilTick` `radius` `hostileInRange` `weaponSlot` `weapon` |
 | `mount` | `activeAfter` `mountSlot` `mountItem` `held` `action` `active` `type` `flight` `items` |
 
-## 二、动作能力（60 个命令）
+## 二、动作能力（48 个命令）
 
 | 命令 | 参数 | 干什么 |
 |---|---|---|
@@ -77,13 +68,11 @@
 | `chatpost` | — | — |
 | `climb` | `dir` `ms` `tiles` | — |
 | `craft` | `item` `times` | — |
-| `down` | — | — |
 | `drop` | `slot` `count` | — |
 | `duplicate` | `item` `count` | — |
 | `equip` | `slot` | — |
 | `fill` | `x1` `y1` `x2` `y2` `type` | — |
 | `fly` | `ms` | — |
-| `goblin` | — | — |
 | `grab` | `r` | — |
 | `grapple` | `x` `y` `ms` | — |
 | `gravity` | — | — |
@@ -92,26 +81,19 @@
 | `idle` | — | — |
 | `interact` | `x` `y` | — |
 | `jump` | `ms` `moveMs` | — |
-| `left` | — | — |
-| `left` | — | — |
 | `liquidop` | `x` `y` `ms` | — |
-| `martian` | — | — |
 | `mine` | `x` `y` `ms` | — |
 | `minion` | `slot` | — |
 | `mirror` | — | — |
 | `move` | `dir` `ms` `tiles` | — |
 | `moveto` | `x` `ms` | — |
-| `pirate` | — | — |
 | `place` | `x` `y` `type` `ms` | — |
 | `reel` | `ms` | — |
 | `removeblock` | `x` `y` `ms` | — |
-| `right` | — | — |
-| `right` | — | — |
 | `save` | — | — |
 | `select` | `slot` `item` | — |
 | `sell` | `slot` | — |
 | `shoot` | `x` `y` `slot` `ms` | — |
-| `snowman` | — | — |
 | `splitstack` | `slot` `count` | — |
 | `startevent` | `event` | — |
 | `stop` | — | — |
@@ -119,13 +101,10 @@
 | `trash` | `slot` `count` | — |
 | `travel` | `stop` `dir` `distance` `ms` `dig` | — |
 | `unhook` | — | — |
-| `up` | — | — |
-| `up` | — | — |
 | `use` | `slot` `right` `ms` `x` `y` | — |
 | `walkto` | `x` `y` `tol` `ms` `dig` | — |
 | `wall` | `x` `y` `type` `remove` `ms` | — |
 | `chest` | `action` `slot` `count` `invSlot` | — |
-| `down` | `ms` `moveMs` `slot` `right` `x` `y` `item` `off` `action` `r` `ticks` `player` `guard` `range` `who` `interval` `times` `event` | 按住跳跃键时长 → 跳跃顶点高度（格） |
 | `guard` | `off` `action` `ms` `r` | — |
 | `mount` | `action` `ticks` `slot` | — |
 

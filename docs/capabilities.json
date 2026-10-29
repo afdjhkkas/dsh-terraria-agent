@@ -56,20 +56,6 @@
       "summary": ""
     },
     {
-      "name": "blood",
-      "kind": "read",
-      "params": [],
-      "returns": [],
-      "summary": ""
-    },
-    {
-      "name": "bloodmoon",
-      "kind": "read",
-      "params": [],
-      "returns": [],
-      "summary": ""
-    },
-    {
       "name": "bobber",
       "kind": "read",
       "params": [],
@@ -210,120 +196,6 @@
       "summary": ""
     },
     {
-      "name": "down",
-      "kind": "act",
-      "params": [],
-      "returns": [],
-      "summary": ""
-    },
-    {
-      "name": "down",
-      "kind": "both",
-      "params": [
-        "ms",
-        "moveMs",
-        "slot",
-        "right",
-        "x",
-        "y",
-        "item",
-        "off",
-        "action",
-        "r",
-        "ticks",
-        "player",
-        "guard",
-        "range",
-        "who",
-        "interval",
-        "times",
-        "event"
-      ],
-      "returns": [
-        "untilTick",
-        "tick",
-        "inputOnly",
-        "note",
-        "native",
-        "compatibilityNativeFalse",
-        "tiles",
-        "from",
-        "slot",
-        "held",
-        "interact",
-        "method",
-        "off",
-        "radius",
-        "hostileInRange",
-        "weaponSlot",
-        "weapon",
-        "controlHook",
-        "releaseHook",
-        "mouseLeft",
-        "mouseLeftRelease",
-        "mouseInterface",
-        "grapCount",
-        "grappling0",
-        "pulley",
-        "dead",
-        "selectedSlot",
-        "heldName",
-        "hookEquip",
-        "hookShoot",
-        "isProjHook",
-        "grapplingAll",
-        "misc4Shoot",
-        "projHook646",
-        "mouseWorldTile",
-        "grapCountBefore",
-        "proj",
-        "equipped",
-        "hasWings",
-        "wingTimeMax",
-        "wingTime",
-        "velY",
-        "hint",
-        "activeAfter",
-        "mountSlot",
-        "mountItem",
-        "action",
-        "active",
-        "type",
-        "flight",
-        "items",
-        "slots",
-        "follow",
-        "target",
-        "targetIndex",
-        "guard",
-        "range",
-        "dist",
-        "idle",
-        "count",
-        "players",
-        "attacking",
-        "who",
-        "selected",
-        "free",
-        "freeMain",
-        "freeAll",
-        "special",
-        "coinSlots",
-        "ammoSlots",
-        "trashSlot",
-        "equipment",
-        "miscEquips",
-        "canFly",
-        "item",
-        "name",
-        "reason",
-        "perCraft",
-        "groupsUsed",
-        "npcs"
-      ],
-      "summary": "按住跳跃键时长 → 跳跃顶点高度（格）"
-    },
-    {
       "name": "drop",
       "kind": "act",
       "params": [
@@ -355,13 +227,6 @@
         "item",
         "unlockedCount"
       ],
-      "summary": ""
-    },
-    {
-      "name": "eclipse",
-      "kind": "read",
-      "params": [],
-      "returns": [],
       "summary": ""
     },
     {
@@ -481,27 +346,6 @@
         "dist",
         "note"
       ],
-      "summary": ""
-    },
-    {
-      "name": "frost",
-      "kind": "read",
-      "params": [],
-      "returns": [],
-      "summary": ""
-    },
-    {
-      "name": "frostmoon",
-      "kind": "read",
-      "params": [],
-      "returns": [],
-      "summary": ""
-    },
-    {
-      "name": "goblin",
-      "kind": "act",
-      "params": [],
-      "returns": [],
       "summary": ""
     },
     {
@@ -784,20 +628,6 @@
       "summary": ""
     },
     {
-      "name": "left",
-      "kind": "act",
-      "params": [],
-      "returns": [],
-      "summary": ""
-    },
-    {
-      "name": "left",
-      "kind": "act",
-      "params": [],
-      "returns": [],
-      "summary": ""
-    },
-    {
       "name": "liquidop",
       "kind": "act",
       "params": [
@@ -825,13 +655,6 @@
         "revealedPercent",
         "explored"
       ],
-      "summary": ""
-    },
-    {
-      "name": "martian",
-      "kind": "act",
-      "params": [],
-      "returns": [],
       "summary": ""
     },
     {
@@ -1020,13 +843,6 @@
       "summary": ""
     },
     {
-      "name": "pirate",
-      "kind": "act",
-      "params": [],
-      "returns": [],
-      "summary": ""
-    },
-    {
       "name": "place",
       "kind": "act",
       "params": [
@@ -1052,20 +868,6 @@
         "count",
         "players"
       ],
-      "summary": ""
-    },
-    {
-      "name": "pumpkin",
-      "kind": "read",
-      "params": [],
-      "returns": [],
-      "summary": ""
-    },
-    {
-      "name": "pumpkinmoon",
-      "kind": "read",
-      "params": [],
-      "returns": [],
       "summary": ""
     },
     {
@@ -1131,20 +933,6 @@
         "have",
         "unlocked"
       ],
-      "summary": ""
-    },
-    {
-      "name": "right",
-      "kind": "act",
-      "params": [],
-      "returns": [],
-      "summary": ""
-    },
-    {
-      "name": "right",
-      "kind": "act",
-      "params": [],
-      "returns": [],
       "summary": ""
     },
     {
@@ -1281,20 +1069,6 @@
       "returns": [
         "scanned"
       ],
-      "summary": ""
-    },
-    {
-      "name": "snowman",
-      "kind": "act",
-      "params": [],
-      "returns": [],
-      "summary": ""
-    },
-    {
-      "name": "snowmoon",
-      "kind": "read",
-      "params": [],
-      "returns": [],
       "summary": ""
     },
     {
@@ -1540,20 +1314,6 @@
       "returns": [
         "grapCountBefore"
       ],
-      "summary": ""
-    },
-    {
-      "name": "up",
-      "kind": "act",
-      "params": [],
-      "returns": [],
-      "summary": ""
-    },
-    {
-      "name": "up",
-      "kind": "act",
-      "params": [],
-      "returns": [],
       "summary": ""
     },
     {

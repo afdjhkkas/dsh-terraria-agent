@@ -3,15 +3,13 @@
 > 本文件由 `node scripts/kb-sync.mjs` 从 `DshTerrariaBridge/Commands.cs` 与
 > `index.js` 生成。**不要手改**；要改就改代码再重新生成。
 
-## mod 桥命令（111 个）
+## mod 桥命令（91 个）
 
 | 命令 | 参数 |
 |---|---|
 | `accessory` | `off` `from` `slot` |
 | `api` | `type` `filter` `member` `limit` |
 | `attack` | `who` `r` `ms` `interval` `slot` |
-| `blood` | — |
-| `bloodmoon` | — |
 | `bobber` | — |
 | `boss` | — |
 | `buy` | `slot` `shopId` |
@@ -23,11 +21,8 @@
 | `chest` | `action` `slot` `count` `invSlot` |
 | `climb` | `dir` `ms` `tiles` |
 | `craft` | `item` `times` |
-| `down` | — |
-| `down` | `ms` `moveMs` `slot` `right` `x` `y` `item` `off` `action` `r` `ticks` `player` `guard` `range` `who` `interval` `times` `event` |
 | `drop` | `slot` `count` |
 | `duplicate` | `item` `count` |
-| `eclipse` | — |
 | `equip` | `slot` |
 | `event` | — |
 | `fields` | `type` `filter` |
@@ -35,9 +30,6 @@
 | `find` | `type` `x1` `x2` `y1` `y2` `max` |
 | `fly` | `ms` |
 | `follow` | `off` `player` `guard` `range` |
-| `frost` | — |
-| `frostmoon` | — |
-| `goblin` | — |
 | `grab` | `r` |
 | `grapple` | `x` `y` `ms` |
 | `gravity` | — |
@@ -57,11 +49,8 @@
 | `items` | `r` |
 | `jump` | `ms` `moveMs` |
 | `keyevents` | `since` `max` `clear` |
-| `left` | — |
-| `left` | — |
 | `liquidop` | `x` `y` `ms` |
 | `map` | `step` |
-| `martian` | — |
 | `methods` | `type` `filter` |
 | `mine` | `x` `y` `ms` |
 | `minion` | `slot` |
@@ -75,18 +64,13 @@
 | `npc` | `r` |
 | `path` | `x` `y` `ms` `dig` |
 | `ping` | — |
-| `pirate` | — |
 | `place` | `x` `y` `type` `ms` |
 | `players` | — |
-| `pumpkin` | — |
-| `pumpkinmoon` | — |
 | `quest` | — |
 | `recipes` | `q` `limit` |
 | `reel` | `ms` |
 | `removeblock` | `x` `y` `ms` |
 | `research` | `slot` |
-| `right` | — |
-| `right` | — |
 | `roomcheck` | `x` `y` `npc` `mode` |
 | `save` | — |
 | `scan` | `x` `y` `r` `walls` `format` |
@@ -96,8 +80,6 @@
 | `shop` | `shopId` `npc` |
 | `shopdebug` | `npc` |
 | `shops` | `want` |
-| `snowman` | — |
-| `snowmoon` | — |
 | `splitstack` | `slot` `count` |
 | `startevent` | `event` |
 | `state` | — |
@@ -111,8 +93,6 @@
 | `travel` | `stop` `dir` `distance` `ms` `dig` |
 | `travelstatus` | — |
 | `unhook` | — |
-| `up` | — |
-| `up` | — |
 | `use` | `slot` `right` `ms` `x` `y` |
 | `walkdiff` | — |
 | `walkmode` | `mode` |

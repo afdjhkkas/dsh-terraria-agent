@@ -334,13 +334,34 @@ export function extractCapabilities(cs, bridgeSrc = '') {
     return ''
   }
 
+  // 只扫顶层 Handle 的 switch：内层 switch 里的 case 是"参数取值"
+  // （startevent 的 event=bloodmoon、move 的 dir=left），不是命令名。
+  // 之前没限定范围，capabilities 里凭空多出 16 条根本调不通的命令。
+  let handleStart = 0
+  let handleEnd = lines.length - 1
+  {
+    const sw = lines.findIndex((l) => /switch\s*\(\s*cmd\s*\)/.test(l))
+    if (sw >= 0) {
+      handleStart = sw
+      let depth = 0
+      let opened = false
+      for (let i = sw; i < lines.length; i++) {
+        depth += braceDelta(lines[i])
+        if (depth > 0) opened = true
+        if (opened && depth <= 0) {
+          handleEnd = i
+          break
+        }
+      }
+    }
+  }
   const out = []
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = handleStart; i <= handleEnd; i++) {
     const m = lines[i].match(/case\s+"([a-z_]+)"\s*:/)
     if (!m) continue
     const name = m[1]
     let slice = ''
-    for (let j = i; j < lines.length; j++) {
+    for (let j = i; j <= handleEnd; j++) {
       if (j > i && (/case\s+"[a-z_]+"\s*:/.test(lines[j]) || /^\s*default\s*:/.test(lines[j]))) break
       slice += lines[j] + '\n'
     }
