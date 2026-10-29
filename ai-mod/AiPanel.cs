@@ -442,20 +442,23 @@ namespace DshAiMini
             _log.Wrap();
             Say("已发出，等回复…", new Color(180, 220, 255));
 
-            AiChat.SendAsync(cfg, null, q, (ok, msg) =>
-            {
-                _busy = false;
-                if (ok)
+            AiAgent.Ask(cfg, q,
+                (kind, line) =>
                 {
-                    _log.Add(AiLog.Kind.Answer, msg);
+                    // 过程实时推上来：它在做什么，玩家当场就能看到
+                    _log.Add(kind, line);
+                    _log.Wrap();
+                    Say(AiToolExec.Busy ? ("执行中：" + AiToolExec.Note) : "思考中…", new Color(180, 220, 255));
+                },
+                msg =>
+                {
+                    _busy = false;
+                    bool bad = msg.StartsWith("[") || msg.StartsWith("失败");
+                    _log.Add(bad ? AiLog.Kind.Error : AiLog.Kind.Answer, msg);
+                    _log.Wrap();
                     ChatStore.Append("assistant", msg);
-                    Say("回复完成（" + msg.Length + " 字）", new Color(150, 255, 170));
-                }
-                else
-                {
-                    _log.Add(AiLog.Kind.Error, msg);
-                    Say("失败：" + msg, new Color(255, 150, 150));
-                }
+                    Say(bad ? ("失败：" + Short(msg)) : ("回复完成（" + msg.Length + " 字）"),
+                        bad ? new Color(255, 150, 150) : new Color(150, 255, 170));
                 _log.Wrap();
             });
         }
@@ -623,5 +626,13 @@ namespace DshAiMini
             if (string.IsNullOrEmpty(u)) return "";
             try { var uri = new Uri(u); return uri.Host; } catch { return u; }
         }
-    }
+    
+        /// <summary>截短一行放状态条。</summary>
+        static string Short(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            s = s.Replace("\r", " ").Replace("\n", " ").Trim();
+            return s.Length > 60 ? s.Substring(0, 60) + "…" : s;
+        }
+}
 }

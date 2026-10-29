@@ -56,6 +56,16 @@ namespace DshAiMini
             if (IsOpen) _ui?.Update(gameTime);
         }
 
+        /// <summary>
+        /// 工具状态机要每帧推进。放在 PostUpdateEverything：
+        /// 此时本帧的玩家更新已经跑完，读写 world/player 都是本帧的最终值。
+        /// </summary>
+        public override void PostUpdateEverything()
+        {
+            if (Main.dedServ || Main.gameMenu) return;
+            AiToolExec.Tick();
+        }
+
         public override void ModifyInterfaceLayers(List<GameInterfaceLayer> layers)
         {
             if (Main.dedServ || _ui == null) return;

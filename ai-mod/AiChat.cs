@@ -7,9 +7,18 @@ namespace DshAiMini
 {
     internal sealed class ChatTurn
     {
-        public string Role;   // "system" | "user" | "assistant"
+        public string Role;   // "system" | "user" | "assistant" | "tool"
         public string Content;
+        public string ToolCallId;       // role=="tool" 时用
+        public List<ToolCall> Calls;    // role=="assistant" 且这一轮是工具调用时用
         public ChatTurn(string role, string content) { Role = role; Content = content; }
+    }
+
+    internal sealed class ToolCall
+    {
+        public string Id = "";
+        public string Name = "";
+        public string Args = "{}";
     }
 
     /// <summary>
@@ -23,7 +32,7 @@ namespace DshAiMini
         public static readonly List<ChatTurn> History = new();
 
         /// <summary>把一段对话序列化成请求体。单独拆出来，方便离线看报文长什么样。</summary>
-        public static string BuildBody(AiConfig cfg, IList<ChatTurn> turns, bool stream = false)
+        public static string BuildBody(AiConfig cfg, IList<ChatTurn> turns, bool stream = false, bool withTools = false)
         {
             using var ms = new System.IO.MemoryStream();
             using (var w = new Utf8JsonWriter(ms, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
@@ -35,13 +44,43 @@ namespace DshAiMini
                 {
                     w.WriteStartObject();
                     w.WriteString("role", t.Role);
-                    w.WriteString("content", t.Content ?? "");
+
+                    // assistant 那一轮如果是在要工具，content 必须是 null（OpenAI 的规矩）
+                    if (t.Calls != null && t.Calls.Count > 0)
+                    {
+                        w.WriteNull("content");
+                        w.WriteStartArray("tool_calls");
+                        foreach (var c in t.Calls)
+                        {
+                            w.WriteStartObject();
+                            w.WriteString("id", c.Id);
+                            w.WriteString("type", "function");
+                            w.WriteStartObject("function");
+                            w.WriteString("name", c.Name);
+                            w.WriteString("arguments", c.Args);
+                            w.WriteEndObject();
+                            w.WriteEndObject();
+                        }
+                        w.WriteEndArray();
+                    }
+                    else
+                    {
+                        w.WriteString("content", t.Content ?? "");
+                        if (t.Role == "tool" && !string.IsNullOrEmpty(t.ToolCallId))
+                            w.WriteString("tool_call_id", t.ToolCallId);
+                    }
                     w.WriteEndObject();
                 }
                 w.WriteEndArray();
                 w.WriteNumber("temperature", cfg.Temperature);
                 if (cfg.MaxTokens > 0) w.WriteNumber("max_tokens", cfg.MaxTokens);
                 if (stream) w.WriteBoolean("stream", true);
+                if (withTools)
+                {
+                    w.WritePropertyName("tools");
+                    w.WriteRawValue(AiTools.Json(), skipInputValidation: true);
+                    w.WriteString("tool_choice", "auto");
+                }
                 w.WriteEndObject();
             }
             return Encoding.UTF8.GetString(ms.ToArray());
@@ -81,6 +120,38 @@ namespace DshAiMini
             }
             catch { }
             return json.Length > 400 ? json.Substring(0, 400) + "…" : json;
+        }
+
+        /// <summary>
+        /// 从回包里取"它想调用哪些工具"。
+        /// 空列表 = 它这一轮直接给答案了；非空 = 它要先动手再回答。
+        /// </summary>
+        public static List<ToolCall> ExtractToolCalls(string json)
+        {
+            var list = new List<ToolCall>();
+            if (string.IsNullOrWhiteSpace(json)) return list;
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("choices", out var ch)) return list;
+                if (ch.ValueKind != JsonValueKind.Array || ch.GetArrayLength() == 0) return list;
+                if (!ch[0].TryGetProperty("message", out var msg)) return list;
+                if (!msg.TryGetProperty("tool_calls", out var tc) || tc.ValueKind != JsonValueKind.Array) return list;
+                foreach (var c in tc.EnumerateArray())
+                {
+                    var call = new ToolCall();
+                    if (c.TryGetProperty("id", out var id)) call.Id = id.GetString() ?? "";
+                    if (c.TryGetProperty("function", out var fn))
+                    {
+                        if (fn.TryGetProperty("name", out var nm)) call.Name = nm.GetString() ?? "";
+                        if (fn.TryGetProperty("arguments", out var ag))
+                            call.Args = ag.ValueKind == JsonValueKind.String ? (ag.GetString() ?? "{}") : ag.ToString();
+                    }
+                    if (!string.IsNullOrEmpty(call.Name)) list.Add(call);
+                }
+            }
+            catch { }
+            return list;
         }
 
         /// <summary>测试连接：发一条最短的消息，只看能不能通、密钥对不对。</summary>
