@@ -443,6 +443,37 @@ export function apply(ctx, rawConfig = {}) {
   })
 
   register({
+    name: 'terraria_key',
+    description: 'Press Terraria\'s real Inventory key. In the default keyboard profile this is Escape: vanilla closes NPC chat/shop first, then toggles the inventory. Re-read the returned state fields to verify the UI change.',
+    parameters: {
+      key: string('Semantic key to press: inventory or escape (default inventory).', { enum: ['inventory', 'escape'] }),
+      ms: integer('How long to hold the key, 20..1000 ms (default 100).'),
+    },
+    command: 'key',
+    timeout: 8000,
+    async run(args, exec) {
+      const key = String(args.key ?? 'inventory').toLowerCase()
+      if (!['inventory', 'escape'].includes(key)) throw new Error('key must be inventory or escape.')
+      const ms = bounded(args.ms, 20, 1000, 100)
+      const started = await request('key', { key, ms }, exec)
+      await sleep(ms + 220)
+      const after = await request('state', {}, exec)
+      const s = after.data ?? {}
+      return JSON.stringify({
+        ok: true,
+        data: {
+          ...(started.data ?? {}),
+          after: {
+            playerInventory: s.playerInventory ?? s.player?.playerInventory ?? null,
+            talkNPC: s.talkNPC ?? null,
+            npcShopIndex: s.npcShopIndex ?? null,
+          },
+        },
+      })
+    },
+  })
+
+  register({
     name: 'terraria_npcs',
     description: 'List active NPCs near the player with who/type/name/tile/life/friendly/boss/hostile. '
       + 'hostile means damageable and chaseable, which is what terraria_attack will target. '

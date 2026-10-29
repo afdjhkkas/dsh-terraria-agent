@@ -170,6 +170,12 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 回 `{events[{tick,key,kind}], latest}`。配合 `keystream.mjs` 能把真人操作切成原子动作（`src/atom-model.js`）。
 **坑**：增量拉取要用"上一批的最大 tick 不减一"，否则同一 tick 的事件会重复。
 
+### `key {key,ms}` — 真实 Inventory / Escape 键
+`key:"inventory"` 和 `key:"escape"` 都只发送 Terraria 的 `Triggers.Current.Inventory`、按下沿和松开沿，
+让原版 `Player.ToggleInv()` 自己决定结果。默认键位里 Inventory 绑定的是 Escape，所以商店打开时先发
+`key {key:"inventory"}`（或 `escape`）会按原版顺序关闭 NPC 对话/商店；没有对话时才打开或关闭背包。
+命令返回 `untilTick` 和发送前状态，必须在该 tick 之后回读 `state.playerInventory`、`talkNPC`、`npcShopIndex`。
+
 ### 其余
 `players` 多人列表、`boss {active,bosses}`、`event`（血月/日食/雨）、`housing {x,y}`（房间判定 + 无家可归人数）、`needs {x,y}`（房间差什么：门/椅/桌/火把/墙）、`help` 命令清单。
 

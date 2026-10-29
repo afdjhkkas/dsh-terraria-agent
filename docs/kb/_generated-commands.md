@@ -3,7 +3,7 @@
 > 本文件由 `node scripts/kb-sync.mjs` 从 `DshTerrariaBridge/Commands.cs` 与
 > `index.js` 生成。**不要手改**；要改就改代码再重新生成。
 
-## mod 桥命令（94 个）
+## mod 桥命令（95 个）
 
 | 命令 | 参数 |
 |---|---|
@@ -49,6 +49,7 @@
 | `inventory` | — |
 | `items` | `r` |
 | `jump` | `ms` `moveMs` |
+| `key` | `key` `ms` |
 | `keyevents` | `since` `max` `clear` |
 | `liquidop` | `x` `y` `ms` |
 | `map` | `step` |
@@ -102,7 +103,7 @@
 | `walkto` | `x` `y` `tol` `ms` `dig` |
 | `wall` | `x` `y` `type` `remove` `ms` |
 
-## DSH 插件工具（27 个）
+## DSH 插件工具（28 个）
 
 | 工具 | 作用 |
 |---|---|
@@ -120,6 +121,7 @@
 | `terraria_inventory` | Read the inventory, the equipped armor/accessories (so you can tell whether you are armoured or have wings) and the sele |
 | `terraria_jump` | Jump once from the ground, then report the height change. Airborne it only holds the jump key, so wings  |
 | `terraria_kb` | Knowledge base for the Terraria agent.  |
+| `terraria_key` | Press Terraria's real Inventory key. In the default keyboard profile this is Escape: vanilla closes NPC chat/shop first, |
 | `terraria_mine` | Mine or chop one tile the way a player does: it selects the pickaxe (axe for trees), aims at the tile and  |
 | `terraria_move` | Hold a movement direction, then report how far the player actually went (from/to/dx/dy).  |
 | `terraria_npcs` | List active NPCs near the player with who/type/name/tile/life/friendly/boss/hostile.  |

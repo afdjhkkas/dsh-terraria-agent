@@ -44,7 +44,7 @@
 | `shop` | `npc` `shop` `npcType` `distance` |
 | `shopdebug` | `npc` `npcType` |
 | `shops` | `scanned` |
-| `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `talkNPC` `npcChatText` `npcShopIndex` `npcChatRelease` `talkInput` `world` `player` `ropeContact` `ropeRelease` `flagTick` `flagLeft` `flagRight` `flagUp` `flagDown` `flagJump` `flagIntentRight` `flagIntentJump` `flagRightUntilLive` `flagJumpUntilLive` `afterTick` `preTick` `preCtrlLeft` `preCtrlRight` `preCtrlUp` `preCtrlDown` `preCtrlJump` `preVelX` `afterCtrlLeft` `afterCtrlRight` `afterCtrlUp` `afterCtrlDown` `afterCtrlJump` `afterTrigLeft` `afterTrigRight` `afterTrigUp` `afterTrigDown` `afterTrigJump` `afterVelX` `prePhysicsTick` `prePhysicsUp` `prePhysicsDown` `prePhysicsHook` `prePhysicsMount` `prePhysicsReleaseMount` `prePhysicsUseItem` `prePhysicsUseTile` `postControlMount` `postReleaseMount` `mountUntil` `mountUntilLive` `mountFired` `inputDiag` `guard` `attack` `path` `walk` `exact` `input` `hint` |
+| `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `talkNPC` `npcChatText` `npcShopIndex` `npcChatRelease` `talkInput` `world` `player` `ropeContact` `ropeRelease` `flagTick` `flagLeft` `flagRight` `flagUp` `flagDown` `flagJump` `flagIntentRight` `flagIntentJump` `flagRightUntilLive` `flagJumpUntilLive` `afterTick` `preTick` `preCtrlLeft` `preCtrlRight` `preCtrlUp` `preCtrlDown` `preCtrlJump` `preVelX` `afterCtrlLeft` `afterCtrlRight` `afterCtrlUp` `afterCtrlDown` `afterCtrlJump` `afterTrigLeft` `afterTrigRight` `afterTrigUp` `afterTrigDown` `afterTrigJump` `afterVelX` `prePhysicsTick` `prePhysicsUp` `prePhysicsDown` `prePhysicsHook` `prePhysicsMount` `prePhysicsReleaseMount` `prePhysicsUseItem` `prePhysicsUseTile` `postControlMount` `postReleaseMount` `mountUntil` `mountUntilLive` `mountFired` `inventoryUntil` `inventoryUntilLive` `inputDiag` `guard` `attack` `path` `walk` `exact` `input` `hint` |
 | `talkclose` | `beforeTalkNPC` `talkNPC` `chatText` `npcShop` `closed` `note` |
 | `talkfocus` | `screen` |
 | `talkoption` | — |
@@ -57,7 +57,7 @@
 | `guard` | `off` `note` `untilTick` `radius` `hostileInRange` `weaponSlot` `weapon` |
 | `mount` | `activeAfter` `queued` `untilTick` `preOpenTicks` `note` `mountSlot` `mountItem` `held` `action` `active` `type` `flight` `items` |
 
-## 二、动作能力（49 个命令）
+## 二、动作能力（50 个命令）
 
 | 命令 | 参数 | 干什么 |
 |---|---|---|
@@ -84,6 +84,7 @@
 | `idle` | — | — |
 | `interact` | `x` `y` | — |
 | `jump` | `ms` `moveMs` | — |
+| `key` | `key` `ms` | — |
 | `liquidop` | `x` `y` `ms` | — |
 | `mine` | `x` `y` `ms` | — |
 | `minion` | `slot` | — |

@@ -28,6 +28,19 @@ namespace DshAiMini
         /// <summary>按回车时调用。设了它就代表这个框是"输入框 + 提交"，回车直接发出。</summary>
         public Action OnSubmit;
 
+        /// <summary>
+        /// 走不走「原版聊天框」这条输入通道。
+        ///
+        /// 为什么要这么绕：中文输入法的合成结果（拼音 → 汉字）根本不会经过
+        /// Main.keyState —— 键盘上只会看到 n/i/h/a/o 这几个字母键。
+        /// IME 合成后的文本只有一处能拿到：原版聊天框自己维护的 Main.chatText
+        /// （装了 InputMethodFixer 这类模组后它才真的有中文）。
+        /// 所以想让玩家在这个面板里直接打中文，就只能借用原版聊天框当输入法桥：
+        /// 聚焦时把聊天框打开、文字同步过来，失焦/回车时再关掉。
+        /// </summary>
+        public bool ImeBridge;
+
+
         private bool _focused;
         private static readonly HashSet<Microsoft.Xna.Framework.Input.Keys> Prev = new();
 
@@ -44,9 +57,32 @@ namespace DshAiMini
             if (AiPanel.Current != null) AiPanel.Current.BlurAll();
             _focused = true;
             Prev.Clear();
+            if (ImeBridge)
+            {
+                // 借用原版聊天框：把当前文字塞进去，并让引擎认为聊天框开着，
+                // 这样输入法的组合结果才会被写进 Main.chatText。
+                Main.chatText = Text ?? "";
+                Main.chatRelease = false;
+                Main.drawingPlayerChat = true;
+            }
         }
 
-        public void Blur() => _focused = false;
+        public bool IsFocused => _focused;
+
+        public void Blur()
+        {
+            if (!_focused) return;
+            _focused = false;
+            if (ImeBridge)
+            {
+                // 关桥。聊天内容已经同步进 Text，不要让它继续挂在游戏聊天框上，
+                // 否则玩家关面板后一按回车就把问题发到公屏了。
+                Main.chatText = "";
+                Main.chatRelease = true;
+                Main.drawingPlayerChat = false;
+            }
+            Prev.Clear();
+        }
 
         public override void Update(GameTime gameTime)
         {
@@ -54,6 +90,32 @@ namespace DshAiMini
             if (!_focused) return;
 
             var ks = Main.keyState;
+
+            if (ImeBridge)
+            {
+                // 文字完全交给原版聊天框（输入法才有活路），这里只做两件事：
+                // 1) 把 Main.chatText 同步过来；2) 接住回车/Esc。
+                string live = Main.chatText ?? "";
+                if (live.Length > MaxLength) live = live.Substring(0, MaxLength);
+                if (live != Text) { Text = live; OnChanged?.Invoke(); }
+
+                if (ks.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Enter) && !Prev.Contains(Microsoft.Xna.Framework.Input.Keys.Enter))
+                {
+                    Prev.Add(Microsoft.Xna.Framework.Input.Keys.Enter);
+                    if (OnSubmit != null) OnSubmit();
+                    else Blur();
+                }
+                else if (ks.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Escape) && !Prev.Contains(Microsoft.Xna.Framework.Input.Keys.Escape))
+                {
+                    Prev.Add(Microsoft.Xna.Framework.Input.Keys.Escape);
+                    Blur();
+                }
+
+                var still2 = new HashSet<Microsoft.Xna.Framework.Input.Keys>(ks.GetPressedKeys());
+                Prev.RemoveWhere(k => !still2.Contains(k));
+                return;
+            }
+
             bool shift = ks.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.LeftShift)
                       || ks.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.RightShift);
 
@@ -214,6 +276,16 @@ namespace DshAiMini
     internal sealed class AiPanel : UIState
     {
         public static AiPanel Current;
+
+        /// <summary>当前获得焦点的输入框（没有就 null）。</summary>
+        public AiInput FocusedInput
+        {
+            get
+            {
+                foreach (var i in _inputs) if (i.IsFocused) return i;
+                return null;
+            }
+        }
         private readonly List<AiInput> _inputs = new();
 
         private AiConfig _cfg;           // 磁盘上的真配置（只读用途）
@@ -246,12 +318,13 @@ namespace DshAiMini
             bg.Height.Set(470, 0f);
             bg.HAlign = 0.5f;
             bg.VAlign = 0.5f;
-            bg.BackgroundColor = new Color(22, 26, 38) * 0.97f;
-            bg.BorderColor = new Color(90, 110, 160);
+            bg.BackgroundColor = Theme.BgOuter * 0.97f;
+            bg.BorderColor = Theme.Line;
             Append(bg);
 
             var title = new UIText("DSH AI Mini", 1.02f, true);
             title.Left.Set(18, 0f); title.Top.Set(12, 0f);
+            title.TextColor = Theme.Title;
             bg.Append(title);
 
             // 两个页面：对话 / 配置。默认停在对话页 —— 打开就想问东西，不是想改配置。
@@ -280,8 +353,8 @@ namespace DshAiMini
             box.Width.Set(724, 0f);
             box.Height.Set(300, 0f);
             box.Left.Set(18, 0f); box.Top.Set(y, 0f);
-            box.BackgroundColor = new Color(14, 17, 26) * 0.9f;
-            box.BorderColor = new Color(60, 70, 100);
+            box.BackgroundColor = Theme.BgInset;
+            box.BorderColor = Theme.LineSoft;
             bg.Append(box);
 
             _log = new AiLog();
@@ -307,7 +380,8 @@ namespace DshAiMini
             y += 310f;
 
             // 输入框 + 发送
-            _ask = new AiInput("输入问题，回车发送");
+            _ask = new AiInput("输入问题，回车发送（中文直接打，走游戏聊天框）");
+            _ask.ImeBridge = true;
             _ask.MaxLength = 500;
             _ask.Width.Set(600, 0f);
             _ask.Left.Set(18, 0f); _ask.Top.Set(y, 0f);
@@ -315,7 +389,7 @@ namespace DshAiMini
             bg.Append(_ask);
             _inputs.Add(_ask);
 
-            MakeButton(bg, "发送", 628, y + 3, 114, new Color(50, 90, 60), Send);
+            MakeBtn(bg, "发送", 628, y + 2, 114, 30, BtnKind.Primary, Send);
 
             y += 42f;
 
@@ -326,14 +400,14 @@ namespace DshAiMini
 
             y += 26f;
 
-            MakeButton(bg, "清空历史", 18, y, 110, new Color(70, 60, 50), () =>
+            MakeBtn(bg, "清空历史", 18, y, 110, 28, BtnKind.Ghost, () =>
             {
                 ChatStore.Clear();
                 _log.Clear();
                 _log.Add(AiLog.Kind.Think, "历史已清空。");
                 Say("已清空", new Color(255, 220, 160));
             });
-            MakeButton(bg, "关闭 (F7)", 140, y, 110, new Color(90, 50, 50), () => AiSystem.TogglePanel(false));
+            MakeBtn(bg, "关闭 (F7)", 140, y, 110, 28, BtnKind.Danger, () => AiSystem.TogglePanel(false));
 
             var note = new UIText(
                 "知识库已编进 mod（16 篇）。当前模式：" + (ChatStore.KnowledgeModeText()),
@@ -411,8 +485,8 @@ namespace DshAiMini
             var box = new UIPanel();
             box.Width.Set(206, 0f); box.Height.Set(290, 0f);
             box.Left.Set(18, 0f); box.Top.Set(top, 0f);
-            box.BackgroundColor = new Color(18, 22, 32) * 0.75f;
-            box.BorderColor = new Color(60, 70, 100);
+            box.BackgroundColor = Theme.BgCard;
+            box.BorderColor = Theme.LineSoft;
             bg.Append(box);
 
             float yy = 8f;
@@ -425,8 +499,8 @@ namespace DshAiMini
                 var row = new UIPanel();
                 row.Width.Set(190, 0f); row.Height.Set(30, 0f);
                 row.Left.Set(8, 0f); row.Top.Set(yy, 0f);
-                row.BackgroundColor = on ? new Color(48, 78, 126) : new Color(28, 34, 48);
-                row.BorderColor = on ? new Color(90, 140, 210) : new Color(48, 56, 76);
+                row.BackgroundColor = on ? Theme.AccentDim : Theme.BgInset;
+                row.BorderColor = on ? Theme.Accent : Theme.LineSoft;
                 row.OnLeftClick += (_, __) => { _sync.ActiveIndex = idx; Rebuild(); };
                 box.Append(row);
 
@@ -452,14 +526,14 @@ namespace DshAiMini
                 yy += 34f;
             }
 
-            MakeButton(box, "+ 添加提供商", 8, 248, 190, new Color(40, 70, 50), () => { AddProvider(); Rebuild(); });
+            MakeBtn(box, "+ 添加提供商", 8, 246, 190, 30, BtnKind.Success, () => { AddProvider(); Rebuild(); });
 
-            if (_sync.Active != null) BuildProviderDetail(bg, 240, top);
+            if (_sync.Active != null) BuildProviderDetail(bg, 232, top);
 
             float by = 408f;
-            MakeButton(bg, "保存", 18, by, 110, new Color(50, 90, 60), Save);
-            MakeButton(bg, "测试连接", 140, by, 130, new Color(50, 70, 110), TestConn);
-            MakeButton(bg, "关闭 (F7)", 282, by, 130, new Color(90, 50, 50), () => AiSystem.TogglePanel(false));
+            MakeBtn(bg, "保存", 18, by, 100, 30, BtnKind.Primary, Save);
+            MakeBtn(bg, "测试连接", 126, by, 118, 30, BtnKind.Ghost, TestConn);
+            MakeBtn(bg, "关闭 (F7)", 252, by, 110, 30, BtnKind.Danger, () => AiSystem.TogglePanel(false));
 
             var note = new UIText(
                 "每套提供商单独存地址、协议、密钥和模型目录，切换不用重填。\n" +
@@ -487,7 +561,7 @@ namespace DshAiMini
             var ky = new AiInput("留空使用已保存凭据");
             ky.Password = true; ky.MaxLength = 400;
             ky.Text = pv.ApiKey ?? "";
-            ky.Width.Set(488, 0f);
+            ky.Width.Set(408, 0f);
             ky.Left.Set(x + 96, 0f); ky.Top.Set(y, 0f);
             ky.OnChanged = () => pv.ApiKey = ky.Text;
             bg.Append(ky); _inputs.Add(ky);
@@ -497,7 +571,7 @@ namespace DshAiMini
             var nmIn = new AiInput("给这套配置起个名");
             nmIn.MaxLength = 40;
             nmIn.Text = pv.DisplayName ?? "";
-            nmIn.Width.Set(400, 0f);
+            nmIn.Width.Set(408, 0f);
             nmIn.Left.Set(x + 96, 0f); nmIn.Top.Set(y, 0f);
             nmIn.OnChanged = () => pv.DisplayName = nmIn.Text;
             bg.Append(nmIn); _inputs.Add(nmIn);
@@ -507,15 +581,15 @@ namespace DshAiMini
             var url = new AiInput("https://api.example.com/v1");
             url.MaxLength = 300;
             url.Text = pv.BaseUrl ?? "";
-            url.Width.Set(488, 0f);
+            url.Width.Set(408, 0f);
             url.Left.Set(x + 96, 0f); url.Top.Set(y, 0f);
             url.OnChanged = () => pv.BaseUrl = url.Text;
             bg.Append(url); _inputs.Add(url);
             y += 40f;
 
             Lab(bg, "API 协议", x, y + 9);
-            MakeButton(bg, pv.Protocol == "anthropic" ? "Anthropic Messages" : "OpenAI Chat Completions",
-                x + 96, y, 250, new Color(36, 44, 64), () =>
+            MakeBtn(bg, pv.Protocol == "anthropic" ? "Anthropic Messages" : "OpenAI Chat Completions",
+                x + 96, y, 250, 28, BtnKind.Ghost, () =>
                 {
                     pv.Protocol = pv.Protocol == "anthropic" ? "openai" : "anthropic";
                     Rebuild();
@@ -523,27 +597,37 @@ namespace DshAiMini
             y += 42f;
 
             Lab(bg, "模型目录", x, y + 6);
-            var rst = new UIText("恢复默认模型", 0.74f);
-            rst.Left.Set(x + 380, 0f); rst.Top.Set(y + 6, 0f);
-            rst.TextColor = new Color(140, 190, 240);
-            rst.OnLeftClick += (_, __) =>
+            // 「获取可用模型」：真的去请求这个 key 在这个地址下的 /models。
+            // 放在左边、恢复默认放右边——先"能选什么"，再"回到原样"。
+            MakeLink(bg, "获取可用模型", x + 216, y + 4, FetchModels);
+            MakeLink(bg, "恢复默认", x + 344, y + 4, () =>
             {
                 var d = DefaultModelsFor(pv.Key);
                 if (d.Count > 0) { pv.Models = d; pv.ActiveModel = d[0].Id; }
                 Rebuild();
-            };
-            bg.Append(rst);
-            y += 26f;
+            });
+            y += 28f;
 
             for (int i = 0; i < pv.Models.Count; i++)
             {
                 int mi = i;
                 var m = pv.Models[i];
 
+                // 斑马纹：偶数行给一条极淡的底条，让相邻两行的模型 id 不至于糊在一起。
+                if ((i & 1) == 1)
+                {
+                    var stripe = new UIPanel();
+                    stripe.Width.Set(476, 0f); stripe.Height.Set(32, 0f);
+                    stripe.Left.Set(x - 4, 0f); stripe.Top.Set(y - 2, 0f);
+                    stripe.BackgroundColor = new Color(255, 255, 255, 0.025f);
+                    stripe.BorderColor = Color.Transparent;
+                    bg.Append(stripe);
+                }
+
                 var idIn = new AiInput("模型 id");
                 idIn.MaxLength = 120;
                 idIn.Text = m.Id ?? "";
-                idIn.Width.Set(206, 0f);
+                idIn.Width.Set(176, 0f);
                 idIn.Left.Set(x, 0f); idIn.Top.Set(y, 0f);
                 idIn.OnChanged = () => m.Id = idIn.Text;
                 bg.Append(idIn); _inputs.Add(idIn);
@@ -551,17 +635,17 @@ namespace DshAiMini
                 var lbIn = new AiInput("显示名");
                 lbIn.MaxLength = 60;
                 lbIn.Text = m.Label ?? "";
-                lbIn.Width.Set(206, 0f);
-                lbIn.Left.Set(x + 214, 0f); lbIn.Top.Set(y, 0f);
+                lbIn.Width.Set(176, 0f);
+                lbIn.Left.Set(x + 184, 0f); lbIn.Top.Set(y, 0f);
                 lbIn.OnChanged = () => m.Label = lbIn.Text;
                 bg.Append(lbIn); _inputs.Add(lbIn);
 
                 bool isCur = pv.ActiveModel == m.Id;
-                MakeButton(bg, isCur ? "当前" : "用这个", x + 428, y, 56,
-                    isCur ? new Color(50, 90, 60) : new Color(36, 44, 64),
+                MakeBtn(bg, isCur ? "当前" : "用这个", x + 368, y, 56, 28,
+                    isCur ? BtnKind.Success : BtnKind.Ghost,
                     () => { pv.ActiveModel = m.Id; Rebuild(); });
 
-                MakeButton(bg, "删", x + 490, y, 38, new Color(92, 48, 48), () =>
+                MakeBtn(bg, "删", x + 430, y, 38, 28, BtnKind.Danger, () =>
                 {
                     if (mi < pv.Models.Count) pv.Models.RemoveAt(mi);
                     if (pv.ActiveModel == m.Id)
@@ -572,9 +656,43 @@ namespace DshAiMini
                 y += 36f;
             }
 
-            MakeButton(bg, "+ 添加模型", x, y, 120, new Color(40, 70, 50), () =>
+            MakeBtn(bg, "+ 添加模型", x, y, 118, 28, BtnKind.Success, () =>
             {
                 pv.Models.Add(new AiModel("", ""));
+                Rebuild();
+            });
+        }
+
+        /// <summary>
+        /// 「获取可用模型」：拿当前正在编辑的地址和密钥，请求 {base}/models。
+        ///
+        /// 注意请求体用的是 _sync（面板上的副本）而不是已保存的 _cfg ——
+        /// 用户很可能刚改完地址就想试试这个地址有哪些模型，还没点保存。
+        /// 回调时按 Key 找回那一条提供商再写回，因为期间可能已经 Rebuild 过。
+        /// </summary>
+        void FetchModels()
+        {
+            var pv = _sync.Active;
+            if (pv == null) { Say("先选一个提供商", Theme.Warn); return; }
+            if (string.IsNullOrWhiteSpace(pv.BaseUrl)) { Say("先填 API 地址，再拉模型列表", Theme.Warn); return; }
+            string key = pv.Key;
+            Say("正在拉取模型列表…", Theme.Muted);
+
+            AiChat.ListModelsAsync(_sync.Clone(), (ok, msg, ids) =>
+            {
+                if (!ok) { Say("拉取失败：" + msg, Theme.Bad); return; }
+                var hit = _sync.Providers.Find(q => q.Key == key);
+                if (hit == null) { Say("提供商已不在了，拉到的 " + ids.Count + " 个模型丢弃", Theme.Warn); return; }
+                int added = 0;
+                foreach (var id in ids)
+                {
+                    bool has = false;
+                    foreach (var m in hit.Models) if (m.Id == id) { has = true; break; }
+                    if (!has) { hit.Models.Add(new AiModel(id, id)); added++; }
+                }
+                if (added > 0 && string.IsNullOrWhiteSpace(hit.ActiveModel))
+                    hit.ActiveModel = hit.Models[0].Id;
+                Say("拿到 " + ids.Count + " 个模型，新增 " + added + " 个", Theme.Good);
                 Rebuild();
             });
         }
@@ -605,31 +723,119 @@ namespace DshAiMini
             _sync.ActiveIndex = _sync.Providers.Count - 1;
         }
 
+        // ── 配色 ────────────────────────────────────────────────────────────
+        // 全部提成常量：原来色值散在十几处，改一次要翻全文件，而且相邻两处
+        // 常常差 2~3 个色阶，看着"脏"。现在只有这几个来源。
+        static class Theme
+        {
+            public static readonly Color BgOuter = new Color(18, 21, 31);       // 面板底
+            public static readonly Color BgCard = new Color(26, 31, 45);        // 卡片/内框
+            public static readonly Color BgInset = new Color(13, 16, 24);       // 凹陷（消息区、输入框）
+            public static readonly Color Line = new Color(58, 70, 100);         // 常规描边
+            public static readonly Color LineSoft = new Color(40, 48, 68);      // 弱描边
+            public static readonly Color Title = new Color(232, 238, 250);      // 主标题
+            public static readonly Color Text = new Color(198, 208, 228);       // 正文
+            public static readonly Color Muted = new Color(140, 150, 176);      // 次要/标签
+            public static readonly Color Accent = new Color(96, 150, 232);      // 主色（蓝）
+            public static readonly Color AccentDim = new Color(52, 78, 122);
+            public static readonly Color Good = new Color(120, 200, 140);       // 绿点/成功
+            public static readonly Color Warn = new Color(224, 190, 110);       // 黄
+            public static readonly Color Bad = new Color(206, 112, 112);        // 红
+        }
+
+        /// <summary>按钮等级。一级主操作、二级常规、三级危险，视觉权重必须能分开。</summary>
+        private enum BtnKind { Primary, Ghost, Danger, Success }
+
+        private void MakeBtn(UIElement parent, string text, float x, float y, float w, float h,
+                             BtnKind kind, Action onClick)
+        {
+            Color fill, edge, ink;
+            switch (kind)
+            {
+                case BtnKind.Primary: fill = Theme.AccentDim; edge = Theme.Accent; ink = Color.White; break;
+                case BtnKind.Success: fill = new Color(38, 66, 46); edge = new Color(86, 148, 100); ink = Theme.Good; break;
+                case BtnKind.Danger:  fill = new Color(64, 34, 36); edge = new Color(132, 66, 66); ink = Theme.Bad; break;
+                default:              fill = Theme.BgCard; edge = Theme.LineSoft; ink = Theme.Text; break;
+            }
+
+            var b = new UIPanel();
+            b.Width.Set(w, 0f); b.Height.Set(h, 0f);
+            b.Left.Set(x, 0f); b.Top.Set(y, 0f);
+            b.BackgroundColor = fill;
+            b.BorderColor = edge;
+            parent.Append(b);
+
+            var t = new UIText(text, 0.78f);
+            t.HAlign = 0.5f; t.VAlign = 0.5f;
+            t.TextColor = ink;
+            b.Append(t);
+
+            // 悬停时把底色提亮一档。没有反馈的按钮在深色面板上根本分不清能不能点。
+            b.OnMouseOver += (_, __) => { b.BackgroundColor = fill * 1.45f; t.TextColor = Color.White; };
+            b.OnMouseOut  += (_, __) => { b.BackgroundColor = fill; t.TextColor = ink; };
+            b.OnLeftClick += (_, __) => onClick();
+        }
+
+        /// <summary>可点的文字链接（"获取可用模型""恢复默认模型"这类轻操作）。</summary>
+        private void MakeLink(UIElement parent, string text, float x, float y, Action onClick)
+        {
+            var t = new UIText(text, 0.74f);
+            t.Left.Set(x, 0f); t.Top.Set(y, 0f);
+            t.TextColor = new Color(132, 176, 232);
+            t.OnMouseOver += (_, __) => t.TextColor = new Color(190, 216, 255);
+            t.OnMouseOut  += (_, __) => t.TextColor = new Color(132, 176, 232);
+            t.OnLeftClick += (_, __) => onClick();
+            parent.Append(t);
+        }
+
         void Lab(UIElement bg, string s, float x, float y)
         {
             var t = new UIText(s, 0.8f);
             t.Left.Set(x, 0f); t.Top.Set(y, 0f);
-            t.TextColor = new Color(160, 168, 190);
+            t.TextColor = Theme.Muted;
             bg.Append(t);
         }
 
         private void MakeTab(UIElement parent, string text, bool active, float x, float y, Action onClick)
         {
-            var t = new UITextPanel<string>(text, 0.86f)
-            { BackgroundColor = active ? new Color(60, 100, 150) : new Color(38, 44, 58) };
-            t.Width.Set(100, 0f); t.Height.Set(32, 0f);
+            var t = new UIPanel();
+            t.Width.Set(96, 0f); t.Height.Set(30, 0f);
             t.Left.Set(x, 0f); t.Top.Set(y, 0f);
-            t.OnLeftClick += (_, __) => onClick();
+            t.BackgroundColor = active ? Theme.AccentDim : Theme.BgCard;
+            t.BorderColor = active ? Theme.Accent : Theme.LineSoft;
             parent.Append(t);
+
+            var tx = new UIText(text, 0.8f);
+            tx.HAlign = 0.5f; tx.VAlign = 0.5f;
+            tx.TextColor = active ? Color.White : Theme.Muted;
+            t.Append(tx);
+
+            if (!active)
+            {
+                t.OnMouseOver += (_, __) => { t.BackgroundColor = Theme.LineSoft; tx.TextColor = Theme.Text; };
+                t.OnMouseOut  += (_, __) => { t.BackgroundColor = Theme.BgCard; tx.TextColor = Theme.Muted; };
+            }
+            t.OnLeftClick += (_, __) => onClick();
         }
 
         private void MakeButton(UIElement parent, string text, float x, float y, float w, Color bgc, Action onClick)
         {
-            var b = new UITextPanel<string>(text, 0.8f) { BackgroundColor = bgc };
+            // 旧签名保留给仍按色值传参的调用点；新代码请直接用 MakeBtn(BtnKind)。
+            var b = new UIPanel();
             b.Width.Set(w, 0f); b.Height.Set(28, 0f);
             b.Left.Set(x, 0f); b.Top.Set(y, 0f);
-            b.OnLeftClick += (_, __) => onClick();
+            b.BackgroundColor = bgc;
+            b.BorderColor = Theme.LineSoft;
             parent.Append(b);
+
+            var t = new UIText(text, 0.76f);
+            t.HAlign = 0.5f; t.VAlign = 0.5f;
+            t.TextColor = Theme.Text;
+            b.Append(t);
+
+            b.OnMouseOver += (_, __) => { b.BackgroundColor = bgc * 1.45f; b.BorderColor = Theme.Accent; t.TextColor = Color.White; };
+            b.OnMouseOut  += (_, __) => { b.BackgroundColor = bgc; b.BorderColor = Theme.LineSoft; t.TextColor = Theme.Text; };
+            b.OnLeftClick += (_, __) => onClick();
         }
 
         public void BlurAll()

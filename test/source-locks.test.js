@@ -46,6 +46,21 @@ test('坐骑预开闸：闸门必须同时看 MountUntil 和 MountPreOpenUntil',
     'ApplyBridgeTrigger 的 active 条件必须是 MountUntil > now && MountPreOpenUntil <= now')
 })
 
+test('背包/ESC：必须发真实 Inventory 输入并让原版 ToggleInv 决定结果', async () => {
+  const bridge = await read(BRIDGE)
+  const cmds = await read(CMDS)
+  assert.match(bridge, /ApplyBridgeTrigger\(InventoryUntil\s*>\s*now\s*,\s*ref\s+BridgeInventoryHeld[\s\S]{0,220}?t\.Inventory\s*=\s*true/,
+    'PostUpdateInput 必须把 Inventory 键的 Current/边沿写进 Triggers')
+  assert.match(bridge, /player\.controlInv\s*\|=\s*InventoryUntil\s*>\s*now\s*;/,
+    'SetControls 路径必须把 Inventory 输入交给 Player.Update 的 ToggleInv 消费点')
+  assert.match(cmds, /case\s+"key"\s*:\s*return\s+Key\(p\)/,
+    '桥命令必须暴露真实 key 输入入口')
+  assert.match(cmds, /requested\s*!=\s*"inventory"\s*&&\s*requested\s*!=\s*"escape"/,
+    'key 命令必须明确支持 inventory/escape 两个语义别名')
+  assert.doesNotMatch(cmds.replace(/\/\/.*$/gm, ''), /Main\.playerInventory\s*=\s*(?:true|false)/,
+    'key 流程不许直接改 Main.playerInventory，必须让原版 ToggleInv 决定 UI 状态')
+})
+
 test('失焦前提：闸门不许无条件把 hasFocus 置真', async () => {
   const src = await read(BRIDGE)
   const fn = src.match(/internal static void OpenMountInputGate\s*\(\)\s*\{([\s\S]*?)\n\s{8}\}/)

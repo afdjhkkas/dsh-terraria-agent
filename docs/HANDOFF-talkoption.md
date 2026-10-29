@@ -144,9 +144,14 @@ UI 缩放上下文中，点击阶段也由原版自己的按钮回调完成。
 4) 商店真的开了没有
    判据：Main.npcShop > 0（现在 shopIndex 恒 0 说明没开）
 
-5) 关闭按钮
-   talkoption { index:1 } 或按 Escape
+5) 先关商店，再关 NPC 对话
+   key { key:"inventory" }（默认键位就是 Escape）
+   判据：等 untilTick 后 `npcShopIndex` 变 0；如果仍在 NPC 对话，再调 talkoption { index:1 }
    判据：talkNPC 变回 -1、chatText 变空
 ```
+
+商店打开后原版不再绘制 NPC 对话框，因此 `talkoption {index:1}` 没有
+`GUIChatDrawInner()` 扫描入口，`scanned` 会一直是 0。必须先用真实 Inventory/Escape 键让
+`Player.ToggleInv()` 关闭商店，再回到 NPC 对话框点击关闭按钮。
 
 第 2 步是分水岭：**鼠标能不能"按住在目标上"**。现在它一帧就被系统光标抢回去。

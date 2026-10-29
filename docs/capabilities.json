@@ -629,6 +629,20 @@
       "summary": ""
     },
     {
+      "name": "key",
+      "kind": "act",
+      "params": [
+        "key",
+        "ms"
+      ],
+      "returns": [
+        "key",
+        "resolvedKey",
+        "before"
+      ],
+      "summary": ""
+    },
+    {
       "name": "keyevents",
       "kind": "read",
       "params": [
@@ -1236,6 +1250,8 @@
         "mountUntil",
         "mountUntilLive",
         "mountFired",
+        "inventoryUntil",
+        "inventoryUntilLive",
         "inputDiag",
         "guard",
         "attack",

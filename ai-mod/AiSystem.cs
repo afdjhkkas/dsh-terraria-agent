@@ -42,6 +42,12 @@ namespace DshAiMini
             bool want = force ?? !IsOpen;
             if (want == IsOpen) return;
             IsOpen = want;
+            if (!want)
+            {
+                // 关面板必须把输入法桥一起收掉：否则原版聊天框还挂着，
+                // 玩家一按回车会把没发出去的问题打到公屏。
+                try { AiPanel.Current?.BlurAll(); } catch { }
+            }
             _ui?.SetState(want ? _panel : null);
         }
 

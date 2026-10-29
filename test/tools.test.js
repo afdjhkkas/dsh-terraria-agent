@@ -52,7 +52,7 @@ test('registers every documented tool with a supported schema', async () => {
     const names = registered.map(tool => tool.name).sort()
     for (const expected of [
       'terraria_status', 'terraria_observe', 'terraria_scan', 'terraria_tile', 'terraria_inventory',
-      'terraria_npcs', 'terraria_move', 'terraria_jump', 'terraria_use_item', 'terraria_attack',
+      'terraria_npcs', 'terraria_key', 'terraria_move', 'terraria_jump', 'terraria_use_item', 'terraria_attack',
       'terraria_stop', 'terraria_follow', 'terraria_idle', 'terraria_players',
       'terraria_mine', 'terraria_place', 'terraria_craft', 'terraria_chat',
     ]) assert.ok(names.includes(expected), `missing ${expected}`)

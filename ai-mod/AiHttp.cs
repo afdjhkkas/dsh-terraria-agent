@@ -33,6 +33,7 @@ namespace DshAiMini
         private sealed class Job
         {
             public string Url;
+            public string Method;   // POST（对话）/ GET（拉模型列表）
             public string Body;
             public string ApiKey;
             public int TimeoutMs;
@@ -63,8 +64,22 @@ namespace DshAiMini
         {
             if (string.IsNullOrWhiteSpace(url)) return;
             Pending.Enqueue(new Job {
-                StartedTick = Main.GameUpdateCount, Url = url.Trim(), Body = body, ApiKey = apiKey,
-                                      TimeoutMs = timeoutMs, Callback = callback });
+                StartedTick = Main.GameUpdateCount, Url = url.Trim(), Method = "POST",
+                                      Body = body, ApiKey = apiKey, TimeoutMs = timeoutMs, Callback = callback });
+            PumpIfIdle();
+        }
+
+        /// <summary>
+        /// GET。只为「列出可用模型」这种没有请求体的端点准备。
+        /// 和 Post 走同一条队列、同一个 worker，所以不会多开线程。
+        /// </summary>
+        public static void Get(string url, string apiKey, int timeoutMs = 20000,
+                               Action<bool, int, string, string> callback = null)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return;
+            Pending.Enqueue(new Job {
+                StartedTick = Main.GameUpdateCount, Url = url.Trim(), Method = "GET",
+                                      Body = null, ApiKey = apiKey, TimeoutMs = timeoutMs, Callback = callback });
             PumpIfIdle();
         }
 
@@ -107,7 +122,9 @@ namespace DshAiMini
                     try
                     {
                         using var cts = new CancellationTokenSource(job.TimeoutMs);
-                        using var req = new HttpRequestMessage(HttpMethod.Post, job.Url);
+                        var verb = string.Equals(job.Method, "GET", StringComparison.OrdinalIgnoreCase)
+                            ? HttpMethod.Get : HttpMethod.Post;
+                        using var req = new HttpRequestMessage(verb, job.Url);
                         if (!string.IsNullOrEmpty(job.ApiKey))
                             req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + job.ApiKey);
                         if (job.Body != null)

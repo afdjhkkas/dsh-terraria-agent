@@ -306,13 +306,13 @@ namespace DshTerrariaBridge
         private static readonly List<KeyEvent> KeyEvents = new List<KeyEvent>();
         private const int KeyEventCap = 6000;
         private static readonly Dictionary<string, bool> KeyState = new Dictionary<string, bool>();
-        private static readonly string[] WatchedKeys = { "jump", "left", "right", "up", "down", "mouseLeft", "mouseRight" };
+        private static readonly string[] WatchedKeys = { "jump", "left", "right", "up", "down", "inventory", "mouseLeft", "mouseRight" };
 
         // Bridge-generated keys need the same edge semantics as a physical key.  Terraria
         // uses Current for held input and JustPressed/JustReleased for jump and other
         // actions.  Keeping our own previous state lets a command begin with one real
         // press edge, remain held for its requested duration, and end with one release.
-        private static bool BridgeJumpHeld, BridgeLeftHeld, BridgeRightHeld, BridgeUpHeld, BridgeDownHeld, BridgeMountHeld;
+        private static bool BridgeJumpHeld, BridgeLeftHeld, BridgeRightHeld, BridgeUpHeld, BridgeDownHeld, BridgeInventoryHeld, BridgeMountHeld;
         // Movement decisions are made before Player.Update.  Keep them as input intents so
         // PostUpdateInput can present the same key state to vanilla in the correct phase.
         // internal 而不是 private：Commands.cs 的 state 回包要只读地暴露这五个意图位，
@@ -666,6 +666,7 @@ namespace DshTerrariaBridge
             //   站在 type 19 木平台上 fly/jump 全部 velY:0、jumped:false，
             //   因为 ApplyMovement 开头（2069）已经把 IntentJump 清掉，只剩被 triggers 短路的那一半。
             player.controlJump |= IntentJump || JumpUntil > now;
+            player.controlInv |= InventoryUntil > now;
             // 坐骑不在这里写。实测：在 SetControls 里写 controlMount=true（mountFired 已是 true），
             // 到 PostUpdateMiscEffects 读回来仍是 false —— 原版在 SetControls 之后会用输入层结果
             // 重建 controlMount，写在早阶段的 true 当场被覆盖。这和 controlHook 是同一个病
@@ -722,6 +723,7 @@ namespace DshTerrariaBridge
                     case "right": return t.Right;
                     case "up": return t.Up;
                     case "down": return t.Down;
+                    case "inventory": return t.Inventory;
                     case "mouseLeft": return Main.mouseLeft;
                     case "mouseRight": return Main.mouseRight;
                     default: return false;
@@ -785,6 +787,11 @@ namespace DshTerrariaBridge
             // 预开闸期内（MountPreOpenUntil > now）刻意不按键：那几帧要留给引擎执行
             // else { releaseMount = true; }，否则 releaseMount 一直是 false，QuickMount 不进。
             ApplyBridgeTrigger(MountUntil > now && MountPreOpenUntil <= now, ref BridgeMountHeld, t => t.QuickMount = true, t => t.QuickMount = true, t => t.QuickMount = true);
+            // Inventory is Terraria's semantic Escape key. Keep the real trigger and
+            // its press/release edges; ApplyNativeControlFlags mirrors the same input
+            // into controlInv for this loader build's Player.Update consumer.
+            ApplyBridgeTrigger(InventoryUntil > now, ref BridgeInventoryHeld,
+                t => t.Inventory = true, t => t.Inventory = true, t => t.Inventory = true);
             var triggers = PlayerInput.Triggers.Current;
             DbgInputTriggerTick = (long)now;
             DbgInputTriggerPlayer = player.whoAmI;
@@ -794,6 +801,7 @@ namespace DshTerrariaBridge
             DbgInputTriggerDown = triggers.Down;
             DbgInputTriggerJump = triggers.Jump;
             DbgInputTriggerMount = triggers.QuickMount;
+            DbgInputTriggerInventory = triggers.Inventory;
             // Compatibility field now follows the native trigger, which is the actual input source.
             DbgCtrlUp = triggers.Up;
             // 采集边沿事件：只记“变化”，同一状态不重复记。
@@ -806,6 +814,7 @@ namespace DshTerrariaBridge
                 if (bridgeUp && key == "up") continue;
                 if (bridgeDown && key == "down") continue;
                 if (bridgeUse && (key == "mouseLeft" || key == "mouseRight")) continue;
+                if (InventoryUntil > now && key == "inventory") continue;
                 bool keyDownNow = ReadKey(key);
                 bool was = KeyState.TryGetValue(key, out var prev) && prev;
                 if (keyDownNow == was) continue;
@@ -1231,7 +1240,7 @@ namespace DshTerrariaBridge
         // Input timing snapshots: native Triggers after PostUpdateInput and controls after engine processing.
         internal static long DbgInputTriggerTick = -1, DbgInputControlTick = -1;
         internal static int DbgInputTriggerPlayer = -1, DbgInputControlPlayer = -1;
-        internal static bool DbgInputTriggerLeft, DbgInputTriggerRight, DbgInputTriggerUp, DbgInputTriggerDown, DbgInputTriggerJump, DbgInputTriggerMount;
+        internal static bool DbgInputTriggerLeft, DbgInputTriggerRight, DbgInputTriggerUp, DbgInputTriggerDown, DbgInputTriggerJump, DbgInputTriggerMount, DbgInputTriggerInventory;
         internal static bool DbgInputControlLeft, DbgInputControlRight, DbgInputControlUp, DbgInputControlDown, DbgInputControlJump;
 
         internal static List<(int x, int y)> ComputePath(int sx, int sy, int tx, int ty, out string why, int margin = 10)
@@ -3275,7 +3284,7 @@ namespace DshTerrariaBridge
 
         // Written from the bridge thread, read from the main thread: keep the
         // published values volatile instead of relying on x64 store atomicity.
-        internal static ulong LeftUntil, RightUntil, UpUntil, DownUntil, JumpUntil, UseUntil, UseTileUntil;
+        internal static ulong LeftUntil, RightUntil, UpUntil, DownUntil, JumpUntil, UseUntil, UseTileUntil, InventoryUntil;
         // 坐骑键的时间窗。输出在 ApplyNativeControlFlags 里直写 Player.controlMount，
         // 不用 Triggers：TriggersSet.CopyInto 只在 Main.hasFocus 时运行，失焦下写
         // Triggers.Current.QuickMount 是空转（实测 mount:true / controlMount:false）。
@@ -3463,10 +3472,10 @@ namespace DshTerrariaBridge
 
     internal static void ClearControls()
     {
-        LeftUntil = RightUntil = UpUntil = DownUntil = JumpUntil = UseUntil = UseTileUntil = 0;
+        LeftUntil = RightUntil = UpUntil = DownUntil = JumpUntil = UseUntil = UseTileUntil = InventoryUntil = 0;
         ClimbUpUntil = ClimbDownUntil = LayRopeUntil = 0; ClimbTargetY = 0;
         IntentLeft = IntentRight = IntentUp = IntentDown = IntentJump = false;
-        BridgeJumpHeld = BridgeLeftHeld = BridgeRightHeld = BridgeUpHeld = BridgeDownHeld = BridgeMountHeld = false;
+        BridgeJumpHeld = BridgeLeftHeld = BridgeRightHeld = BridgeUpHeld = BridgeDownHeld = BridgeInventoryHeld = BridgeMountHeld = false;
         // 坐骑边沿闸门也要清：否则 ClearControls 之后再 mount 会被上一轮的 MountFired 拦住。
         MountFired = false;
         RopeReleasePending = RopeReleaseFailed = false;

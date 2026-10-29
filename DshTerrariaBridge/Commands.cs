@@ -34,6 +34,7 @@ namespace DshTerrariaBridge
                 case "state": return State();
                 case "humaninput": return HumanInput();
                 case "keyevents": return KeyEventsCmd(p);
+                case "key": return Key(p);
                 case "scan": return Scan(p);
                 case "tile": return TileAt(p);
                 case "gravity": return Gravity(p);
@@ -380,6 +381,7 @@ namespace DshTerrariaBridge
                     down = BridgeSystem.DbgInputTriggerDown,
                     jump = BridgeSystem.DbgInputTriggerJump,
                     mount = BridgeSystem.DbgInputTriggerMount,
+                    inventory = BridgeSystem.DbgInputTriggerInventory,
                 },
                 postUpdateRunSpeeds = new
                 {
@@ -495,11 +497,49 @@ namespace DshTerrariaBridge
             return Json.Ok(new { lastTick = last, count = evs.Count, time = (long)Main.time, stride = 3, flat });
         }
 
+        /// <summary>
+        /// Send Terraria's real Inventory key.  In the default keyboard profile this is
+        /// Escape, and vanilla ToggleInv() decides whether that closes NPC chat/shop or
+        /// opens/closes the inventory.  We only emit the input edge; callers must re-read
+        /// state after untilTick to verify the UI transition.
+        /// </summary>
+        private static string Key(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+
+            string requested = (Json.Str(p, "key", "inventory") ?? "inventory").Trim().ToLowerInvariant();
+            if (requested != "inventory" && requested != "escape")
+                return Json.Error("key 目前支持 inventory 或 escape；两者都走 Terraria 的 Inventory 键输入");
+
+            int ms = Math.Clamp(Json.Int(p, "ms", 100), 20, 1000);
+            ulong now = BridgeSystem.NowTick();
+            if (BridgeSystem.InventoryUntil > now)
+                return Json.Error("inventory 键输入仍在进行中；等 untilTick 后再发下一次");
+
+            Player pl = P;
+            bool beforeInventory = Main.playerInventory;
+            int beforeTalkNpc = pl.talkNPC;
+            int beforeShop = Main.npcShop;
+            ulong until = now + BridgeSystem.Ticks(ms);
+            BridgeSystem.InventoryUntil = until;
+
+            return Json.Ok(new
+            {
+                key = requested,
+                resolvedKey = "inventory",
+                ms,
+                before = new { playerInventory = beforeInventory, talkNPC = beforeTalkNpc, npcShop = beforeShop },
+                untilTick = until,
+                note = "已发送真实 Inventory/Escape 键输入；等 untilTick 后回读 state.playerInventory、talkNPC、npcShopIndex 确认原版 UI 是否切换",
+            });
+        }
+
         /// <summary>命令名清单：help 与 unknown 提示都从这里生成，
         /// 免得再出现"实现了但提示里没有、调用方以为不存在"的误导。</summary>
         internal static readonly string[] CommandNames = new[]
         {
-            "accessory", "api", "attack", "bobber", "boss", "buy", "capture", "castline", "chat", "chatpoll", "chatpost", "chest", "climb", "craft", "dialog", "drop", "duplicate", "equip", "event", "fields", "fill", "find", "fly", "follow", "grab", "grapple", "gravity", "guard", "heal", "help", "homeroom", "hook", "hookdebug", "housediag", "housing", "humaninput", "idle", "idmap", "interact", "inventory", "items", "jump", "keyevents", "liquidop", "map", "methods", "mine", "minion", "mirror", "mount", "move", "moveto", "navrules", "needs", "nodig", "npc", "path", "ping", "place", "players", "props", "quest", "recipes", "reel", "removeblock", "research", "roomcheck", "save", "scan", "select", "sell", "shoot", "shop", "shopdebug", "shops", "splitstack", "startevent", "state", "stop", "talk", "talkclose", "talkfocus", "talkoption", "tile", "tiledata", "trash", "travel", "travelstatus", "unhook", "use", "walkdiff", "walkmode", "walkto", "wall"
+            "accessory", "api", "attack", "bobber", "boss", "buy", "capture", "castline", "chat", "chatpoll", "chatpost", "chest", "climb", "craft", "dialog", "drop", "duplicate", "equip", "event", "fields", "fill", "find", "fly", "follow", "grab", "grapple", "gravity", "guard", "heal", "help", "homeroom", "hook", "hookdebug", "housediag", "housing", "humaninput", "idle", "idmap", "interact", "inventory", "items", "jump", "key", "keyevents", "liquidop", "map", "methods", "mine", "minion", "mirror", "mount", "move", "moveto", "navrules", "needs", "nodig", "npc", "path", "ping", "place", "players", "props", "quest", "recipes", "reel", "removeblock", "research", "roomcheck", "save", "scan", "select", "sell", "shoot", "shop", "shopdebug", "shops", "splitstack", "startevent", "state", "stop", "talk", "talkclose", "talkfocus", "talkoption", "tile", "tiledata", "trash", "travel", "travelstatus", "unhook", "use", "walkdiff", "walkmode", "walkto", "wall"
         };
 
         private static string Help() => Json.Ok(new
@@ -510,6 +550,7 @@ namespace DshTerrariaBridge
             {
                 "jump{ms,tiles,dir,moveMs}：只走原生输入层（Triggers.Jump），高度由按住时长和游戏物理决定；dir=left/right 时同帧带横向输入",
                 "hook/grapple{x,y,slot,ms}：抓钩，真人键位语义；unhook 脱钩",
+                "key{key,ms}：发送真实 Inventory/Escape 键；等 untilTick 后回读 state.playerInventory、talkNPC、npcShopIndex",
                 "humaninput{samples,ms}：观察模式采集口（控制标志+位置+按键），只读",
                 "keyevents{since,max,clear}：按键边沿事件（tick 级），示范采集算真实按住时长用；不含本模组自己下发的输入",
             },
@@ -760,6 +801,8 @@ namespace DshTerrariaBridge
                 data["mountUntil"] = BridgeSystem.MountUntil;
                 data["mountUntilLive"] = BridgeSystem.MountUntil > BridgeSystem.Now;
                 data["mountFired"] = BridgeSystem.MountFired;
+                data["inventoryUntil"] = BridgeSystem.InventoryUntil;
+                data["inventoryUntilLive"] = BridgeSystem.InventoryUntil > BridgeSystem.Now;
                 data["hasFocus"] = Main.hasFocus;
                 data["inputDiag"] = InputDiagnostics(pl);
                 data["guard"] = new

@@ -174,6 +174,62 @@ namespace DshAiMini
         }
 
         /// <summary>
+        /// 拉取「这个 key 在这个地址下能用哪些模型」。
+        ///
+        /// OpenAI 兼容的中转普遍提供 GET /models，回 {"data":[{"id":"..."}]}。
+        /// 地址可能是 https://host/v1/chat/completions，要砍成 https://host/v1/models，
+        /// 所以这里按同一条规则反推：取到 /v1 为止，再拼 /models。
+        /// 有的中转不实现这个端点（404/405），那就如实报错，别让面板以为"没有模型"。
+        /// </summary>
+        public static void ListModelsAsync(AiConfig cfg, Action<bool, string, List<string>> done)
+        {
+            string url = ModelsUrl(cfg.BaseUrlResolved);
+            AiHttp.Get(url, cfg.ApiKeyResolved, Math.Min(cfg.TimeoutMs, 20000),
+                (ok, status, text, error) =>
+                {
+                    if (!ok)
+                    {
+                        done(false, string.IsNullOrEmpty(error) ? ("HTTP " + status + " " + Trim(text)) : error, null);
+                        return;
+                    }
+                    var ids = new List<string>();
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(text);
+                        if (doc.RootElement.TryGetProperty("data", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var it in arr.EnumerateArray())
+                            {
+                                if (it.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
+                                {
+                                    string v = id.GetString();
+                                    if (!string.IsNullOrWhiteSpace(v) && !ids.Contains(v)) ids.Add(v);
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        done(false, "回包不是合法 JSON：" + ex.Message, null);
+                        return;
+                    }
+                    if (ids.Count == 0) { done(false, "这个地址没返回任何模型（回包：" + Trim(text) + "）", null); return; }
+                    ids.Sort(StringComparer.OrdinalIgnoreCase);
+                    done(true, "拿到 " + ids.Count + " 个模型", ids);
+                });
+        }
+
+        /// <summary>把 .../v1/chat/completions 或 .../v1 反推成 .../v1/models。</summary>
+        public static string ModelsUrl(string baseUrlResolved)
+        {
+            if (string.IsNullOrEmpty(baseUrlResolved)) return "";
+            string u = baseUrlResolved.TrimEnd('/');
+            const string suffix = "/chat/completions";
+            if (u.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) u = u.Substring(0, u.Length - suffix.Length);
+            return u.TrimEnd('/') + "/models";
+        }
+
+        /// <summary>
         /// 正常一轮对话：把历史带上，拿回复，把回复也记进历史。
         ///
         /// system 不是原样发出去的，而是临场拼成三段：
