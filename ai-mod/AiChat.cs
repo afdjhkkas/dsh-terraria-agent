@@ -102,11 +102,40 @@ namespace DshAiMini
                 });
         }
 
-        /// <summary>正常一轮对话：把历史带上，拿回复，把回复也记进历史。</summary>
+        /// <summary>
+        /// 正常一轮对话：把历史带上，拿回复，把回复也记进历史。
+        ///
+        /// system 不是原样发出去的，而是临场拼成三段：
+        ///   ① 固定人格与实测数值（SystemPrompt.Text）
+        ///   ② 知识库 —— KnowledgeMode="full" 时塞编进 dll 的全部 16 篇原文，
+        ///      否则只塞这一问命中的那几条（Knowledge.ForQuery）
+        ///   ③ 实时游戏状态（AiGameState.Describe，可关）
+        /// 这样同一个模型在不同处境下拿到的是不同的上下文，而不是一段万能长文。
+        /// </summary>
         public static void SendAsync(AiConfig cfg, string systemPrompt, string userText, Action<bool, string> done)
         {
+            var sb = new StringBuilder();
+            sb.Append(string.IsNullOrWhiteSpace(systemPrompt) ? SystemPrompt.Text : systemPrompt);
+
+            if (cfg.UseKnowledge)
+            {
+                bool full = string.Equals(cfg.KnowledgeMode, "full", System.StringComparison.OrdinalIgnoreCase);
+                string kb = full ? Knowledge.All() : Knowledge.ForQuery(userText);
+                if (!string.IsNullOrWhiteSpace(kb))
+                {
+                    sb.Append("\n\n").Append(full
+                        ? "## 知识库全文（内部资料，回答时优先采信；与你的记忆冲突时以此为准）\n"
+                        : "## 相关知识库\n").Append(kb);
+                }
+            }
+            if (cfg.IncludeGameState)
+            {
+                string st = AiGameState.Describe();
+                if (!string.IsNullOrWhiteSpace(st)) sb.Append("\n\n## 玩家当前状态（实时）\n").Append(st);
+            }
+
             var turns = new List<ChatTurn>();
-            if (!string.IsNullOrWhiteSpace(systemPrompt)) turns.Add(new ChatTurn("system", systemPrompt));
+            turns.Add(new ChatTurn("system", sb.ToString()));
             turns.AddRange(History);
             turns.Add(new ChatTurn("user", userText));
 

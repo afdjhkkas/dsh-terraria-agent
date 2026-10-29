@@ -25,6 +25,9 @@ namespace DshAiMini
         public bool Password;
         public Action OnChanged;
 
+        /// <summary>按回车时调用。设了它就代表这个框是"输入框 + 提交"，回车直接发出。</summary>
+        public Action OnSubmit;
+
         private bool _focused;
         private static readonly HashSet<Microsoft.Xna.Framework.Input.Keys> Prev = new();
 
@@ -75,7 +78,12 @@ namespace DshAiMini
                         if (room > 0) Text += clip.Length <= room ? clip : clip.Substring(0, room);
                     }
                 }
-                else if (k == Microsoft.Xna.Framework.Input.Keys.Enter || k == Microsoft.Xna.Framework.Input.Keys.Escape)
+                else if (k == Microsoft.Xna.Framework.Input.Keys.Enter)
+                {
+                    if (OnSubmit != null) OnSubmit();
+                    else _focused = false;
+                }
+                else if (k == Microsoft.Xna.Framework.Input.Keys.Escape)
                 {
                     _focused = false;
                 }
@@ -213,9 +221,15 @@ namespace DshAiMini
         private string _vendor;
         private int _modelIndex;
 
+        private string _page = "chat";   // chat | config
+
         private UIText _status;
         private UIPanel _body;           // 模式相关的那一块，切换时整体重建
         private AiInput _url, _model, _key;
+
+        private AiLog _log;              // 对话页的消息流
+        private AiInput _ask;            // 对话页的输入框
+        private bool _busy;              // 正在等回复（防重复发）
 
         public override void OnActivate()
         {
@@ -248,18 +262,23 @@ namespace DshAiMini
             bg.BorderColor = new Color(90, 110, 160);
             Append(bg);
 
-            var title = new UIText("DSH AI Mini — 模型配置", 1.02f, true);
+            var title = new UIText("DSH AI Mini", 1.02f, true);
             title.Left.Set(18, 0f); title.Top.Set(12, 0f);
             bg.Append(title);
 
-            // 第一排：官方 / 第三方
+            // 两个页面：对话 / 配置。默认停在对话页 —— 打开就想问东西，不是想改配置。
             float y = 52f;
+            MakeTab(bg, "对话", _page == "chat", 18, y, () => { _page = "chat"; Rebuild(); });
+            MakeTab(bg, "配置", _page == "config", 128, y, () => { _page = "config"; Rebuild(); });
+
+            if (_page == "chat") { BuildChat(bg); return; }
+
             var lab = new UIText("来源", 0.85f);
-            lab.Left.Set(18, 0f); lab.Top.Set(y + 7, 0f);
+            lab.Left.Set(240, 0f); lab.Top.Set(y + 7, 0f);
             bg.Append(lab);
 
-            MakeTab(bg, "官方", _mode == "official", 120, y, () => { _mode = "official"; Rebuild(); });
-            MakeTab(bg, "第三方", _mode == "thirdparty", 230, y, () => { _mode = "thirdparty"; Rebuild(); });
+            MakeTab(bg, "官方", _mode == "official", 300, y, () => { _mode = "official"; Rebuild(); });
+            MakeTab(bg, "第三方", _mode == "thirdparty", 410, y, () => { _mode = "thirdparty"; Rebuild(); });
 
             y += 46f;
 
@@ -313,6 +332,134 @@ namespace DshAiMini
             bg.Append(note);
         }
 
+        /// <summary>
+        /// 对话页。上面是消息流，下面一行输入框 + 发送。
+        ///
+        /// 行为对齐我在 DSH 里跟人对话的样子：问完立刻回显"你：xxx"，
+        /// 然后出现一行动作提示（用了哪个模型、是否带了知识库和实时状态），
+        /// 最后是回答。这样任何一步卡住都能看出卡在哪。
+        /// </summary>
+        private void BuildChat(UIElement bg)
+        {
+            float y = 96f;
+
+            // 消息区
+            var box = new UIPanel();
+            box.Width.Set(724, 0f);
+            box.Height.Set(300, 0f);
+            box.Left.Set(18, 0f); box.Top.Set(y, 0f);
+            box.BackgroundColor = new Color(14, 17, 26) * 0.9f;
+            box.BorderColor = new Color(60, 70, 100);
+            bg.Append(box);
+
+            _log = new AiLog();
+            _log.Width.Set(708, 0f);
+            _log.Height.Set(292, 0f);
+            _log.Left.Set(8, 0f); _log.Top.Set(4, 0f);
+            _log.LineHeight = 19f;
+            _log.Visible = 15;
+            box.Append(_log);
+
+            // 之前聊过的恢复出来
+            for (int i = 0; i < ChatStore.Turns.Count; i++)
+            {
+                var t = ChatStore.Turns[i];
+                _log.Add(t.Role == "user" ? AiLog.Kind.User : AiLog.Kind.Answer, t.Text);
+            }
+            if (ChatStore.Turns.Count == 0)
+            {
+                _log.Add(AiLog.Kind.Think, "问点什么试试。例如：我现在该干什么 / 怎么挖矿 / 这个 boss 打得过吗");
+            }
+            _log.Wrap();
+
+            y += 310f;
+
+            // 输入框 + 发送
+            _ask = new AiInput("输入问题，回车发送");
+            _ask.MaxLength = 500;
+            _ask.Width.Set(600, 0f);
+            _ask.Left.Set(18, 0f); _ask.Top.Set(y, 0f);
+            _ask.OnSubmit = Send;
+            bg.Append(_ask);
+            _inputs.Add(_ask);
+
+            MakeButton(bg, "发送", 628, y + 3, 114, new Color(50, 90, 60), Send);
+
+            y += 42f;
+
+            _status = new UIText("", 0.8f);
+            _status.Left.Set(18, 0f); _status.Top.Set(y, 0f);
+            _status.TextColor = new Color(160, 200, 255);
+            bg.Append(_status);
+
+            y += 26f;
+
+            MakeButton(bg, "清空历史", 18, y, 110, new Color(70, 60, 50), () =>
+            {
+                ChatStore.Clear();
+                _log.Clear();
+                _log.Add(AiLog.Kind.Think, "历史已清空。");
+                Say("已清空", new Color(255, 220, 160));
+            });
+            MakeButton(bg, "关闭 (F7)", 140, y, 110, new Color(90, 50, 50), () => AiSystem.TogglePanel(false));
+
+            var note = new UIText(
+                "知识库已编进 mod（16 篇）。当前模式：" + (ChatStore.KnowledgeModeText()),
+                0.75f);
+            note.Left.Set(264, 0f); note.Top.Set(y + 4, 0f);
+            note.TextColor = new Color(140, 148, 165);
+            bg.Append(note);
+        }
+
+        /// <summary>
+        /// 发一轮对话。这里不 await，全部走 AiHttp 的回调，
+        /// 因为游戏主线程不能等网络 —— 等的时候画面还得照常跑。
+        /// </summary>
+        private void Send()
+        {
+            if (_busy) { Say("上一句还在等回复…", new Color(255, 200, 150)); return; }
+            if (_log == null || _ask == null) return;
+
+            string q = (_ask.Text ?? "").Trim();
+            if (q.Length == 0) { Say("先说一句想问的", new Color(255, 200, 150)); return; }
+
+            var cfg = AiConfig.Load();
+            if (string.IsNullOrWhiteSpace(cfg.BaseUrl)) { Say("先去配置页填接口地址", new Color(255, 170, 150)); return; }
+            if (string.IsNullOrWhiteSpace(cfg.ApiKey)) { Say("先去配置页填 API 密钥", new Color(255, 170, 150)); return; }
+
+            _ask.Text = "";
+            _busy = true;
+
+            _log.Add(AiLog.Kind.User, q);
+            _log.Wrap();
+            ChatStore.Append("user", q);
+
+            bool full = string.Equals(cfg.KnowledgeMode, "full", System.StringComparison.OrdinalIgnoreCase);
+            string trace = "思考… " + cfg.Model
+                         + (cfg.UseKnowledge ? (full ? " · 知识库全文" : " · 知识库按题命中") : " · 无知识库")
+                         + (cfg.IncludeGameState ? " · 带实时状态" : "");
+            _log.Add(AiLog.Kind.Think, trace);
+            _log.Wrap();
+            Say("已发出，等回复…", new Color(180, 220, 255));
+
+            AiChat.SendAsync(cfg, null, q, (ok, msg) =>
+            {
+                _busy = false;
+                if (ok)
+                {
+                    _log.Add(AiLog.Kind.Answer, msg);
+                    ChatStore.Append("assistant", msg);
+                    Say("回复完成（" + msg.Length + " 字）", new Color(150, 255, 170));
+                }
+                else
+                {
+                    _log.Add(AiLog.Kind.Error, msg);
+                    Say("失败：" + msg, new Color(255, 150, 150));
+                }
+                _log.Wrap();
+            });
+        }
+
         private void BuildOfficial()
         {
             var p0 = new UIText("厂商", 0.82f);
@@ -346,8 +493,13 @@ namespace DshAiMini
                     my += 34f;
                 }
 
+                // 地址行必须落在"两列里更长的那个"下面，否则会压在厂商按钮上。
+                // 厂商 4 个按钮占 34..170，模型可能只有 2 个占 34..102，
+                // 早先按模型那列算 my+8=110，正好盖住第三个厂商按钮。
+                float vendorBottom = 34f + Providers.Official.Length * 34f;
+                float addrTop = Math.Max(vendorBottom, my) + 10f;
                 var addr = new UIText("地址：" + cur.BaseUrl, 0.72f);
-                addr.Left.Set(12, 0f); addr.Top.Set(my + 8, 0f);
+                addr.Left.Set(12, 0f); addr.Top.Set(addrTop, 0f);
                 addr.TextColor = new Color(140, 150, 170);
                 _body.Append(addr);
             }

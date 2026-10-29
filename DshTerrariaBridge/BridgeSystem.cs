@@ -543,112 +543,20 @@ namespace DshTerrariaBridge
         ///   命中之后：把鼠标钉在按钮上，走一次「释放 → 按下」的真实左键边沿。
         /// 只写鼠标输入，不碰任何游戏状态（§0.55）。
         /// </summary>
-        private static void StepTalkOption()
-        {
-            if (TalkOptPhase == 0) return;
-            Player pl = Main.LocalPlayer;
-            if (pl == null || pl.talkNPC < 0)
-            {
-                TalkOptPhase = 5;
-                TalkOptMsg = "对话已经结束，没法点按钮";
-                return;
-            }
-
-            bool hit = false;
-            if (TalkOptIndex == 1) hit = Main.npcChatFocus1;
-            else if (TalkOptIndex == 2) hit = Main.npcChatFocus2;
-            else if (TalkOptIndex == 3) hit = Main.npcChatFocus3;
-            else hit = Main.npcChatFocus4;
-
-            if (TalkOptPhase == 1)
-            {
-                // 原版在 itemAnimation>0 时会把鼠标界面整体屏蔽；保持当前探针点不前进，
-                // 等动作结束后再让 Player Chat 计算 npcChatFocus，避免把整块按钮扫漏。
-                if (PlayerInput.IgnoreMouseInterface)
-                {
-                    Main.mouseX = TalkOptX;
-                    Main.mouseY = TalkOptY;
-                    TalkOptMsg = "等待原版允许鼠标界面后继续扫描";
-                    return;
-                }
-                if (hit && TalkOptHitX < 0)
-                {
-                    TalkOptHitX = TalkOptX;
-                    TalkOptHitY = TalkOptY;
-                    TalkOptPhase = 2;
-                    TalkOptMsg = $"找到按钮 {TalkOptIndex} 在 ({TalkOptHitX},{TalkOptHitY})";
-                    return;
-                }
-
-                int w = Main.screenWidth, h = Main.screenHeight;
-                int x0 = 100, x1 = Math.Max(x0 + 10, w - 100);
-                // 对话按钮画在**台词的下方**，不是屏幕底部。
-                // 实测（爆破专家，screen 1673×1046）：台词在 y≈119，按钮行在 y≈160，
-                // 「商店 / 关闭 / 幸福度」三个按钮横排在中央偏左。
-                // 所以扫上半屏（80 .. h/2）就够。按钮宽度来自本地化文本测量，
-                // 不能用 40px 的大步长，否则短文本或缩放后的按钮会被跨过去。
-                // 8px 步长仍然只写鼠标输入，代价是扫描时间变长；命中后立即停止。
-                int y0 = 80, y1 = Math.Max(y0 + 10, h / 2);
-                const int step = 8;
-                TalkOptX += step;
-                if (TalkOptX > x1) { TalkOptX = x0; TalkOptY += step; }
-                if (TalkOptY > y1)
-                {
-                    TalkOptPhase = 5;
-                    TalkOptMsg = $"扫完 {TalkOptScanned} 个点都没有按钮 {TalkOptIndex}";
-                    return;
-                }
-                Main.mouseX = TalkOptX;
-                Main.mouseY = TalkOptY;
-                TalkOptScanned++;
-                return;
-            }
-
-            // 命中之后：鼠标钉在按钮上，走一次真实的左键边沿。
-            Main.mouseX = TalkOptHitX;
-            Main.mouseY = TalkOptHitY;
-            if (TalkOptPhase == 2)
-            {
-                // 先给原版一个完整的释放帧。下一帧再同时给 down + release，
-                // 才能满足 GUIChatDrawInner 的 click 条件。
-                Main.mouseLeft = false;
-                Main.mouseLeftRelease = true;
-                TalkOptPhase = 3;
-                return;
-            }
-            if (TalkOptPhase == 3)
-            {
-                // 原版 GUIChatDrawInner 要求 mouseLeft && mouseLeftRelease 同时为真。
-                // mouseLeftRelease=false 只表示“按住”，不会触发对话按钮。
-                Main.mouseLeft = true;
-                Main.mouseLeftRelease = true;
-                TalkOptPhase = 4;
-                TalkOptMsg = $"已发送原版左键输入到按钮 {TalkOptIndex} @ ({TalkOptHitX},{TalkOptHitY})；请回读对话/商店状态确认效果";
-                return;
-            }
-            if (TalkOptPhase == 4)
-            {
-                // 点击已经交给原版处理；下一帧主动释放，并停止拦截正常鼠标输入。
-                Main.mouseLeft = false;
-                Main.mouseLeftRelease = true;
-                TalkOptPhase = 6;
-            }
-        }
-
         private static bool ApplyTalkInputBeforeMouseOver()
         {
-            // talkfocus {x,y} 的单帧探针：写一次鼠标位置，让原版这一帧重算 npcChatFocus1..4。
+            // talkfocus {x,y} 的单帧探针由 GUIChatDrawInner 钩子消费。
+            // 这里不能提前写 Main.mouseX/Y：Vanilla: Player Chat 随后会重新 SetZoom_UI。
             if (ProbeMouseX >= 0 && ProbeMouseY >= 0)
             {
-                Main.mouseX = ProbeMouseX;
-                Main.mouseY = ProbeMouseY;
-                ProbeMouseX = -1;
-                ProbeMouseY = -1;
                 return true;
             }
 
-            // talkoption 与 talk 互斥：它自己管鼠标，别让 talk 的右键帧把它顶掉。
-            if (TalkOptPhase > 0 && TalkOptPhase < 5) { StepTalkOption(); return true; }
+            // talkoption is driven by the GUIChatDrawInner detour below.  The
+            // interface layer is intentionally a no-op for it: writing here is too
+            // early because Vanilla: Player Chat calls SetZoom_UI again before it
+            // reads Main.mouseX/Y.
+            if (TalkOptPhase > 0 && TalkOptPhase < 5) return true;
             if (TalkTargetNpc < 0) return true;
             ulong now = Main.GameUpdateCount;
             if (TalkUntil <= now) return true;
@@ -681,15 +589,14 @@ namespace DshTerrariaBridge
         public override void ModifyInterfaceLayers(List<GameInterfaceLayer> layers)
         {
             if (Main.dedServ) return;
-            // 插在**对话按钮那一层之前**，不能插在 "Vanilla: Mouse Over" 之前。
+            // 插入一个界面层占位，不能把 talkoption 的鼠标写入放在这里：
+            // Vanilla: Player Chat 自己会再次 SetZoom_UI，真正的写入由
+            // GUIChatDrawInner detour 完成。
             // 原版 DrawInterface 的层序是
             //   ... Vanilla: Chat -> Vanilla: Player Chat（对话按钮，读 Main.mouseX 判悬停）
             //       -> Vanilla: Mouse Text -> Vanilla: Mouse Over -> ...
-            // 之前在 Mouse Over 之前插入，等于排在 Player Chat **之后**：这一帧按钮已经用
-            // 系统鼠标画完了，我们再把 Main.mouseX 挪到目标按钮上，要等到下一帧才被读到，
-            // 而下一帧 Main.Update 又把它还原成系统鼠标 —— 于是 npcChatFocus1..4 永远是 false，
-            // talkoption 扫 455 个点一个都命中不了。
-            // 正确位置：Player Chat 之前；找不到就退到 "Vanilla: Chat" 之前；再找不到就最前面。
+            // 保留在 Player Chat 之前只是为了让桥的 talk 右键输入不被后续层覆盖；
+            // talkoption / talkfocus 不依赖这个层的坐标时序。
             int idx = layers.FindIndex(layer => layer.Name == "Vanilla: Player Chat");
             if (idx < 0) idx = layers.FindIndex(layer => layer.Name == "Vanilla: Chat");
             if (idx < 0) idx = 0;
@@ -932,6 +839,7 @@ namespace DshTerrariaBridge
         public override void PostUpdateEverything()
         {
             InstallChatHook();
+            InstallTalkOptionHook();
             TickTravel();
             DrainPending();
             ApplyTalkInputAfterZoom();
@@ -961,6 +869,15 @@ namespace DshTerrariaBridge
         internal static bool ChatHookInstalled;
         internal static string ChatHookError = "";
         private static bool ChatHookTried;
+
+        // talkoption must write the mouse after GameInterfaceLayer.Draw has selected
+        // the UI zoom and immediately before GUIChatDrawInner reads it.  A separate
+        // interface layer runs too early: the subsequent Vanilla: Player Chat layer
+        // calls SetZoom_UI again and restores the OS mouse coordinates.
+        private static bool TalkOptionHookTried;
+        internal static bool TalkOptionHookInstalled;
+        internal static string TalkOptionHookError = "";
+        internal static ulong TalkOptionHookCalls;
 
         internal static void InstallChatHook()
         {
@@ -1047,6 +964,142 @@ namespace DshTerrariaBridge
                 ChatHookInstalled = true;
             }
             catch (Exception ex) { ChatHookError = ex.GetType().Name + ": " + ex.Message; }
+        }
+
+        internal static void InstallTalkOptionHook()
+        {
+            if (TalkOptionHookTried) return;
+            TalkOptionHookTried = true;
+            try
+            {
+                var mi = typeof(Main).GetMethod("GUIChatDrawInner",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (mi == null) { TalkOptionHookError = "找不到 Main.GUIChatDrawInner"; return; }
+
+                // For an instance parameterless method MonoModHooks supplies the
+                // original delegate first, followed by the target instance.
+                Terraria.ModLoader.MonoModHooks.Add(mi, (Action<Action, Main>)((orig, self) =>
+                {
+                    TalkOptionHookCalls++;
+                    PrepareTalkOptionInput();
+                    orig();
+                    FinishTalkOptionInput();
+                }));
+                TalkOptionHookInstalled = true;
+            }
+            catch (Exception ex) { TalkOptionHookError = ex.GetType().Name + ": " + ex.Message; }
+        }
+
+        private static bool TalkOptionFocusHit()
+        {
+            return TalkOptIndex == 1 ? Main.npcChatFocus1
+                : TalkOptIndex == 2 ? Main.npcChatFocus2
+                : TalkOptIndex == 3 ? Main.npcChatFocus3
+                : TalkOptIndex == 4 && Main.npcChatFocus4;
+        }
+
+        private static void PrepareTalkOptionInput()
+        {
+            // talkfocus is a one-shot probe.  It is handled at the same point as
+            // talkoption so Vanilla: Player Chat cannot overwrite the coordinate.
+            if (ProbeMouseX >= 0 && ProbeMouseY >= 0)
+            {
+                Main.mouseX = ProbeMouseX;
+                Main.mouseY = ProbeMouseY;
+                ProbeMouseX = -1;
+                ProbeMouseY = -1;
+            }
+
+            if (TalkOptPhase == 0) return;
+            Player pl = Main.LocalPlayer;
+            if (pl == null || pl.talkNPC < 0)
+            {
+                TalkOptPhase = 5;
+                TalkOptMsg = "对话已经结束，没法点按钮";
+                return;
+            }
+
+            if (TalkOptPhase == 1)
+            {
+                Main.mouseX = TalkOptX;
+                Main.mouseY = TalkOptY;
+                Main.mouseLeft = false;
+                Main.mouseLeftRelease = true;
+                return;
+            }
+
+            // Keep the hit point and feed the same release/press edge that a real
+            // mouse click produces.  GUIChatDrawInner will recompute focus from this
+            // point and then run its normal button callback.
+            Main.mouseX = TalkOptHitX;
+            Main.mouseY = TalkOptHitY;
+            if (TalkOptPhase == 2)
+            {
+                Main.mouseLeft = false;
+                Main.mouseLeftRelease = true;
+            }
+            else if (TalkOptPhase == 3)
+            {
+                Main.mouseLeft = true;
+                Main.mouseLeftRelease = true;
+            }
+            else if (TalkOptPhase == 4)
+            {
+                Main.mouseLeft = false;
+                Main.mouseLeftRelease = true;
+            }
+        }
+
+        private static void FinishTalkOptionInput()
+        {
+            if (TalkOptPhase == 0) return;
+            if (PlayerInput.IgnoreMouseInterface)
+            {
+                TalkOptMsg = "等待原版允许鼠标界面后继续扫描/点击";
+                return;
+            }
+
+            if (TalkOptPhase == 1)
+            {
+                if (TalkOptionFocusHit())
+                {
+                    TalkOptHitX = TalkOptX;
+                    TalkOptHitY = TalkOptY;
+                    TalkOptPhase = 2;
+                    TalkOptMsg = $"找到按钮 {TalkOptIndex} 在 ({TalkOptHitX},{TalkOptHitY})";
+                    return;
+                }
+
+                TalkOptScanned++;
+                int w = Main.screenWidth, h = Main.screenHeight;
+                int x0 = 100, x1 = Math.Max(x0 + 10, w - 100);
+                int y0 = 80, y1 = Math.Max(y0 + 10, h / 2);
+                const int step = 8;
+                TalkOptX += step;
+                if (TalkOptX > x1) { TalkOptX = x0; TalkOptY += step; }
+                if (TalkOptY > y1)
+                {
+                    TalkOptPhase = 5;
+                    TalkOptMsg = $"扫完 {TalkOptScanned} 个点都没有按钮 {TalkOptIndex}";
+                }
+                return;
+            }
+
+            if (TalkOptPhase == 2)
+            {
+                TalkOptPhase = 3;
+                return;
+            }
+            if (TalkOptPhase == 3)
+            {
+                TalkOptPhase = 4;
+                TalkOptMsg = $"已发送原版左键输入到按钮 {TalkOptIndex} @ ({TalkOptHitX},{TalkOptHitY})；请回读对话/商店状态确认效果";
+                return;
+            }
+            if (TalkOptPhase == 4)
+            {
+                TalkOptPhase = 6;
+            }
         }
 
         internal static object ChatPoll(int since, int max)

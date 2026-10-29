@@ -1781,9 +1781,10 @@ namespace DshTerrariaBridge
         /// <summary>
         /// 点 NPC 对话框里的按钮（护士治疗、渔夫交任务那一类）。
         ///
-        /// 原版把按钮画在屏幕底部，悬停判定靠鼠标位置写进 Main.npcChatFocus1..4，而按钮文案
-        /// 桥读不到、矩形也没暴露出来。所以这里的做法是：让 BridgeSystem 的跨帧状态机把
-        /// 鼠标一帧挪一个点扫过整块区域，看哪个点让目标焦点位变真，再在那个点上发一次真实左键。
+        /// 原版把按钮画在聊天框下方，悬停判定靠 GUIChatDrawInner 内部的鼠标位置写进
+        /// Main.npcChatFocus1..4。坐标必须在 GUIChatDrawInner 调用前写入；跨层写入会被
+        /// Vanilla: Player Chat 的 SetZoom_UI 覆盖。所以这里启动一个由原版聊天绘制钩子驱动的
+        /// 跨帧状态机：每帧只探一个点，命中后再发一次真实左键。
         ///
         /// 命令本身是**异步**的：调用后立刻返回扫描状态，用 `talkoption`（不传 index）或
         /// `talkoption {stop:true}` 轮询/中止。
@@ -1815,12 +1816,13 @@ namespace DshTerrariaBridge
             BridgeSystem.TalkOptScanned = 0;
             BridgeSystem.TalkOptHitX = -1;
             BridgeSystem.TalkOptHitY = -1;
-            // 与 BridgeSystem.StepTalkOption 的扫描带保持一致：按钮在台词下方（上半屏），不在屏幕底部。
+            // 与 BridgeSystem 的 GUIChatDrawInner 扫描带保持一致：按钮在台词下方（上半屏），
+            // 不在屏幕底部。
             int yStart = 80;
             BridgeSystem.TalkOptX = 100;
             BridgeSystem.TalkOptY = yStart;
             BridgeSystem.TalkOptStart = Main.GameUpdateCount;
-            BridgeSystem.TalkOptMsg = $"开始扫描按钮 {index}：使用 UI 坐标逐点扫描（每帧一个 8px 网格点）";
+            BridgeSystem.TalkOptMsg = $"开始扫描按钮 {index}：在 GUIChatDrawInner 前逐点扫描（每帧一个 8px 网格点）";
             return Json.Ok(TalkOptionStatus());
         }
 
@@ -1834,8 +1836,7 @@ namespace DshTerrariaBridge
         /// 用法：
         ///   talkfocus                 → 只读：屏幕、鼠标、四个焦点位、对话状态
         ///   talkfocus {x,y}           → 把鼠标写到位一帧，返回"下一帧再读"
-        /// 写鼠标走的是 BridgeSystem 那条既有通路（ApplyTalkInputBeforeMouseOver），
-        /// 只写输入，不碰游戏状态。
+        /// 写鼠标由 GUIChatDrawInner detour 在原版读取前完成，只写输入，不碰游戏状态。
         /// </summary>
         private static string TalkFocus(JsonElement p)
         {
@@ -1905,6 +1906,9 @@ namespace DshTerrariaBridge
                 talkNPC = pl != null ? pl.talkNPC : -1,
                 chatText = Main.npcChatText ?? "",
                 npcShop = Main.npcShop,
+                hookInstalled = BridgeSystem.TalkOptionHookInstalled,
+                hookError = BridgeSystem.TalkOptionHookError.Length > 0 ? BridgeSystem.TalkOptionHookError : null,
+                hookCalls = BridgeSystem.TalkOptionHookCalls,
                 msg = BridgeSystem.TalkOptMsg,
             };
         }

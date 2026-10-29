@@ -67,10 +67,10 @@ namespace DshAiMini
             Say(_lastLine, 200, 255, 200);
         }
 
-        private static void OnResult((bool ok, int status, string text, string error, long elapsedMs) r)
+        private static void OnResult((bool ok, int status, string text, string error, long elapsedMs, long frames) r)
         {
             _waiting = false;
-            long frames = Main.GameUpdateCount - _postedTick;
+            long frames = r.frames;
             if (r.ok)
             {
                 string t = r.text ?? "";

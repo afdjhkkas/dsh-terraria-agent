@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.Http;
 using System.Text;
+using Terraria;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -46,6 +47,9 @@ namespace DshAiMini
             public string Text;
             public string Error;
             public long ElapsedMs;
+            // 投递那一刻的帧号。帧数只能在主线程算（GameUpdateCount 是主线程的），
+            // 所以这里只带回起点，由 TryTake 的调用方去减。
+            public long StartedTick;
             public Action<bool, int, string, string> Callback;
         }
 
@@ -58,13 +62,14 @@ namespace DshAiMini
                                 Action<bool, int, string, string> callback = null)
         {
             if (string.IsNullOrWhiteSpace(url)) return;
-            Pending.Enqueue(new Job { Url = url.Trim(), Body = body, ApiKey = apiKey,
+            Pending.Enqueue(new Job {
+                StartedTick = Main.GameUpdateCount, Url = url.Trim(), Body = body, ApiKey = apiKey,
                                       TimeoutMs = timeoutMs, Callback = callback });
             PumpIfIdle();
         }
 
         /// <summary>主线程调用。取回已完成的结果；没有就返回 null。</summary>
-        public static (bool ok, int status, string text, string error, long elapsedMs)? TryTake()
+        public static (bool ok, int status, string text, string error, long elapsedMs, long frames)? TryTake()
         {
             // 顺手再启一个 worker：上一个处理完、队列里又攒了新的，这里把它接上。
             PumpIfIdle();
@@ -72,7 +77,12 @@ namespace DshAiMini
             {
                 // 回调永远在主线程执行（TryTake 只在 PostUpdateEverything 里调）
                 r.Callback?.Invoke(r.Ok, r.Status, r.Text, r.Error);
-                return (r.Ok, r.Status, r.Text, r.Error, r.ElapsedMs);
+                // 帧数在这里算：这是主线程，GameUpdateCount 才有意义。
+                // 之前由调用方各自记起点，面板那条路没记过，于是减到了 -1，
+                // 屏幕上出现过「552ms / 84107 帧」这种一眼假的数字。
+                long frames = Main.GameUpdateCount - r.StartedTick;
+                if (frames < 0) frames = 0;
+                return (r.Ok, r.Status, r.Text, r.Error, r.ElapsedMs, frames);
             }
             return null;
         }
@@ -118,6 +128,7 @@ namespace DshAiMini
                     }
                     sw.Stop();
                     res.ElapsedMs = sw.ElapsedMilliseconds;
+                    res.StartedTick = job.StartedTick;
                     res.Callback = job.Callback;
                     Done.Enqueue(res);
                 }

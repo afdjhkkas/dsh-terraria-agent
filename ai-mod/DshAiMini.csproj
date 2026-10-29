@@ -9,4 +9,14 @@
     <Nullable>disable</Nullable>
     <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
   </PropertyGroup>
+
+  <!--
+    知识库直接编进 dll：单 mod 版本要能"下载就能用"，
+    不能依赖仓库里有没有 docs/kb/ 这个目录。
+    kb/*.md 是从 docs/kb/ 复制来的（排除了 _generated-ids.md —— 那是 60 万字节的
+    数字 ID 表，模型用不上，塞进去只会把上下文吃光）。
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="kb\*.md" />
+  </ItemGroup>
 </Project>

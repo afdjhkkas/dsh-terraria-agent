@@ -46,6 +46,14 @@ namespace DshAiMini
         /// <summary>是否加载知识库（docs/kb 下的要点会拼进 system prompt）。</summary>
         public bool UseKnowledge { get; set; } = true;
 
+        /// <summary>
+        /// 知识库注入方式：
+        ///   "match" = 只塞这一问命中的那几条（省 token，默认）
+        ///   "full"  = 把编进 dll 的全部 16 篇原文塞进去（约 20 万字符，最能干也最贵）
+        /// 想验证它是不是真读过知识库，就切 full 问一次"为什么水里放不上方块"。
+        /// </summary>
+        public string KnowledgeMode { get; set; } = "match";
+
         [JsonIgnore]
         public bool HasKey => !string.IsNullOrWhiteSpace(ApiKey);
 

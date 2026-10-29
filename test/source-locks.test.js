@@ -120,6 +120,20 @@ test('talkoption：输入层必须和 Vanilla Player Chat 使用同一套 UI 坐
     '按钮宽度由本地化文本决定，扫描步长不能再用 40px 跳过短按钮')
 })
 
+test('talkoption：坐标必须在 GUIChatDrawInner 原版读取前注入', async () => {
+  const src = await read(BRIDGE)
+  assert.match(src, /InstallTalkOptionHook\s*\(/,
+    '必须安装 talkoption 的 GUIChatDrawInner 钩子')
+  assert.match(src, /GetMethod\("GUIChatDrawInner"/,
+    '必须挂到原版聊天绘制入口，而不是只依赖独立界面层')
+  assert.match(src, /Action<Action, Main>/,
+    '实例方法 detour 必须保留 orig 与 Main 实例参数')
+  assert.match(src, /PrepareTalkOptionInput\s*\(\);[\s\S]{0,120}orig\(\);[\s\S]{0,120}FinishTalkOptionInput\s*\(\);/,
+    '必须按“写输入 → 原版处理 → 读焦点/推进状态”顺序执行')
+  assert.match(src, /if\s*\(TalkOptPhase\s*>\s*0\s*&&\s*TalkOptPhase\s*<\s*5\)\s*return true;/,
+    '独立界面层不得再提前执行旧扫描逻辑')
+})
+
 test('爬绳：climb 必须先判定脚底是不是绳，没绳就直接拒', async () => {
   const src = await read(CMDS)
   const fn = src.match(/private static string Climb\s*\(JsonElement p\)\s*\{([\s\S]*?)\n\s{8}\}/)
