@@ -313,3 +313,80 @@ Host & Play 下掉落物由服务端生成再同步，可能只是延迟；但�
    `scan` 看头顶、`gravity.standing` 看站在第几行。
 7. **扫描生成的清单要反向验证**：不只问"代码里的每个 case 都在清单里吗"，还要问
    "清单里的每个名字都能调通吗"。后者才是用户视角，前者一直是对的，所以一直没被发现。
+
+## 17:38 版复测（`Mods/DshTerrariaBridge.tmod` 203938 字节，17:38:30）：三个新缺陷 + 修复验证
+
+这一版带着 3 处修复重新打包（`shopdebug` 异常、`trash` 默认整栈、`travel` 出生点保护只挡向下）。
+
+### 缺陷 14：`shopdebug` 以未捕获异常收场
+
+```
+> shopdebug
+Error: Index was outside the bounds of the array.
+```
+
+**根因**：`ShopDebug` 里 `Main.SetNPCShopIndex(npc.type)` 传的是 **NPC 类型**（38/228/369 这种），
+而该 API 要的是**商店 id**；`Main.instance.shop` 只有两个槽，38 一索引就越界。
+命令外面没有 try/catch，异常直接泄成一句英文。
+
+**修法**：先用 `ResolveVanillaShopIndex(npc, out shopName)` 解析出真正的 shopId，
+解析不到就明确报错；`Main.instance.shop` 空时提前返回；`shop[i]?.SetupShop(...)` 加空值保护；
+返回值补 `shopId` / `shopName`。
+
+**验证（真机）**：
+
+```json
+{"npc":"巫医Abibe","npcType":228,"shopId":16,"shopName":"Terraria/WitchDoctor/巫医Abibe","hands":2,
+ "report":[{"how":"初始","npcShop":0,"counts":[0,0]},
+           {"how":"SetNPCShopIndex(shopId=16)","npcShop":16,"counts":[0,0]},
+           {"how":"SetNPCShopIndex(1)","npcShop":1,"counts":[0,0]},
+           {"how":"shop[0].SetupShop(1)","npcShop":1,"counts":[21,0]},
+           {"how":"shop[1].SetupShop(1)","npcShop":1,"counts":[21,21]},
+           {"how":"shop[0].SetupShop(shopId=16)","npcShop":1,"counts":[18,21]}]}
+```
+
+顺带回答了"为什么之前商店读不出东西"：`SetupShop(1)` 能填出 21 件，`SetupShop(16)`（巫医自己的店）
+是 18 件 —— 两套商品数量不同，说明 shopId 走对了。
+
+### 缺陷 15：`trash` 不带 `count` 就把整栈吃掉
+
+```
+> trash {"slot":14}          // 2081 个火把
+{"trashed":"火把","type":8,"count":2081,"slot":14,"left":0,"gone":true}
+```
+
+`count` 的默认值是 `it.stack`。垃圾桶语义本身没错，但"整栈销毁"不该是**默认**行为。
+
+**修法**：默认改 `1`，整栈要显式传 `count:该槽总数`。**验证**：`trash {"slot":14}` →
+`{"trashed":"南瓜","count":1,"left":22,"gone":true}` —— 只掉 1 个，剩 22 个还在。
+
+### 缺陷 16：`travel` 的出生点保护只挡"向下"，水平方向照样挖
+
+`travel` 不带参数时默认 `dir:"right"`、`distance:100`、`dig:true`，于是"调一下看看"等于
+"向右挖 100 格"。而保护代码写的是 `if (dig && dir == "down")`：
+
+```
+> travel
+{"active":true,"dir":"right","targetX":4334,"x":4234,"y":484, ...}
+> travelstatus
+{"active":false,"dir":"right","targetX":4334,"x":4340,"y":495,"mine":10,"swings":12,"steps":80,"stopReason":"reached"}
+```
+
+**在出生点 (4198,485) 旁边一路挖了 10 格、挥了 12 下、走了 106 格**才停 —— 正是用户被纠正过两次的
+"从出生点周围挖"。
+
+**修法**：保护改成"**起点或终点**任一落在出生点 100 格内就拒绝 `dig`"，不再按方向区分；
+提示语里给两条出路（`dig:false` 走路 / 先走到圈外再开路）。**验证**：
+
+```
+> travel
+Error: 拒绝在出生点 4198,485 附近 100 格内挖（起点 4198,484，终点 4298,484，dir=right）；只走路请传 dig:false，要开路请先走到保护圈外
+> travel {"dir":"right","distance":20,"dig":false}
+{"active":true,"dir":"right","targetX":4218,"x":4198,"y":484,"mine":0, ...}     // 走路放行
+```
+
+### 教程第 8 条
+
+8. **"默认值"比"实现"更容易出事**。`trash` 的实现对、`travel` 的实现也对，
+   但一个把"整栈"当默认、一个把"开挖"当默认，两次都是**没传参数**的那一次造成的实际损失。
+   凡是会毁东西的参数，默认值必须是"最小的那一个"；凡是有保护圈的逻辑，保护要按**位置**判，不按**方向**判。

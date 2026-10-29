@@ -1448,7 +1448,9 @@ namespace DshTerrariaBridge
             if (slot < 0 || slot >= pl.inventory.Length) return Json.Error("slot 越界");
             Item it = pl.inventory[slot];
             if (it == null || it.type <= 0) return Json.Error("这个格子是空的");
-            int n = Math.Clamp(Json.Int(p, "count", it.stack), 1, it.stack);
+            // 默认只销毁 1 个：实测不带 count 调一次就把 2081 个火把整栈吃掉了。
+            // 垃圾桶语义不变，但"整栈销毁"必须显式决定（count:该槽总数）。
+            int n = Math.Clamp(Json.Int(p, "count", 1), 1, it.stack);
             string oldTrash = (pl.trashItem != null && pl.trashItem.type > 0) ? pl.trashItem.Name : null;
 
             // 与 UI 拖入垃圾桶等价：垃圾桶里原有物品被销毁，被拖的物品离开背包。
@@ -1858,7 +1860,13 @@ namespace DshTerrariaBridge
             Player pl = P;
             NPC npc = NearbyTownNPC(pl, Json.Int(p, "npc", -1), out float d);
             if (npc == null) return Json.Error("附近没有城市 NPC");
-            int hands = Main.instance.shop.Length;
+            // SetNPCShopIndex 收的是「商店 id」，不是 NPC 类型。以前直接传 npc.type（38/369 这种），
+            // 一调就越界抛 IndexOutOfRange，整条命令以未捕获异常收场。先解析出真正的 shopId。
+            int shopId = ResolveVanillaShopIndex(npc, out string shopName);
+            if (shopId < 0)
+                return Json.Error($"找不到 {npc.FullName} 对应的商店 id（name={shopName}）；先用 shops 查合法 id");
+            int hands = Main.instance.shop?.Length ?? 0;
+            if (hands == 0) return Json.Error("商店表还没初始化：先进游戏和任意 NPC 对话一次再调 shopdebug");
             var report = new List<object>();
             int Count(Chest c)
             {
@@ -1875,15 +1883,15 @@ namespace DshTerrariaBridge
             }
 
             Snap("初始");
-            Main.SetNPCShopIndex(npc.type); Snap("SetNPCShopIndex(npc.type)");
+            Main.SetNPCShopIndex(shopId); Snap("SetNPCShopIndex(shopId=" + shopId + ")");
             Main.SetNPCShopIndex(1); Snap("SetNPCShopIndex(1)");
             for (int i = 0; i < hands; i++)
             {
-                Main.instance.shop[i].SetupShop(1);
+                Main.instance.shop[i]?.SetupShop(1);
                 Snap("shop[" + i + "].SetupShop(1)");
             }
-            Main.instance.shop[0].SetupShop(npc.type); Snap("shop[0].SetupShop(npc.type)");
-            return Json.Ok(new { npc = npc.FullName, npcType = npc.type, hands, report });
+            Main.instance.shop[0]?.SetupShop(shopId); Snap("shop[0].SetupShop(shopId=" + shopId + ")");
+            return Json.Ok(new { npc = npc.FullName, npcType = npc.type, shopId, shopName, hands, report });
         }
 
         /// <summary>商店名在不同版本里可能是 "Terraria/Merchant" 或带 NPC 名的长键，逐个候选试。</summary>
@@ -2927,11 +2935,21 @@ namespace DshTerrariaBridge
             bool dig = Json.Bool(p, "dig", true);
             // 用户两次被从出生点推进水里/坑里：出生点周围 100 格内一律不许挖。
             // 写进代码而不是靠自觉——忘记了就会再犯一次。
-            if (dig && dir == "down")
+            // 以前只挡了 dir=="down"：实测不带参数调 `travel`（默认 dir=right、distance=100、dig=true）
+            // 在出生点旁边一路挖了 10 格、挥了 12 下才停 —— 水平方向根本没挡。
+            // 现在起点或终点任一落在保护圈内就拒绝。
+            if (dig)
             {
                 int sx = Main.spawnTileX, sy = Main.spawnTileY;
-                if (Math.Abs(px - sx) <= 100 && Math.Abs(py - sy) <= 100)
-                    return Json.Error($"拒绝在出生点 {sx},{sy} 附近 100 格内向下挖（当前 {px},{py}）；要走路请用 dig:false，要挖矿请先走远");
+                bool vertical = dir == "up" || dir == "down";
+                int tx = vertical ? px : target;
+                int ty = vertical ? target : py;
+                bool startNear = Math.Abs(px - sx) <= 100 && Math.Abs(py - sy) <= 100;
+                bool endNear = Math.Abs(tx - sx) <= 100 && Math.Abs(ty - sy) <= 100;
+                if (startNear || endNear)
+                    return Json.Error(
+                        $"拒绝在出生点 {sx},{sy} 附近 100 格内挖（起点 {px},{py}，终点 {tx},{ty}，dir={dir}）；" +
+                        "只走路请传 dig:false，要开路请先走到保护圈外");
             }
             BridgeSystem.StartTravel(sign, target, ms, dig);
             return BridgeSystem.TravelStatus();

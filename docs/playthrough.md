@@ -1603,3 +1603,39 @@ Error: unknown command: bloodmoon（可用：accessory/api/attack/blood/bloodmoo
 - 新测通过：`walkmode` / `navrules` / `idmap`（693 tiles / 347 walls / 5519 items / 6559 rows）/
   `nodig` / `fields` / `methods` / `hookdebug` / `housediag` / `travelstatus` / `gravity` / `shoot`；
   `chest` 在附近没箱子时诚实拒绝。
+
+### 第 195 轮（续）：不带参数的三次事故
+
+修完幽灵命令名，继续把剩下没测过的命令逐条敲一遍。三次都是"少传一个参数"造成的：
+
+| 命令 | 少传什么 | 出了什么事 | 根因 | 修法 |
+|---|---|---|---|---|
+| `shopdebug` | （什么都没缺） | `Error: Index was outside the bounds of the array.` —— 一句英文异常直接泄出来 | `Main.SetNPCShopIndex(npc.type)` 传的是 **NPC 类型**（228），该 API 要的是**商店 id**；`Main.instance.shop` 只有 2 个槽 | 先用 `ResolveVanillaShopIndex` 解析 shopId、解析不到明确报错、数组加空值保护、返回里补 `shopId`/`shopName` |
+| `trash` | `count` | 一次销毁 **2081 个火把** | `count` 默认 `it.stack` | 默认改 `1` |
+| `travel` | `dir` / `distance` / `dig` | 默认 `right` + `100` + `dig:true`，在出生点旁**挖 10 格、挥 12 下、走 106 格** | 出生点保护写的是 `if (dig && dir == "down")`，水平方向根本没挡 | 改成"起点或终点任一在出生点 100 格内就拒绝 dig" |
+
+验证（17:38:30 打包，203938 字节，重启进世界后逐条）：
+
+```
+> shopdebug
+{"npc":"巫医Abibe","npcType":228,"shopId":16,"shopName":"Terraria/WitchDoctor/巫医Abibe","hands":2,
+ "report":[{"how":"初始","npcShop":0,"counts":[0,0]},
+           {"how":"SetNPCShopIndex(shopId=16)","npcShop":16,"counts":[0,0]},
+           {"how":"SetNPCShopIndex(1)","npcShop":1,"counts":[0,0]},
+           {"how":"shop[0].SetupShop(1)","npcShop":1,"counts":[21,0]},
+           {"how":"shop[1].SetupShop(1)","npcShop":1,"counts":[21,21]},
+           {"how":"shop[0].SetupShop(shopId=16)","npcShop":1,"counts":[18,21]}]}
+
+> travel
+Error: 拒绝在出生点 4198,485 附近 100 格内挖（起点 4198,484，终点 4298,484，dir=right）；只走路请传 dig:false，要开路请先走到保护圈外
+
+> travel {"dir":"right","distance":20,"dig":false}
+{"active":true,"dir":"right","targetX":4218,"x":4198,"y":484,"mine":0,"swings":0}      // 走路放行
+
+> trash {"slot":14}
+{"trashed":"南瓜","type":1725,"count":1,"slot":14,"left":22,"gone":true}
+```
+
+**教训：默认值比实现更容易出事。** 这三条的实现逻辑都没写错，出事的全是"没传参数"那一次。
+会毁东西的参数，默认值必须是**最小的那一个**；有保护圈的逻辑，保护要按**位置**判，不能按**方向**判
+（"向下挖会掉进坑"是现象，不是边界 —— 水平挖同样能把出生点掀了）。

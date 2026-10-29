@@ -55,7 +55,22 @@ _generated-commands.md / AGENTS.md 的能力块一起虚高 16 条（111 → 实
 
 ---
 
-## 零-1、上一轮（第 194 轮）：真机实测 87 条命令，修掉 4 个 bug
+### 零、接着测到三个新缺陷（17:38 那版已修）
+
+继续逐条实测剩余命令时，撞到三条，全部当场修掉并重新打包验证：
+
+| # | 缺陷 | 现象 | 根因 | 修法 / 验证 |
+|---|---|---|---|---|
+| 14 | `shopdebug` 抛未捕获异常 | `Error: Index was outside the bounds of the array.` | `Main.SetNPCShopIndex(npc.type)` 传的是 NPC 类型，该 API 要的是**商店 id**（`Main.instance.shop` 只有 2 个槽） | 先 `ResolveVanillaShopIndex` 解析出 shopId、解析不到明确报错、数组加空值保护；验证 `shopdebug` → `{npc:"巫医Abibe", shopId:16, hands:2, report:[…SetupShop(16) → 18 件…]}` |
+| 15 | `trash` 默认吃掉整栈 | 不带 `count` 一次销毁 2081 个火把 | `count` 默认 `it.stack` | 默认改 `1`，整栈要显式传；验证 `trash {slot:14}` → `{trashed:"南瓜", count:1, left:22}` |
+| 16 | `travel` 出生点保护只挡"向下" | 不带参数跑一次就在出生点旁**挖了 10 格、挥 12 下、走 106 格** | 保护条件是 `if (dig && dir == "down")` | 改成"起点或终点任一在出生点 100 格内就拒绝 dig"；验证不带参数 → 明确拒绝，`dig:false` 放行 |
+
+**教训**：`trash` 和 `travel` 的实现都是对的，出事的都是**没传参数**那一次 ——
+会毁东西的参数默认值必须是"最小的那个"；有保护圈的逻辑要按**位置**判，不能按**方向**判。
+
+---
+
+## 零-2、上一轮（第 194 轮）：真机实测 87 条命令，修掉 4 个 bug
 
 这一轮是**阶段③（游戏内逐条实测）**，完整记录见 [`docs/live-test-round194.md`](docs/live-test-round194.md)。
 结论先摆：**多人模式（Host & Play）是这套桥的正确工作模式** —— 铁的事实是
@@ -103,7 +118,7 @@ _generated-commands.md / AGENTS.md 的能力块一起虚高 16 条（111 → 实
 | `drop`（缺陷 10） | **✗ 确认是真缺陷**：Host&Play 客户端下丢出去的东西，2 秒后 `grab`/`items` 都看不到 → `DropSelectedItem()` 没能让服务端建掉落物。**只在多人复现，单人待测**；返回里已加 `note` 讲清同步时序 |
 | `mirror` | **新缺陷**：`why` 背包里有贝壳电话（5358），`mirror` 仍报"没有魔镜" —— 检测名单没算 Shellphone |
 
-## 零-1、上一轮（第 193 轮）：用例库不再虚报缺口
+## 零-3、上一轮（第 193 轮）：用例库不再虚报缺口
 
 这一轮没碰游戏代码，清的是自检工具的账：`npm run tc:dry` 报的 9 条缺口里，只有 2 条是真的。
 
@@ -131,7 +146,7 @@ _generated-commands.md / AGENTS.md 的能力块一起虚高 16 条（111 → 实
 全出现在对应库里就报警告，让你回来删声明。配套 4 条测试（`test/kb-missing-probe.test.js`），
 其中一条断言真实用例库这类警告必须保持 0 条。
 
-## 零-1、上一轮（第 185~192 轮）新增
+## 零-4、上一轮（第 185~192 轮）新增
 
 | 能力 | 命令 | 实测证据 |
 |---|---|---|
