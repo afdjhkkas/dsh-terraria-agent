@@ -103,29 +103,35 @@ y227.38  vy0.00  grap 0  × 8 帧
 
 ---
 
-## 修复建议（给改代码的人）
+## 当前输入落点
 
-`PostUpdateRunSpeeds()` 里目前只有这一句：
-
-```csharp
-BridgeSystem.ApplyNativeControlFlags(Player);
-```
-
-而 `ApplyNativeControlFlags` **只处理 left / right / up / down / jump**，
-**没有 `controlHook` / `controlUseItem` / `controlUseTile` / `controlMount`**。
-
-建议补齐（同样只写输入标志、不碰 velocity / position / pulley）：
+`ApplyNativeControlFlags` 只负责移动和跳跃的原生控制位：
 
 ```csharp
-player.controlHook     |= IntentHook;
-player.controlUseItem  |= IntentUseItem;
-player.controlUseTile  |= IntentUseTile;
-player.controlMount    |= IntentMount;
+player.controlLeft/right/up/down/jump
 ```
 
-并让 `hook` / `use` / `place` 命令设置对应的 `Intent*`。
+抓钩、物品使用和坐骑快捷键走 `ApplySyntheticInput`，并在
+`PostUpdateMiscEffects` 以 `lateInput:true` 再写一次，确保落在 `ResetControls` 之后、
+原版消费者读取之前：
 
-另建议：
+```csharp
+BridgeSystem.ApplySyntheticInput(lateInput: true);
+```
+
+该路径只写输入标志，不碰 `velocity` / `position` / `pulley`。其中：
+
+```csharp
+player.controlHook = true;       // 同时写 Main.mouseLeft / releaseHook
+player.controlUseItem = true;    // 原版 ItemCheck 处理挥击/放置/挖掘
+player.controlUseTile = true;    // 原版右键交互
+player.controlMount = true;      // 坐骑键；首帧另写 releaseMount
+```
+
+`mount quick` 使用 `miscEquips[3]`；矿车在 `[2]`，抓钩在 `[4]`，不能只用
+`mountType` 判断普通坐骑，必须排除 `MountID.Sets.Cart[mountType]`。
+
+历史排查结论：
 1. `ApplyMovement()` 的四个提前 `return` 在手动命令（`move`/`jump`/`climb`/`hook`）触发时先全清；
 2. `state` 补 `afterCtrlUp` / `afterCtrlDown`（现在只有 left/right/jump）；
 3. `mine` / `place` 改成**结果驱动**：按住直到回读 `hasTile` 变化，不要按 `ms` 时长判断。

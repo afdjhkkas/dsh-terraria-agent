@@ -481,13 +481,6 @@ namespace DshTerrariaBridge
             player.controlUp |= IntentUp || UpUntil > now || ClimbUpUntil > now;
             player.controlDown |= IntentDown || DownUntil > now || ClimbDownUntil > now;
             player.controlJump |= IntentJump || (triggers.Jump && JumpUntil > now);
-            // 坐骑键：和抓钩一样是一个"按住 + 边沿"的动作。
-            // 原版 Player.Update 里 controlMount 为真时才读 releaseMount，读到真就 QuickMount()。
-            if (MountUntil > now)
-            {
-                player.controlMount = true;
-                if (MountRelease) { player.releaseMount = true; MountRelease = false; }
-            }
             // 诊断：只在这个函数返回前把 control 的当帧值记下来。命令线程读到 control* 时
             // Player.Update 早已跑完、原版已经重置，所以 humaninput 里的 control 不能当证据。
             DbgFlagsTick = (long)now;
@@ -518,6 +511,7 @@ namespace DshTerrariaBridge
         // 诊断快照：PostUpdateMiscEffects 返回后，原版绳索/抓钩/ItemCheck 还没消费输入。
         internal static long DbgPrePhysicsTick;
         internal static bool DbgPrePhysicsUp, DbgPrePhysicsDown, DbgPrePhysicsHook;
+        internal static bool DbgPrePhysicsMount, DbgPrePhysicsReleaseMount;
         internal static bool DbgPrePhysicsUseItem, DbgPrePhysicsUseTile;
 
         // 诊断快照：ApplyNativeControlFlags 结束时 control* 的真实值。
@@ -2135,7 +2129,7 @@ namespace DshTerrariaBridge
         /// Point the cursor at the armed tile and pretend the mouse button is held. Called
         /// from PreItemCheck, so vanilla's own use/placement/mining logic runs.
         /// </summary>
-        internal static void ApplySyntheticInput()
+        internal static void ApplySyntheticInput(bool lateInput = false)
         {
             SynthCalls++;
             ulong now = Now;
@@ -2156,6 +2150,21 @@ namespace DshTerrariaBridge
             if (bridging && AimTileX >= 0) ApplyAim();
             Player p = Main.LocalPlayer;
             if (p == null || !p.active) return;
+
+            // 坐骑快捷键必须在 ResetControls 之后、QuickMount 消费输入之前落到
+            // Player.controlMount。这个路径和抓钩/物品合成输入相同；不要放回
+            // ApplyNativeControlFlags（它还会在更早的生命周期阶段被调用）。
+            if (MountUntil > now)
+            {
+                p.controlMount = true;
+                // releaseMount 只在晚输入阶段发送一次，避免 SetControls 等早期调用
+                // 把边沿消耗掉，也避免按住窗口期间每帧反复切换坐骑。
+                if (lateInput && MountRelease)
+                {
+                    p.releaseMount = true;
+                    MountRelease = false;
+                }
+            }
 
             ApplyGuard(p, now);
             if (UseUntil > now)
@@ -2887,6 +2896,7 @@ namespace DshTerrariaBridge
         internal static volatile float DbgHookScreenX, DbgHookScreenY;
         // 诊断：Player.Update 跑完之后这些控制位到底是什么——抓钩逻辑看到的就是这份。
         internal static volatile bool DbgPostControlHook, DbgPostReleaseHook, DbgPostMouseLeft;
+        internal static volatile bool DbgPostControlMount, DbgPostReleaseMount;
         internal static volatile int DbgProjHookCount;
         internal static ulong HookUntil;
         // 脱钩要走原版的 releaseHook 一帧标志（和 mouseLeftRelease 同类的机制）。
@@ -3203,11 +3213,13 @@ namespace DshTerrariaBridge
         {
             if (Player.whoAmI != Main.myPlayer) return;
             BridgeSystem.ApplyNativeControlFlags(Player);
-            BridgeSystem.ApplySyntheticInput();
+            BridgeSystem.ApplySyntheticInput(lateInput: true);
             BridgeSystem.DbgPrePhysicsTick = (long)Main.GameUpdateCount;
             BridgeSystem.DbgPrePhysicsUp = Player.controlUp;
             BridgeSystem.DbgPrePhysicsDown = Player.controlDown;
             BridgeSystem.DbgPrePhysicsHook = Player.controlHook;
+            BridgeSystem.DbgPrePhysicsMount = Player.controlMount;
+            BridgeSystem.DbgPrePhysicsReleaseMount = Player.releaseMount;
             BridgeSystem.DbgPrePhysicsUseItem = Player.controlUseItem;
             BridgeSystem.DbgPrePhysicsUseTile = Player.controlUseTile;
         }
@@ -3240,6 +3252,8 @@ namespace DshTerrariaBridge
             BridgeSystem.ApplyAttack();
             // 诊断：Update 跑完之后这些控制位是什么——抓钩逻辑看到的正是这份
             BridgeSystem.DbgPostControlHook = Player.controlHook;
+            BridgeSystem.DbgPostControlMount = Player.controlMount;
+            BridgeSystem.DbgPostReleaseMount = Player.releaseMount;
             BridgeSystem.DbgPostReleaseHook = Player.releaseHook;
             // 诊断：Player.Update 全部跑完之后，引擎最终采信的输入是什么。
             // 这一份才是「我写的值有没有被采纳」的唯一证据（ApplyNativeControlFlags 里的快照太早）。

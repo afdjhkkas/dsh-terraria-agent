@@ -663,8 +663,12 @@ namespace DshTerrariaBridge
                     prePhysicsUp = BridgeSystem.DbgPrePhysicsUp,
                     prePhysicsDown = BridgeSystem.DbgPrePhysicsDown,
                     prePhysicsHook = BridgeSystem.DbgPrePhysicsHook,
+                    prePhysicsMount = BridgeSystem.DbgPrePhysicsMount,
+                    prePhysicsReleaseMount = BridgeSystem.DbgPrePhysicsReleaseMount,
                     prePhysicsUseItem = BridgeSystem.DbgPrePhysicsUseItem,
                     prePhysicsUseTile = BridgeSystem.DbgPrePhysicsUseTile,
+                    postControlMount = BridgeSystem.DbgPostControlMount,
+                    postReleaseMount = BridgeSystem.DbgPostReleaseMount,
                     // 出生点：魔镜/床这类回城手段的判据。没有这个坐标就只能靠"动了多远"猜，
                     // 而人本来就站在出生点旁边时，回城位移不到两格，会被误判成失败。
                     spawn = new { x = Main.spawnTileX, y = Main.spawnTileY },
@@ -714,8 +718,12 @@ namespace DshTerrariaBridge
                 data["prePhysicsUp"] = BridgeSystem.DbgPrePhysicsUp;
                 data["prePhysicsDown"] = BridgeSystem.DbgPrePhysicsDown;
                 data["prePhysicsHook"] = BridgeSystem.DbgPrePhysicsHook;
+                data["prePhysicsMount"] = BridgeSystem.DbgPrePhysicsMount;
+                data["prePhysicsReleaseMount"] = BridgeSystem.DbgPrePhysicsReleaseMount;
                 data["prePhysicsUseItem"] = BridgeSystem.DbgPrePhysicsUseItem;
                 data["prePhysicsUseTile"] = BridgeSystem.DbgPrePhysicsUseTile;
+                data["postControlMount"] = BridgeSystem.DbgPostControlMount;
+                data["postReleaseMount"] = BridgeSystem.DbgPostReleaseMount;
                 data["inputDiag"] = InputDiagnostics(pl);
                 data["guard"] = new
                 {
