@@ -1,0 +1,5 @@
+displayName = DSH AI Mini
+author = DSH
+version = 0.1.0
+side = Client
+description = 在游戏内配置模型、和 AI 对话；提示词与知识库为泰拉瑞亚专项。
