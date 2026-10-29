@@ -1,3 +1,4 @@
+using System.Linq;
 using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
@@ -291,7 +292,7 @@ namespace DshAiMini
         private AiConfig _cfg;           // 磁盘上的真配置（只读用途）
         private AiConfig _sync;          // 面板上正在编辑的副本
 
-        private string _page = "chat";   // chat | config
+        private string _page = "chat";   // chat | config | model
 
         private UIText _status;
 
@@ -316,8 +317,8 @@ namespace DshAiMini
             RemoveAllChildren();
 
             var bg = new UIPanel();
-            bg.Width.Set(760, 0f);
-            bg.Height.Set(470, 0f);
+            bg.Width.Set(820, 0f);
+            bg.Height.Set(_page == "chat" ? 470 : 620, 0f);
             bg.HAlign = 0.5f;
             bg.VAlign = 0.5f;
             bg.BackgroundColor = Theme.BgOuter * 0.97f;
@@ -329,14 +330,15 @@ namespace DshAiMini
             title.TextColor = Theme.Title;
             bg.Append(title);
 
-            // 两个页面：对话 / 配置。默认停在对话页 —— 打开就想问东西，不是想改配置。
+            // 三个页面：对话 / 配置 / 模型与 Bot。默认停在对话页。
             float y = 52f;
             MakeTab(bg, "对话", _page == "chat", 18, y, () => { _page = "chat"; Rebuild(); });
             MakeTab(bg, "配置", _page == "config", 128, y, () => { _page = "config"; Rebuild(); });
+            MakeTab(bg, "模型 / Bot", _page == "model", 238, y, () => { _page = "model"; Rebuild(); });
 
             if (_page == "chat") { BuildChat(bg); return; }
-
-            BuildConfig(bg);
+            if (_page == "config") { BuildConfig(bg); return; }
+            BuildModelPage(bg);
         }
 
         /// <summary>
@@ -454,8 +456,13 @@ namespace DshAiMini
             if (q.Length == 0) return;
 
             var cfg = AiConfig.Load();
-            if (string.IsNullOrWhiteSpace(cfg.BaseUrlResolved)) { Say("先去配置页填接口地址", new Color(255, 170, 150)); return; }
-            if (string.IsNullOrWhiteSpace(cfg.ApiKeyResolved)) { Say("先去配置页填 API 密钥", new Color(255, 170, 150)); return; }
+            if (!cfg.CanExecuteActiveActor)
+            {
+                Say("当前选择的是 " + cfg.ActiveActorDescription + "；第二客户端尚未接入，暂不执行，避免误控我的角色。", Theme.Warn);
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(cfg.RuntimeBaseUrlResolved)) { Say("先去配置页填接口地址", new Color(255, 170, 150)); return; }
+            if (string.IsNullOrWhiteSpace(cfg.RuntimeApiKeyResolved)) { Say("先去配置页填 API 密钥", new Color(255, 170, 150)); return; }
 
             if (_ask != null) _ask.Text = "";
             _busy = true;
@@ -465,7 +472,7 @@ namespace DshAiMini
             ChatStore.Append("user", q);
 
             bool full = string.Equals(cfg.KnowledgeMode, "full", System.StringComparison.OrdinalIgnoreCase);
-            string trace = "思考… " + cfg.ModelResolved
+            string trace = "思考… " + cfg.RuntimeModelResolved + " → " + cfg.ActiveActorDescription
                          + (cfg.UseKnowledge ? (full ? " · 知识库全文" : " · 知识库按题命中") : " · 无知识库")
                          + (cfg.IncludeGameState ? " · 带实时状态" : "");
             AddLog(AiLog.Kind.Think, trace);
@@ -600,6 +607,219 @@ namespace DshAiMini
             note.Left.Set(18, 0f); note.Top.Set(by + 46, 0f);
             note.TextColor = new Color(140, 148, 165);
             bg.Append(note);
+        }
+
+        /// <summary>
+        /// 模型与队友页：模型是“脑子”，Actor 是“这个脑子要操控谁”。
+        /// self 绑定到当前客户端玩家；bot 绑定先落盘，等第二客户端接入后再执行。
+        /// </summary>
+        private void BuildModelPage(UIElement bg)
+        {
+            _sync.EnsureActors();
+            float top = 104f;
+
+            var intro = new UIText(
+                "先选模型，再决定它操控我的角色，还是作为第二客户端的队友 Bot。",
+                0.78f);
+            intro.Left.Set(18, 0f); intro.Top.Set(top - 28, 0f);
+            intro.TextColor = Theme.Muted;
+            bg.Append(intro);
+
+            var left = new UIPanel();
+            left.Width.Set(382, 0f); left.Height.Set(438, 0f);
+            left.Left.Set(18, 0f); left.Top.Set(top, 0f);
+            left.BackgroundColor = Theme.BgCard;
+            left.BorderColor = Theme.LineSoft;
+            bg.Append(left);
+
+            var right = new UIPanel();
+            right.Width.Set(382, 0f); right.Height.Set(438, 0f);
+            right.Left.Set(412, 0f); right.Top.Set(top, 0f);
+            right.BackgroundColor = Theme.BgCard;
+            right.BorderColor = Theme.LineSoft;
+            bg.Append(right);
+
+            var lh = new UIText("可用模型", 0.9f, true);
+            lh.Left.Set(12, 0f); lh.Top.Set(10, 0f); lh.TextColor = Theme.Title;
+            left.Append(lh);
+            var rh = new UIText("执行对象", 0.9f, true);
+            rh.Left.Set(12, 0f); rh.Top.Set(10, 0f); rh.TextColor = Theme.Title;
+            right.Append(rh);
+
+            var options = ModelOptions();
+            float y = 42f;
+            if (options.Count == 0)
+            {
+                var empty = new UIText("先在“配置”页添加一个模型。", 0.78f);
+                empty.Left.Set(12, 0f); empty.Top.Set(y, 0f); empty.TextColor = Theme.Warn;
+                left.Append(empty);
+            }
+            else
+            {
+                foreach (var opt in options)
+                {
+                    var row = new UIPanel();
+                    row.Width.Set(358, 0f); row.Height.Set(34, 0f);
+                    row.Left.Set(12, 0f); row.Top.Set(y, 0f);
+                    row.BackgroundColor = Theme.BgInset;
+                    row.BorderColor = Theme.LineSoft;
+                    left.Append(row);
+
+                    string title = (opt.provider.DisplayName ?? "提供商") + " · " + DisplayModel(opt.model);
+                    var tx = new UIText(title, 0.68f);
+                    tx.Left.Set(8, 0f); tx.Top.Set(9, 0f); tx.TextColor = Theme.Text;
+                    row.Append(tx);
+
+                    MakeBtn(row, "操控我", 192, 3, 72, 28, BtnKind.Primary,
+                        () => AssignSelf(opt.provider, opt.model));
+                    MakeBtn(row, "+ Bot", 270, 3, 72, 28, BtnKind.Success,
+                        () => AddBot(opt.provider, opt.model));
+                    y += 38f;
+                }
+            }
+
+            int selfIndex = _sync.Actors.FindIndex(a => a != null && a.IsSelf);
+            if (selfIndex < 0) selfIndex = 0;
+            var self = _sync.Actors[selfIndex];
+            float sy = 42f;
+            var selfRow = new UIPanel();
+            selfRow.Width.Set(358, 0f); selfRow.Height.Set(52, 0f);
+            selfRow.Left.Set(12, 0f); selfRow.Top.Set(sy, 0f);
+            selfRow.BackgroundColor = _sync.ActiveActorIndex == selfIndex ? Theme.AccentDim : Theme.BgInset;
+            selfRow.BorderColor = _sync.ActiveActorIndex == selfIndex ? Theme.Accent : Theme.LineSoft;
+            right.Append(selfRow);
+            var selfText = new UIText("我的角色\n" + BindingModelText(self), 0.72f);
+            selfText.Left.Set(10, 0f); selfText.Top.Set(7, 0f); selfText.TextColor = Color.White;
+            selfRow.Append(selfText);
+            MakeBtn(selfRow, _sync.ActiveActorIndex == selfIndex ? "当前" : "使用", 284, 12, 58, 28,
+                _sync.ActiveActorIndex == selfIndex ? BtnKind.Success : BtnKind.Ghost,
+                () => { _sync.ActiveActorIndex = selfIndex; Rebuild(); });
+            sy += 60f;
+
+            var bots = _sync.Actors.Where(a => a != null && a.IsBot).ToList();
+            if (bots.Count == 0)
+            {
+                var empty = new UIText("还没有队友 Bot。\n从左侧模型行点“+ Bot”添加。", 0.74f);
+                empty.Left.Set(12, 0f); empty.Top.Set(sy, 0f); empty.TextColor = Theme.Muted;
+                right.Append(empty);
+            }
+            else
+            {
+                foreach (var bot in bots)
+                {
+                    int botIndex = _sync.Actors.IndexOf(bot);
+                    var row = new UIPanel();
+                    row.Width.Set(358, 0f); row.Height.Set(64, 0f);
+                    row.Left.Set(12, 0f); row.Top.Set(sy, 0f);
+                    row.BackgroundColor = _sync.ActiveActorIndex == botIndex ? Theme.AccentDim : Theme.BgInset;
+                    row.BorderColor = _sync.ActiveActorIndex == botIndex ? Theme.Accent : Theme.LineSoft;
+                    right.Append(row);
+
+                    var name = new AiInput("队友名称");
+                    name.MaxLength = 32;
+                    name.Text = bot.DisplayName ?? "";
+                    name.Width.Set(150, 0f); name.Left.Set(8, 0f); name.Top.Set(6, 0f);
+                    name.OnChanged = () => bot.DisplayName = name.Text;
+                    row.Append(name); _inputs.Add(name);
+
+                    var modelText = new UIText(BindingModelText(bot), 0.66f);
+                    modelText.Left.Set(8, 0f); modelText.Top.Set(40, 0f); modelText.TextColor = Theme.Muted;
+                    row.Append(modelText);
+
+                    MakeBtn(row, _sync.ActiveActorIndex == botIndex ? "当前" : "使用", 166, 6, 58, 28,
+                        _sync.ActiveActorIndex == botIndex ? BtnKind.Success : BtnKind.Ghost,
+                        () => { _sync.ActiveActorIndex = botIndex; Rebuild(); });
+                    MakeBtn(row, "换模型", 230, 6, 64, 28, BtnKind.Ghost,
+                        () => CycleBotModel(bot));
+                    MakeBtn(row, "删", 300, 6, 42, 28, BtnKind.Danger,
+                        () => { _sync.Actors.Remove(bot); if (_sync.ActiveActorIndex >= _sync.Actors.Count) _sync.ActiveActorIndex = 0; Rebuild(); });
+                    sy += 72f;
+                }
+            }
+
+            var note = new UIText(
+                "当前客户端只执行“我的角色”。Bot 配置会保存，但要等第二个 Terraria 客户端\n" +
+                "以独立玩家和桥端口接入后才能真正执行。",
+                0.72f);
+            note.Left.Set(12, 0f); note.Top.Set(360, 0f); note.TextColor = Theme.Warn;
+            right.Append(note);
+
+            MakeBtn(bg, "保存", 18, 566, 100, 30, BtnKind.Primary, Save);
+            MakeBtn(bg, "关闭 (F7)", 126, 566, 110, 30, BtnKind.Danger, () => AiSystem.TogglePanel(false));
+            var status = new UIText("当前选择：" + _sync.ActiveActorDescription, 0.76f);
+            status.Left.Set(252, 0f); status.Top.Set(572, 0f); status.TextColor = Theme.Muted;
+            bg.Append(status);
+        }
+
+        private List<(int providerIndex, AiProvider provider, AiModel model)> ModelOptions()
+        {
+            var list = new List<(int providerIndex, AiProvider provider, AiModel model)>();
+            for (int i = 0; i < _sync.Providers.Count; i++)
+            {
+                var p = _sync.Providers[i];
+                foreach (var m in p.Models ?? new List<AiModel>())
+                    if (!string.IsNullOrWhiteSpace(m.Id)) list.Add((i, p, m));
+            }
+            return list;
+        }
+
+        private void AssignSelf(AiProvider provider, AiModel model)
+        {
+            _sync.EnsureActors();
+            int index = _sync.Actors.FindIndex(a => a != null && a.IsSelf);
+            if (index < 0) return;
+            var self = _sync.Actors[index];
+            self.ProviderKey = provider.Key;
+            self.ModelId = model.Id;
+            _sync.ActiveIndex = _sync.Providers.IndexOf(provider);
+            _sync.ActiveActorIndex = index;
+            Rebuild();
+        }
+
+        private void AddBot(AiProvider provider, AiModel model)
+        {
+            _sync.EnsureActors();
+            int n = _sync.Actors.Count(a => a != null && a.IsBot) + 1;
+            var bot = new AiActorBinding
+            {
+                Id = "bot-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                Kind = "bot",
+                DisplayName = "队友 Bot " + n,
+                ProviderKey = provider.Key,
+                ModelId = model.Id,
+                BridgePort = 47779 + n - 1,
+                Enabled = true,
+            };
+            _sync.Actors.Add(bot);
+            _sync.ActiveActorIndex = _sync.Actors.Count - 1;
+            Rebuild();
+        }
+
+        private void CycleBotModel(AiActorBinding bot)
+        {
+            var options = ModelOptions();
+            if (options.Count == 0) return;
+            int cur = -1;
+            for (int i = 0; i < options.Count; i++)
+                if (options[i].provider.Key == bot.ProviderKey && options[i].model.Id == bot.ModelId) { cur = i; break; }
+            var next = options[(cur + 1 + options.Count) % options.Count];
+            bot.ProviderKey = next.provider.Key;
+            bot.ModelId = next.model.Id;
+            Rebuild();
+        }
+
+        private string BindingModelText(AiActorBinding binding)
+        {
+            if (binding == null) return "未分配模型";
+            var p = _sync.Providers.FirstOrDefault(x => x.Key == binding.ProviderKey);
+            var m = p?.Models?.FirstOrDefault(x => x.Id == binding.ModelId);
+            return p == null || m == null ? "未分配模型" : p.DisplayName + " · " + DisplayModel(m);
+        }
+
+        private static string DisplayModel(AiModel model)
+        {
+            if (model == null) return "未命名模型";
+            return string.IsNullOrWhiteSpace(model.Label) ? model.Id : model.Label;
         }
 
         private void BuildProviderDetail(UIElement bg, float x, float top)
@@ -919,20 +1139,20 @@ namespace DshAiMini
         private void Save()
         {
             var cfg = Commit();
-            var ap = cfg.Active;
+            var ap = cfg.ActiveActorProvider ?? cfg.Active;
             if (ap == null) { Say("先添加一个提供商", new Color(255, 170, 150)); return; }
-            Say("已保存：" + ap.DisplayName + " · " + cfg.ModelResolved + " @ " + ShortUrl(cfg.BaseUrlResolved),
+            Say("已保存：" + ap.DisplayName + " · " + cfg.RuntimeModelResolved + " → " + cfg.ActiveActorDescription,
                 new Color(150, 255, 170));
         }
 
         private void TestConn()
         {
             var cfg = Commit();
-            if (string.IsNullOrWhiteSpace(cfg.BaseUrlResolved)) { Say("先把 API 地址填上", new Color(255, 170, 150)); return; }
-            if (string.IsNullOrWhiteSpace(cfg.ModelResolved))   { Say("先在模型目录里填一个模型 id", new Color(255, 170, 150)); return; }
-            if (string.IsNullOrWhiteSpace(cfg.ApiKeyResolved))  { Say("先把 API 密钥填上", new Color(255, 170, 150)); return; }
+            if (string.IsNullOrWhiteSpace(cfg.RuntimeBaseUrlResolved)) { Say("先把 API 地址填上", new Color(255, 170, 150)); return; }
+            if (string.IsNullOrWhiteSpace(cfg.RuntimeModelResolved))   { Say("先在模型目录里填一个模型 id", new Color(255, 170, 150)); return; }
+            if (string.IsNullOrWhiteSpace(cfg.RuntimeApiKeyResolved))  { Say("先把 API 密钥填上", new Color(255, 170, 150)); return; }
 
-            Say("正在连接 " + cfg.ModelResolved + " …", new Color(180, 220, 255));
+            Say("正在连接 " + cfg.RuntimeModelResolved + " …", new Color(180, 220, 255));
             AiChat.TestAsync(cfg, (ok, msg) =>
             {
                 Say(ok ? "连接正常：" + msg : "失败：" + msg,

@@ -38,7 +38,7 @@ namespace DshAiMini
             using (var w = new Utf8JsonWriter(ms, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
             {
                 w.WriteStartObject();
-                w.WriteString("model", cfg.ModelResolved);
+                w.WriteString("model", cfg.RuntimeModelResolved);
                 w.WriteStartArray("messages");
                 foreach (var t in turns)
                 {
@@ -159,7 +159,7 @@ namespace DshAiMini
         {
             var turns = new List<ChatTurn> { new ChatTurn("user", "ping") };
             var body = BuildBody(cfg, turns);
-            AiHttp.Post(cfg.BaseUrlResolved, body, cfg.ApiKeyResolved, Math.Min(cfg.TimeoutMs, 20000),
+            AiHttp.Post(cfg.RuntimeBaseUrlResolved, body, cfg.RuntimeApiKeyResolved, Math.Min(cfg.TimeoutMs, 20000),
                 (ok, status, text, error) =>
                 {
                     if (!ok)
@@ -267,7 +267,7 @@ namespace DshAiMini
             turns.Add(new ChatTurn("user", userText));
 
             var body = BuildBody(cfg, turns);
-            AiHttp.Post(cfg.BaseUrlResolved, body, cfg.ApiKeyResolved, cfg.TimeoutMs,
+            AiHttp.Post(cfg.RuntimeBaseUrlResolved, body, cfg.RuntimeApiKeyResolved, cfg.TimeoutMs,
                 (ok, status, text, error) =>
                 {
                     if (!ok)

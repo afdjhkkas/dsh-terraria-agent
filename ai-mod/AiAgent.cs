@@ -74,7 +74,7 @@ namespace DshAiMini
             }
 
             var body = AiChat.BuildBody(cfg, turns, stream: false, withTools: true);
-            AiHttp.Post(cfg.BaseUrlResolved, body, cfg.ApiKeyResolved, cfg.TimeoutMs,
+            AiHttp.Post(cfg.RuntimeBaseUrlResolved, body, cfg.RuntimeApiKeyResolved, cfg.TimeoutMs,
                 (ok, status, text, error) =>
                 {
                     if (!ok)

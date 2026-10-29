@@ -10,42 +10,6 @@ using Terraria.ModLoader;
 namespace DshAiMini
 {
     /// <summary>模型目录里的一行：接口用的 ID + 给人看的名字。</summary>
-    /// <summary>
-    /// 一个模型实际要操控的对象。
-    ///
-    /// self = 当前这个 Terraria 客户端里的本机玩家；
-    /// bot  = 未来由独立 Terraria 客户端加入世界的队友。
-    ///
-    /// Bot 配置先落盘，运行时只有 self 能执行，直到对应的第二客户端接入。
-    /// 这样切换模型不会有"界面选了队友，实际上却把用户角色动了"的歧义。
-    /// </summary>
-    internal sealed class AiActorBinding
-    {
-        public string Id { get; set; } = "self";
-        public string Kind { get; set; } = "self";
-        public string DisplayName { get; set; } = "我的角色";
-        public string PlayerName { get; set; } = "";
-        public string ProviderKey { get; set; } = "";
-        public string ModelId { get; set; } = "";
-        public int BridgePort { get; set; } = 47779;
-        public bool Enabled { get; set; } = true;
-
-        [JsonIgnore] public bool IsSelf => string.Equals(Kind, "self", StringComparison.OrdinalIgnoreCase);
-        [JsonIgnore] public bool IsBot => string.Equals(Kind, "bot", StringComparison.OrdinalIgnoreCase);
-
-        public AiActorBinding Clone() => new AiActorBinding
-        {
-            Id = Id,
-            Kind = Kind,
-            DisplayName = DisplayName,
-            PlayerName = PlayerName,
-            ProviderKey = ProviderKey,
-            ModelId = ModelId,
-            BridgePort = BridgePort,
-            Enabled = Enabled,
-        };
-    }
-
     internal sealed class AiModel
     {
         public string Id { get; set; } = "";
@@ -97,6 +61,37 @@ namespace DshAiMini
             Key = Key, DisplayName = DisplayName, Kind = Kind, BaseUrl = BaseUrl,
             Protocol = Protocol, ApiKey = ApiKey, ActiveModel = ActiveModel,
             Models = Models.Select(m => m.Clone()).ToList(),
+        };
+    }
+
+    /// <summary>
+    /// 一个模型绑定到哪个游戏对象。
+    /// self 是当前客户端的本机玩家；bot 是未来由独立客户端加入世界的队友。
+    /// </summary>
+    internal sealed class AiActorBinding
+    {
+        public string Id { get; set; } = "self";
+        public string Kind { get; set; } = "self";
+        public string DisplayName { get; set; } = "我的角色";
+        public string PlayerName { get; set; } = "";
+        public string ProviderKey { get; set; } = "";
+        public string ModelId { get; set; } = "";
+        public int BridgePort { get; set; } = 47779;
+        public bool Enabled { get; set; } = true;
+
+        [JsonIgnore] public bool IsSelf => string.Equals(Kind, "self", StringComparison.OrdinalIgnoreCase);
+        [JsonIgnore] public bool IsBot => string.Equals(Kind, "bot", StringComparison.OrdinalIgnoreCase);
+
+        public AiActorBinding Clone() => new AiActorBinding
+        {
+            Id = Id,
+            Kind = Kind,
+            DisplayName = DisplayName,
+            PlayerName = PlayerName,
+            ProviderKey = ProviderKey,
+            ModelId = ModelId,
+            BridgePort = BridgePort,
+            Enabled = Enabled,
         };
     }
 
@@ -268,6 +263,7 @@ namespace DshAiMini
                 p.Models ??= new List<AiModel>();
                 if (string.IsNullOrEmpty(p.ActiveModel) && p.Models.Count > 0) p.ActiveModel = p.Models[0].Id;
             }
+            cfg.EnsureActors();
             return cfg;
         }
 
@@ -282,7 +278,30 @@ namespace DshAiMini
         {
             Actors ??= new List<AiActorBinding>();
             if (Actors.Count == 0)
-                Actors.Add(new AiActorBinding { Id = "self", Kind = "self", DisplayName = "我的角色" });
+            {
+                var p = Active ?? Providers.FirstOrDefault();
+                Actors.Add(new AiActorBinding
+                {
+                    Id = "self", Kind = "self", DisplayName = "我的角色",
+                    ProviderKey = p?.Key ?? "", ModelId = p?.Active?.Id ?? "", Enabled = true,
+                });
+            }
+            var self = Actors.FirstOrDefault(a => a != null && a.IsSelf);
+            if (self == null)
+            {
+                self = new AiActorBinding { Id = "self", Kind = "self", DisplayName = "我的角色" };
+                Actors.Insert(0, self);
+            }
+            self.Id = "self";
+            self.Kind = "self";
+            if (string.IsNullOrWhiteSpace(self.DisplayName)) self.DisplayName = "我的角色";
+            if (string.IsNullOrWhiteSpace(self.ProviderKey)) self.ProviderKey = Active?.Key ?? Providers.FirstOrDefault()?.Key ?? "";
+            if (string.IsNullOrWhiteSpace(self.ModelId))
+            {
+                var p = Providers.FirstOrDefault(x => x.Key == self.ProviderKey) ?? Active;
+                self.ModelId = p?.Active?.Id ?? "";
+            }
+            Actors.RemoveAll(a => a == null || (a.IsBot && string.IsNullOrWhiteSpace(a.Id)));
             if (ActiveActorIndex < 0 || ActiveActorIndex >= Actors.Count) ActiveActorIndex = 0;
         }
 
@@ -313,6 +332,45 @@ namespace DshAiMini
             }
         }
 
+        [JsonIgnore] public bool CanExecuteActiveActor => ActiveActor == null || ActiveActor.IsSelf;
+
+        [JsonIgnore] public AiProvider ActiveActorProvider
+        {
+            get
+            {
+                var a = ActiveActor;
+                if (a != null && !string.IsNullOrWhiteSpace(a.ProviderKey))
+                    return Providers.FirstOrDefault(p => p.Key == a.ProviderKey) ?? Active;
+                return Active;
+            }
+        }
+
+        [JsonIgnore] public string RuntimeModelResolved
+        {
+            get
+            {
+                var a = ActiveActor;
+                if (a != null && !string.IsNullOrWhiteSpace(a.ModelId)) return a.ModelId;
+                return ActiveActorProvider?.Active?.Id ?? "";
+            }
+        }
+
+        [JsonIgnore] public string RuntimeApiKeyResolved => ActiveActorProvider?.ApiKey ?? "";
+        [JsonIgnore] public string RuntimeBaseUrlResolved => ResolveChatUrl(ActiveActorProvider);
+
+        static string ResolveChatUrl(AiProvider p)
+        {
+            if (p == null) return "";
+            string u = (p.BaseUrl ?? "").Trim();
+            if (u.Length == 0) return "";
+            if (!u.Contains("/chat/completions") && !u.Contains("/messages"))
+            {
+                if (u.EndsWith("/")) u = u.TrimEnd('/');
+                u += "/chat/completions";
+            }
+            return u;
+        }
+
         public void Save()
         {
             try
@@ -331,6 +389,8 @@ namespace DshAiMini
         public AiConfig Clone() => new AiConfig
         {
             Providers = Providers.Select(p => p.Clone()).ToList(),
+            Actors = (Actors ?? new List<AiActorBinding>()).Select(a => a.Clone()).ToList(),
+            ActiveActorIndex = ActiveActorIndex,
             ActiveIndex = ActiveIndex,
             Temperature = Temperature,
             MaxTokens = MaxTokens,
