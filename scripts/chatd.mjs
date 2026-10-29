@@ -26,6 +26,22 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const DATA = join(ROOT, 'data')
 const INBOX = join(DATA, 'chat-inbox.jsonl')
 const PENDING = join(DATA, 'chat-pending.jsonl')
+// 急停闸：一个文件。存在 = 所有任务作废，直到有人删掉它。
+// 用文件而不是内存变量，是因为要跨进程：上层（对话里的 agent）也能看到并确认。
+const STOP = join(DATA, 'STOP')
+
+function isStopped() {
+  return existsSync(STOP)
+}
+
+function raiseStop(reason) {
+  mkdirSync(DATA, { recursive: true })
+  writeFileSync(STOP, JSON.stringify({ at: new Date().toISOString(), reason }), 'utf8')
+}
+
+function clearStop() {
+  try { if (existsSync(STOP)) unlinkSync(STOP) } catch {}
+}
 const OUTBOX = join(DATA, 'chat-outbox.jsonl')
 const CURSOR = join(DATA, 'chatd-cursor.json')
 const PIDFILE = join(DATA, 'chatd.pid')
@@ -145,6 +161,12 @@ const say = (kind, text) => { sendToGame(kind, text); log(`[DO:${kind}] ${text}`
 const nap = (ms) => new Promise(r => setTimeout(r, ms))
 
 async function runIntent(intent) {
+  // 急停闸拦在入口：只有 cancel / resume / stop 三条能穿过它。
+  // 这样即使上层 agent 卡住没收到取消消息，角色也不会被后续指令推着继续动。
+  if (isStopped() && !['cancel', 'resume', 'stop'].includes(intent.kind)) {
+    log(`[GATE] 急停闸生效，拒绝执行 ${intent.kind}`)
+    return false
+  }
   switch (intent.kind) {
     case 'where': {
       const d = await bridge('state', {})
@@ -167,6 +189,22 @@ async function runIntent(intent) {
     case 'stop': {
       await bridge('stop', {})
       say('say', '已松手停下')
+      return true
+    }
+    case 'cancel': {
+      // 三层一起停：①桥上松手（角色立刻不动）②立起急停闸（后面的指令一律拒）
+      // ③把消息投进对话（上层 agent 收到后停掉它自己的任务）
+      raiseStop('用户取消')
+      await bridge('stop', {})
+      say('say', '停了。后面的指令先不接，说「继续」才恢复')
+      wakeAgent('【取消】玩家在游戏里说了取消，已松手并立起急停闸。请立刻停止手头正在做的事，'
+        + '回报你停在哪一步，然后等玩家说「继续」。')
+      return true
+    }
+    case 'resume': {
+      clearStop()
+      await bridge('stop', {})
+      say('say', '好了，可以继续')
       return true
     }
     case 'mount': {
@@ -210,7 +248,8 @@ async function runIntent(intent) {
       const dir = intent.dir ?? lastWalkDir ?? 'right'
       lastWalkDir = dir
       say('think', `往${dir === 'right' ? '右' : '左'}走 ${intent.tiles} 格`)
-      const r = await walkTiles(bridge, nap, dir, intent.tiles)
+      const r = await walkTiles(bridge, nap, dir, intent.tiles, isStopped)
+      if (!r.ok && r.reason === 'cancelled') { say('say', `听你的，停在 x=${r.to.toFixed(1)}`); return true }
       if (!r.ok) { say('warn', `走不动（${r.reason}），停在 x=${r.to.toFixed(1)}`); return false }
       say('say', `走完：x ${r.from.toFixed(1)} → ${r.to.toFixed(1)}，实走 ${Math.abs(r.moved).toFixed(1)} 格，偏差 ${r.error.toFixed(2)}`)
       return true

@@ -139,3 +139,29 @@ test('describeInventory 只念有货的格子', () => {
   assert.match(s, /石块×2746/)
   assert.equal(describeInventory({ items: [] }), '背包是空的')
 })
+
+// 取消与继续：必须和「停」区分开。
+// 「停」只是让角色别动；「取消」还要把正在跑的任务作废，并拦住后续指令。
+// 这两条是玩家在游戏里唯一能反悔的手柄，认错了就等于没有。
+test('取消/继续 与 停 分得清', () => {
+  for (const t of ['取消', '取消掉', '撤销', '算了', '不要了', '别干了', '别做了', '停任务', '不干了', '中止', '中断']) {
+    assert.equal(parseIntent(t)?.kind, 'cancel', t)
+  }
+  for (const t of ['继续', '接着', '恢复', '接着干', '继续吧']) {
+    assert.equal(parseIntent(t)?.kind, 'resume', t)
+  }
+  for (const t of ['停', '停手', '停下', '别动', '站住', '停一下']) {
+    assert.equal(parseIntent(t)?.kind, 'stop', t)
+  }
+})
+
+test('walkTiles 中途被叫停会松手并报 cancelled', async () => {
+  let n = 0
+  const fake = async (cmd) => {
+    if (cmd === 'state') { n++; return { player: { pos: [100 + n * 0.5, 0], velocity: [2, 0] } } }
+    return {}
+  }
+  const r = await walkTiles(fake, async () => {}, 'right', 20, () => n >= 4)
+  assert.equal(r.ok, false)
+  assert.equal(r.reason, 'cancelled')
+})

@@ -35,6 +35,10 @@ export function parseIntent(raw) {
   if (/^(骑上|骑|上坐骑|召唤坐骑|叫坐骑)$/.test(s)) return { kind: 'mount' }
 
   // 停
+  // 取消：比「停」重一档。停只松手，取消还要把正在跑的任务作废。
+  // 分开的理由：玩家说「停」常常只是让角色别动，说「取消/算了/别干了」才是反悔。
+  if (/^(取消|取消掉|撤销|撤|算了|不要了|别干了|别做了|停任务|停掉任务|不干了|中止|中断)$/.test(s)) return { kind: 'cancel' }
+  if (/^(继续|接着|恢复|接着干|继续吧)$/.test(s)) return { kind: 'resume' }
   if (/^(停|停手|停下|别动|站住|停一下)$/.test(s)) return { kind: 'stop' }
 
   // 走格：右走四格 / 往右 4 格 / 向左三格
@@ -81,7 +85,7 @@ export function cnToNumber(token) {
  * 走格的动作序列：先按住方向，轮询位置，剩余距离进刹车距离就松手。
  * bridge 由调用方注入（(cmd, params) => data），这样这个函数可以在测试里跑假桥。
  */
-export async function walkTiles(bridge, sleep, dir, tiles) {
+export async function walkTiles(bridge, sleep, dir, tiles, shouldStop) {
   // bridge 必须是 async 的（进程内直连）。起子进程那一版单次调用上百毫秒，
   // 轮询周期被拉长，角色在两次读数之间多跑好几格，刹车距离白算。
   const before = await bridge('state', {})
@@ -106,6 +110,11 @@ export async function walkTiles(bridge, sleep, dir, tiles) {
     if (released !== null && v === 0) break
     // 被挡住：连续若干次位置与速度都不动就承认走不动，不要假装走完
     if (released === null && v < 0.05) { stillCount++ } else { stillCount = 0 }
+    // 中途被叫停：立刻松手，别把这一趟走完
+    if (shouldStop && shouldStop()) {
+      await bridge('stop', {})
+      return { ok: false, reason: 'cancelled', from: x0, to: cur.player.pos[0] }
+    }
     if (stillCount >= 6) {
       await bridge('stop', {})
       return { ok: false, reason: 'blocked', from: x0, to: cur.player.pos[0] }

@@ -18,12 +18,12 @@
 
 相关命令一共四条，都在 NPC 对话这条链上，改的时候要一起看：
 
-| 命令 | 入口 | 作用 |
-|---|---|---|
-| `talk` | `Commands.cs` `TalkTo()` | 走到 NPC 旁 → 真实右键 → 建立对话 |
-| `talkfocus` | `Commands.cs` `TalkFocus()` | 探针：读 `Main.npcChatFocus1..4` + 当前鼠标 |
-| `talkoption` | `Commands.cs:1791 TalkOption()` | **要修的那个**：扫描按钮 → 挪鼠标 → 点 |
-| `shop` | `Commands.cs` `Shop()` | 读 `Main.shopInventory`/`Main.npcShop` 的货架 |
+| 命令 | 分发入口 | 实现函数 | 作用 |
+|---|---|---|---|
+| `talk` | `Commands.cs:69` | `TalkTo(JsonElement p)`（`:1664`） | 走到 NPC 旁 → 真实右键 → 建立对话 |
+| `talkfocus` | `Commands.cs:72` | `TalkFocus(JsonElement p)`（`:1843`） | 探针：读 `Main.npcChatFocus1..4` + 当前鼠标 |
+| `talkoption` | `Commands.cs:71` | `TalkOption(JsonElement p)`（`:1791`） | **要修的那个**：扫描按钮 → 挪鼠标 → 点 |
+| `shop` | `Commands.cs:73` | `ShopList(JsonElement p)`（`:2044`） | 读货架数据；不负责点击或打开对话选项 |
 
 ## 一、要做的事
 
