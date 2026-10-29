@@ -10,6 +10,42 @@ using Terraria.ModLoader;
 namespace DshAiMini
 {
     /// <summary>模型目录里的一行：接口用的 ID + 给人看的名字。</summary>
+    /// <summary>
+    /// 一个模型实际要操控的对象。
+    ///
+    /// self = 当前这个 Terraria 客户端里的本机玩家；
+    /// bot  = 未来由独立 Terraria 客户端加入世界的队友。
+    ///
+    /// Bot 配置先落盘，运行时只有 self 能执行，直到对应的第二客户端接入。
+    /// 这样切换模型不会有"界面选了队友，实际上却把用户角色动了"的歧义。
+    /// </summary>
+    internal sealed class AiActorBinding
+    {
+        public string Id { get; set; } = "self";
+        public string Kind { get; set; } = "self";
+        public string DisplayName { get; set; } = "我的角色";
+        public string PlayerName { get; set; } = "";
+        public string ProviderKey { get; set; } = "";
+        public string ModelId { get; set; } = "";
+        public int BridgePort { get; set; } = 47779;
+        public bool Enabled { get; set; } = true;
+
+        [JsonIgnore] public bool IsSelf => string.Equals(Kind, "self", StringComparison.OrdinalIgnoreCase);
+        [JsonIgnore] public bool IsBot => string.Equals(Kind, "bot", StringComparison.OrdinalIgnoreCase);
+
+        public AiActorBinding Clone() => new AiActorBinding
+        {
+            Id = Id,
+            Kind = Kind,
+            DisplayName = DisplayName,
+            PlayerName = PlayerName,
+            ProviderKey = ProviderKey,
+            ModelId = ModelId,
+            BridgePort = BridgePort,
+            Enabled = Enabled,
+        };
+    }
+
     internal sealed class AiModel
     {
         public string Id { get; set; } = "";
@@ -73,6 +109,7 @@ namespace DshAiMini
     internal sealed class AiConfig
     {
         public List<AiProvider> Providers { get; set; } = new();
+        public int ActiveActorIndex { get; set; }
 
         /// <summary>当前用第几个提供商。</summary>
         public int ActiveIndex { get; set; } = 0;
@@ -234,10 +271,53 @@ namespace DshAiMini
             return cfg;
         }
 
+        /// <summary>
+        /// 执行对象绑定表。第一版只有 self（本机玩家）；bot 是给"第二个客户端加入世界"预留的，
+        /// 现在配好也没有执行者，所以运行时只有 self 会被真正驱动。
+        /// </summary>
+        public List<AiActorBinding> Actors { get; set; } = new List<AiActorBinding>();
+
+        /// <summary>保证表里至少有一个 self，并把 ActiveActorIndex 夹到合法范围。</summary>
+        public void EnsureActors()
+        {
+            Actors ??= new List<AiActorBinding>();
+            if (Actors.Count == 0)
+                Actors.Add(new AiActorBinding { Id = "self", Kind = "self", DisplayName = "我的角色" });
+            if (ActiveActorIndex < 0 || ActiveActorIndex >= Actors.Count) ActiveActorIndex = 0;
+        }
+
+        /// <summary>当前选中的执行对象（永远非 null，必要时现场补一个 self）。</summary>
+        [JsonIgnore]
+        public AiActorBinding ActiveActor
+        {
+            get
+            {
+                EnsureActors();
+                return Actors[ActiveActorIndex];
+            }
+        }
+
+        /// <summary>
+        /// 给提示词用的一句话：模型要知道"我现在是在操控谁"。
+        /// bot 还没接入时明确写"未接入"，免得模型以为它能动队友。
+        /// </summary>
+        [JsonIgnore]
+        public string ActiveActorDescription
+        {
+            get
+            {
+                var a = ActiveActor;
+                if (a == null || a.IsSelf) return "我的角色（本机玩家，可以直接操作）";
+                string who = string.IsNullOrWhiteSpace(a.PlayerName) ? a.DisplayName : a.PlayerName;
+                return who + "（队友角色，当前尚未接入执行器，只能读取状态、不能操作）";
+            }
+        }
+
         public void Save()
         {
             try
             {
+                EnsureActors();
                 if (ActiveIndex < 0 || ActiveIndex >= Providers.Count) ActiveIndex = 0;
                 File.WriteAllText(FilePath, JsonSerializer.Serialize(this, Opt));
             }

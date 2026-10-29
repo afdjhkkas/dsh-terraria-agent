@@ -42,6 +42,7 @@ namespace DshAiMini
             // 让它知道现在手上有什么工具 —— 这是"配置完就能读到所有操作方法"的那一半
             sb.Append("\n\n## 你能对游戏做的事（用工具调用，不要只用嘴说）\n");
             sb.Append("你现在可以真的操作这个角色。想做事就调用工具，不要告诉玩家「你去按某个键」。\n");
+            sb.Append("当前执行对象：").Append(cfg.ActiveActorDescription).Append("。\n");
             sb.Append("可用工具：").Append(AiTools.Brief()).Append("\n");
             sb.Append("规则：① 做任何判断前先调 status 看实际情况；② 一次只调一个，拿到结果再决定下一步；");
             sb.Append("③ 干完活要用玩家听得懂的话说结果（走了几格、挖掉没有、掉血没有）；④ 做不到就说做不到，别编。");
