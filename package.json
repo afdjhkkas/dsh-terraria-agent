@@ -60,7 +60,8 @@
     "build:mod": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\build-mod.ps1",
     "build:check": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\build-mod.ps1 -CompileOnly",
     "doctor": "node scripts/doctor.mjs",
-    "bridge": "node scripts/bridge.mjs"
+    "bridge": "node scripts/bridge.mjs",
+    "chatd": "node scripts/chatd.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": "*"

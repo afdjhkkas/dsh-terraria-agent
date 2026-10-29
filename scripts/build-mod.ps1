@@ -77,16 +77,22 @@ if (-not (Test-Path $srcDir)) { Fail "找不到源码目录 $srcDir" "在仓库�
 Step '1/6 检查游戏进程'
 # tModLoader 是用 `dotnet tModLoader.dll` 启动的，进程名是 dotnet 而不是 tModLoader，
 # 按名字查会永远查不到（这个坑让 TML003 报错看起来莫名其妙）。只能按命令行判定。
-$running = @(
-    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -and $_.CommandLine -match 'tModLoader\.dll' }
-)
-if ($running.Count -gt 0) {
-    $detail = ($running | ForEach-Object { "PID $($_.ProcessId)" }) -join ', '
-    Fail "tModLoader 正在运行（$detail）" `
-        '完整退出到桌面（不是回主菜单）再重跑。游戏没关时打包会报 TML003，而且复制 .tmod 会撞共享冲突。'
-}
-Ok '没有 tModLoader 在运行'
+    # 只有真正要打包（第 5 步）才必须关游戏：TML003 与 .tmod 共享冲突都出在打包/复制阶段。
+    # -CompileOnly 只做同步 + Release 编译，完全不碰 Mods，所以没必要逼用户退出游戏。
+    if ($CompileOnly) {
+        Ok '编译检查模式：跳过（不打包就不需要关游戏）'
+    } else {
+        $running = @(
+            Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+                Where-Object { $_.CommandLine -and $_.CommandLine -match 'tModLoader\.dll' }
+        )
+        if ($running.Count -gt 0) {
+            $detail = ($running | ForEach-Object { "PID $($_.ProcessId)" }) -join ', '
+            Fail "tModLoader 正在运行（$detail）" `
+                '完整退出到桌面（不是回主菜单）再重跑。游戏没关时打包会报 TML003，而且复制 .tmod 会撞共享冲突。'
+        }
+        Ok '没有 tModLoader 在运行'
+    }
 
 # ---------------------------------------------------------------- 2. 找工具链
 Step '2/6 定位 tModLoader 与 dotnet'

@@ -921,6 +921,7 @@ namespace DshTerrariaBridge
         private static int ChatDropped;
         private static ulong ChatHookCalls;
         private static ulong ChatLastSendTick;
+        private static string ChatLastSentText = "";
         private static ulong ChatLastCancelTick;
         private static string ChatLastEvent = "";
         private static string ChatLastCandidate = "";
@@ -964,8 +965,15 @@ namespace DshTerrariaBridge
                     try
                     {
                         ulong now = Main.GameUpdateCount;
+                        // 同一句话会被判成「已发送」两次：原版发送并清空 chatText 之后，
+                        // 只要回车还按着，下一帧 inputTextEnter 与 chatRelease 仍为真，
+                        // 而 chatText 此刻又是空的——三个条件原地重成立，于是重复入队。
+                        // 用「文本 + 时间窗」去重：同一文本 4 tick 内只记一条。
+                        // 真连打两句同样的话只隔几百毫秒，所以窗口必须小于 4 tick（约 66ms）。
+                        bool duplicate = trimmed == ChatLastSentText &&
+                            ChatLastSendTick != 0 && now - ChatLastSendTick <= 4;
                         bool sent = wasChatOpen && releaseBefore && Main.inputTextEnter &&
-                            trimmed.Length > 0 && (Main.chatText ?? "").Length == 0;
+                            trimmed.Length > 0 && (Main.chatText ?? "").Length == 0 && !duplicate;
                         bool cancelled = wasChatOpen && !sent && Main.inputTextEscape;
                         if (sent)
                         {
@@ -983,6 +991,7 @@ namespace DshTerrariaBridge
                                         ChatDropped++;
                                     }
                                     ChatLastSendTick = now;
+                                    ChatLastSentText = trimmed;
                                 }
                                 ChatPending = "";
                                 ChatPendingTick = 0;
