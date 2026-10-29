@@ -58,7 +58,7 @@
 | 文件 | 内容 | 重新生成 |
 |---|---|---|
 | [_generated-commands.md](_generated-commands.md) | 68 个 mod 命令 + 25 个插件工具的参数与报错 | `node scripts/kb-sync.mjs` |
-| [_generated-ids.md](_generated-ids.md) | 物品 / 物块 / 墙的数字 ID 与枚举名（5513 物品 · 693 物块 · 347 墙） | `npm run kb:ids -- --tsv <ids.tsv>` |
+| [_generated-ids.md](_generated-ids.md) | 物品 / 物块 / 墙 / NPC 的数字 ID、枚举名与固定判定字段 | `npm run kb:ids -- --tsv <ids.tsv>` |
 
 ID 表为什么算通用知识：`ItemID` / `TileID` / `WallID` 是程序常量，
 同一个数字在任何世界、任何存档都指向同一个对象。
@@ -142,7 +142,8 @@ buildContext('为什么 NPC 不住进去')  // → 安全库 + 命中库的正�
 | 检查有没有混进单局数据 | `npm run kb:lint` |
 | 重新生成命令附录 | `node scripts/kb-sync.mjs` |
 | 校验命令表与代码一致 | `node scripts/kb-sync.mjs --check`（`npm test` 里也有） |
-| 重新生成 ID 对照表 | 游戏内 `{"cmd":"idmap","params":{"path":"<临时目录>/ids.tsv"}}` → `npm run kb:ids -- --tsv <该文件>` |
+| 重新生成 ID 对照表 | 游戏内 `{"cmd":"idmap","params":{"path":"<临时目录>/ids.tsv"}}` → `npm run kb:ids -- --tsv <该文件>`；旧 TSV 仍可读，新字段需重新导出 |
+| 查询固定属性 | `{"cmd":"props","params":{"kind":"item|tile|wall|npc","type":123}}`；也可用 `name` 精确查枚举名或显示名 |
 | 看单轮自路由 system prompt | `node scripts/route.mjs --system` |
 | 重新生成能力清单（AGENTS.md 能力块 + md + json） | `npm run kb:caps` |
 | 校验能力清单与代码一致 | `node scripts/kb-caps.mjs --check`（`npm test` 里也有） |

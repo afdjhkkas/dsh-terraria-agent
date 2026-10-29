@@ -48,6 +48,26 @@ test('生成器：物品 id 与放置后物块 id 分列，不混用', () => {
   assert.match(md.markdown, /StoneBlock/)
 })
 
+test('生成器：保留扩展固定属性并生成 NPC 速查', () => {
+  const md = buildMarkdown([
+    {
+      kind: 'item', id: 99, enum_: 'WingThing', name: '翅膀', createTile: -1, createWall: -1,
+      pick: 0, axe: 0, hammer: 0, damage: 0, maxStack: 1,
+      headSlot: -1, bodySlot: -1, legSlot: -1, waistSlot: -1, accessory: true, wingSlot: 1,
+      mountType: -1, hook: false, pet: false, lightPet: false,
+      healLife: 0, healMana: 0, potion: false, ammo: 0, useAmmo: 0, consumable: false, useStyle: 1,
+      shoot: 0, buffType: 0, solid: false, solidTop: false, tileMerge: false,
+    },
+    {
+      kind: 'npc', id: 17, enum_: 'Guide', name: '向导', townNPC: true, boss: false,
+      lifeMax: 250, aiStyle: 7, catchItem: 0, critter: false,
+    },
+  ])
+  assert.equal(md.npcs, 1)
+  assert.match(md.markdown, /NPC 固定属性表/)
+  assert.match(md.markdown, /townNPC\/boss\/lifeMax\/aiStyle\/catchItem\/critter/)
+})
+
 test('生成物：文件存在且覆盖完整枚举', async () => {
   const text = await readFile(IDS, 'utf8')
   assert.match(text, /物品 \/ 物块 ID 对照/)

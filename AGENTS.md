@@ -134,6 +134,31 @@ grep -n "Main\.tile\[[^]]*\]\.\(type\|wall\|active\) *=" DshTerrariaBridge/*.cs
 3. **行为能被环境改变**：绳子不够长就该掉下来、墙挡住就该停在墙前——
    如果"任何地形都照样匀速前进"，那一定是假操作。
 
+## 0.56 一切操作必须在游戏失焦时可用（用户 m04653 定的硬规矩，最高优先级）
+
+> **"我们一切的操作都是建立在失焦也能运行的硬性规则里。"** —— 用户原话，2026-10-29。
+
+游戏窗口没有焦点（`Main.hasFocus == false`）、人在别的窗口打字，桥依然要能驱动角色。
+这不是"优化项"，是本项目存在的理由：没人会为了看脚本跑而一直盯着泰拉瑞亚。
+
+**推论（写代码前先对一遍）**：
+
+1. **`PlayerInput.Triggers*` 不能作为唯一输出通路。** 原版 Update 的顺序是
+   `PreUpdate` → `ResetControls` → **（只在 `Main.hasFocus` 时）`TriggersSet.CopyInto`**
+   → `SetControls` → 物理。失焦时 `CopyInto` 整段跳过，往
+   `Triggers.Current/JustPressed` 写的值全部丢弃，一个字节都到不了 `Player.control*`。
+   证据：`mount quick` 失焦时 `inputDiag.postUpdateInput.mount:true` 而
+   `postControlMount:false`、`mounted:false`。
+2. **真正有效的通路是 `ApplyNativeControlFlags`（`ModPlayer.SetControls` 里）直写
+   `Player.controlLeft/Right/Up/Down/Jump/Mount`。** 这一条已经有实测背书：
+   `fly`、`climb`、`platform down` 修好都是靠直写，不是靠 Triggers。
+3. **直写边沿类输入要自己造边沿。** `controlMount` 在原版是"刚按下"的复制，不是"按住"；
+   一直为真会让角色每帧上/下坐骑。用一次性闸门（`MountFired`）在窗口首帧发一次 true。
+4. **验证时不许先把窗口点亮。** 测 `hasFocus:false`，并且把 `hasFocus` 的值一起记进证据——
+   有焦点的成功不算通过。曾经因为测试时窗口恰好有焦点，把一条死路当成可用通路写了三周。
+5. **`Triggers` 只剩两个合法用途**：给真人键盘做事件采集（`keyevents`）、做诊断快照。
+   任何"让角色动起来"的需求都不许挂在这上面。
+
 ## 0.6 解决完必须回灌（用户 m18346 定的规矩）
 
 > **"你要在不断的解决问题中完善自己的知识库和命中。比如我告诉你可以把部分屋顶换成平台，
@@ -451,9 +476,9 @@ node scripts/testcases.mjs --dry --baseline docs/testcases/baseline.json   # 回
 
 <!-- caps:begin 本节由 scripts/kb-caps.mjs 生成，不要手改 -->
 
-**只读（44）**：api bobber boss chatpoll event fields find follow help hook hookdebug housediag housing humaninput idmap inventory items keyevents map methods navrules needs nodig npc path ping players quest recipes research roomcheck scan shop shopdebug shops state talkclose talkfocus talkoption tile tiledata travelstatus walkdiff walkmode
+**只读（45）**：api bobber boss chatpoll event fields find follow help hook hookdebug housediag housing humaninput idmap inventory items keyevents map methods navrules needs nodig npc path ping players props quest recipes research roomcheck scan shop shopdebug shops state talkclose talkfocus talkoption tile tiledata travelstatus walkdiff walkmode
 
-**动作（45）**：accessory attack buy capture castline chat chatpost climb craft drop duplicate equip fill fly grab grapple gravity heal homeroom idle interact jump liquidop mine minion mirror move moveto place reel removeblock save select sell shoot splitstack startevent stop talk trash travel unhook use walkto wall
+**动作（46）**：accessory attack buy capture castline chat chatpost climb craft dialog drop duplicate equip fill fly grab grapple gravity heal homeroom idle interact jump liquidop mine minion mirror move moveto place reel removeblock save select sell shoot splitstack startevent stop talk trash travel unhook use walkto wall
 
 **看参数（3）**：chest guard mount
 

@@ -4,7 +4,7 @@
 > 元自检的第 4、5 维（动作原语 / 状态读取）就是拿这张表对照的：
 > 表里没有的接口和命令，一律视为不存在，不许在计划里使用。
 
-## 一、状态读取能力（47 个命令）
+## 一、状态读取能力（48 个命令）
 
 | 命令 | 能读到什么（返回值顶层字段） |
 |---|---|
@@ -22,7 +22,7 @@
 | `housediag` | `x` `y` `tiles` `box` |
 | `housing` | `townNPCs` |
 | `humaninput` | `inWorld` `tick` `paused` `focus` `playerIndex` `inputDiag` `control` `left` `right` `up` `down` `jump` `useItem` `useTile` `grapple` `mount` |
-| `idmap` | `rows` |
+| `idmap` | `rows` `schema` |
 | `inventory` | `selected` `count` `free` `freeMain` `freeAll` `items` `special` `coinSlots` `ammoSlots` `trashSlot` `equipment` `miscEquips` `canFly` |
 | `items` | `count` `items` |
 | `keyevents` | `lastTick` `count` `time` `stride` |
@@ -35,6 +35,7 @@
 | `path` | `from` |
 | `ping` | — |
 | `players` | `count` `players` |
+| `props` | `enumName` `name` `createTile` `createWall` `pick` `axe` `hammer` `damage` `maxStack` `headSlot` `bodySlot` `legSlot` `waistSlot` `accessory` `wingSlot` `mountType` `shoot` `buffType` `healLife` `healMana` `potion` `ammo` `useAmmo` `consumable` `useStyle` `solid` `solidTop` `tileMerge` `platform` `rope` `townNPC` `boss` `lifeMax` `aiStyle` `catchItem` `critter` |
 | `quest` | `anglerPresent` `note` |
 | `recipes` | `count` `recipes` |
 | `research` | `item` `alreadyFull` `researched` `have` `unlocked` |
@@ -43,7 +44,7 @@
 | `shop` | `npc` `shop` `npcType` `distance` |
 | `shopdebug` | `npc` `npcType` |
 | `shops` | `scanned` |
-| `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `talkNPC` `npcChatText` `npcShopIndex` `npcChatRelease` `talkInput` `world` `player` `ropeContact` `ropeRelease` `flagTick` `flagLeft` `flagRight` `flagUp` `flagDown` `flagJump` `flagIntentRight` `flagIntentJump` `flagRightUntilLive` `flagJumpUntilLive` `afterTick` `preTick` `preCtrlLeft` `preCtrlRight` `preCtrlUp` `preCtrlDown` `preCtrlJump` `preVelX` `afterCtrlLeft` `afterCtrlRight` `afterCtrlUp` `afterCtrlDown` `afterCtrlJump` `afterTrigLeft` `afterTrigRight` `afterTrigUp` `afterTrigDown` `afterTrigJump` `afterVelX` `prePhysicsTick` `prePhysicsUp` `prePhysicsDown` `prePhysicsHook` `prePhysicsMount` `prePhysicsReleaseMount` `prePhysicsUseItem` `prePhysicsUseTile` `postControlMount` `postReleaseMount` `inputDiag` `guard` `attack` `path` `walk` `exact` `input` `hint` |
+| `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `talkNPC` `npcChatText` `npcShopIndex` `npcChatRelease` `talkInput` `world` `player` `ropeContact` `ropeRelease` `flagTick` `flagLeft` `flagRight` `flagUp` `flagDown` `flagJump` `flagIntentRight` `flagIntentJump` `flagRightUntilLive` `flagJumpUntilLive` `afterTick` `preTick` `preCtrlLeft` `preCtrlRight` `preCtrlUp` `preCtrlDown` `preCtrlJump` `preVelX` `afterCtrlLeft` `afterCtrlRight` `afterCtrlUp` `afterCtrlDown` `afterCtrlJump` `afterTrigLeft` `afterTrigRight` `afterTrigUp` `afterTrigDown` `afterTrigJump` `afterVelX` `prePhysicsTick` `prePhysicsUp` `prePhysicsDown` `prePhysicsHook` `prePhysicsMount` `prePhysicsReleaseMount` `prePhysicsUseItem` `prePhysicsUseTile` `postControlMount` `postReleaseMount` `mountUntil` `mountUntilLive` `mountFired` `inputDiag` `guard` `attack` `path` `walk` `exact` `input` `hint` |
 | `talkclose` | `beforeTalkNPC` `talkNPC` `chatText` `npcShop` `closed` `note` |
 | `talkfocus` | `screen` |
 | `talkoption` | — |
@@ -54,9 +55,9 @@
 | `walkmode` | `useNew` `reactive` `dual` |
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
 | `guard` | `off` `note` `untilTick` `radius` `hostileInRange` `weaponSlot` `weapon` |
-| `mount` | `activeAfter` `mountSlot` `mountItem` `held` `action` `active` `type` `flight` `items` |
+| `mount` | `activeAfter` `queued` `untilTick` `note` `mountSlot` `mountItem` `held` `action` `active` `type` `flight` `items` |
 
-## 二、动作能力（48 个命令）
+## 二、动作能力（49 个命令）
 
 | 命令 | 参数 | 干什么 |
 |---|---|---|
@@ -69,6 +70,7 @@
 | `chatpost` | — | — |
 | `climb` | `dir` `ms` `tiles` | — |
 | `craft` | `item` `times` | — |
+| `dialog` | `text` `path` `max` `maxLen` | — |
 | `drop` | `slot` `count` | — |
 | `duplicate` | `item` `count` | — |
 | `equip` | `slot` | — |

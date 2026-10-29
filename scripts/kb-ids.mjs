@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 从游戏导出的 TSV 生成「物品 / 物块 ID 对照」附录（引擎常量表）。
+ * 从游戏导出的 TSV 生成「物品 / 物块 / NPC ID 对照」附录（引擎常量表）。
  *
  * 为什么这些数字可以进知识库：ItemID / TileID / WallID 是程序里的常量，
  * 同一个 id 在任何世界、任何存档都指向同一个对象（用户 m05433 定的界）。
@@ -10,7 +10,7 @@
  *   2. node scripts/kb-ids.mjs --tsv <那个 tsv>
  *
  * 生成的表只收「用得上的部分」：工具、可放置物块、家具、墙、弹药与材料，
- * 外加物块/墙的完整枚举。完整 5000+ 物品表按需临时导出，不进仓库（避免几十万行垃圾）。
+ * 外加物块/墙/NPC 的完整枚举。完整物品属性按需临时导出，不进仓库（避免几十万行垃圾）。
  */
 
 import { readFile, writeFile } from 'node:fs/promises'
@@ -92,18 +92,34 @@ function parseTsv(text) {
     const line = lines[i]
     if (!line.trim()) continue
     const c = line.split('\t')
+    const num = (key, fallback = 0) => {
+      const raw = c[idx[key]]
+      if (raw == null || raw === '') return fallback
+      const n = Number(raw)
+      return Number.isFinite(n) ? n : fallback
+    }
+    const bool = (key) => num(key, 0) !== 0
     rows.push({
       kind: c[idx.kind],
-      id: Number(c[idx.id]),
+      id: num('id', -1),
       enum_ : c[idx.enum],
       name: c[idx.name],
-      createTile: Number(c[idx.createTile]),
-      createWall: Number(c[idx.createWall]),
-      pick: Number(c[idx.pick]),
-      axe: Number(c[idx.axe]),
-      hammer: Number(c[idx.hammer]),
-      damage: Number(c[idx.damage]),
-      maxStack: Number(c[idx.maxStack]),
+      createTile: num('createTile', -1),
+      createWall: num('createWall', -1),
+      pick: num('pick'),
+      axe: num('axe'),
+      hammer: num('hammer'),
+      damage: num('damage'),
+      maxStack: num('maxStack'),
+      headSlot: num('headSlot', -1), bodySlot: num('bodySlot', -1), legSlot: num('legSlot', -1),
+      waistSlot: num('waistSlot', -1), accessory: bool('accessory'), wingSlot: num('wingSlot', -1),
+      mountType: num('mountType', -1), hook: bool('hook'), pet: bool('pet'), lightPet: bool('lightPet'),
+      healLife: num('healLife'), healMana: num('healMana'), potion: bool('potion'),
+      ammo: num('ammo'), useAmmo: num('useAmmo'), consumable: bool('consumable'), useStyle: num('useStyle'),
+      shoot: num('shoot'), buffType: num('buffType'),
+      solid: bool('solid'), solidTop: bool('solidTop'), tileMerge: bool('tileMerge'),
+      townNPC: bool('townNPC'), boss: bool('boss'), lifeMax: num('lifeMax'), aiStyle: num('aiStyle'),
+      catchItem: num('catchItem'), critter: bool('critter'),
     })
   }
   return rows
@@ -131,12 +147,13 @@ export function buildMarkdown(rows) {
   }
   const tiles = rows.filter((r) => r.kind === 'tile').sort((a, b) => a.id - b.id)
   const walls = rows.filter((r) => r.kind === 'wall').sort((a, b) => a.id - b.id)
+  const npcs = rows.filter((r) => r.kind === 'npc').sort((a, b) => a.id - b.id)
   const items = [...byId.values()].sort((a, b) => a.id - b.id)
   const tileName = new Map(tiles.map((t) => [t.id, t.enum_]))
 
   const missing = []
   const out = []
-  out.push('# 物品 / 物块 ID 对照（引擎常量 · 生成物）')
+  out.push('# 物品 / 物块 ID 对照（含 NPC 固定属性 · 引擎常量 · 生成物）')
   out.push('')
   out.push('> **不要手改这个文件。** 它由 `node scripts/kb-ids.mjs --tsv <tsv>` 从游戏导出的常量表生成。')
   out.push('>')
@@ -154,7 +171,7 @@ export function buildMarkdown(rows) {
   out.push('```')
   out.push('')
   out.push(
-    `覆盖：物块 ${tiles.length} 条 · 背景墙 ${walls.length} 条 · 物品 ${items.length} 条。`,
+    `覆盖：物块 ${tiles.length} 条 · 背景墙 ${walls.length} 条 · 物品 ${items.length} 条 · NPC ${npcs.length} 条。`,
   )
   out.push('')
   out.push('---')
@@ -242,7 +259,30 @@ export function buildMarkdown(rows) {
     )
   }
   out.push('')
-  return { markdown: out.join('\n'), missing, tiles: tiles.length, walls: walls.length, items: items.length }
+  out.push('## 13. NPC 固定属性表')
+  out.push('')
+  out.push('> 这些字段用于静态可达性判断；附近 NPC 的实时位置、血量和是否激活仍以 `npc` 命令回读为准。')
+  out.push('')
+  out.push('| NPC ID | 枚举名 | 名称 | 城镇 NPC | Boss | 最大生命 | AI 风格 | 可捕捉物品 | 小动物 |')
+  out.push('|---|---|---|---:|---:|---:|---:|---:|---:|')
+  for (const r of npcs) {
+    out.push(`| ${r.id} | \`${r.enum_}\` | ${cell(r.name)} | ${r.townNPC ? '是' : '否'} | ${r.boss ? '是' : '否'} | ${r.lifeMax || '—'} | ${r.aiStyle} | ${r.catchItem > 0 ? r.catchItem : '—'} | ${r.critter ? '是' : '否'} |`)
+  }
+  out.push('')
+  out.push('## 14. 属性字段判定速查')
+  out.push('')
+  out.push('| 对象 | 关键字段 | 判定 |')
+  out.push('|---|---|---|')
+  out.push('| 物品 | `headSlot/bodySlot/legSlot` | 对应值 ≥ 0 才是护甲部位 |')
+  out.push('| 物品 | `accessory`, `wingSlot` | 饰品或翅膀装备分类 |')
+  out.push('| 物品 | `mountType`, `hook`, `pet`, `lightPet` | 坐骑、抓钩、宠物、照明宠物能力 |')
+  out.push('| 物品 | `healLife/healMana/potion` | 治疗、回魔、药水分支 |')
+  out.push('| 物品 | `ammo/useAmmo` | 弹药自身类别与武器消耗类别匹配 |')
+  out.push('| 物品 | `consumable/useStyle` | 是否消耗以及使用分支；不能只看名称 |')
+  out.push('| 物块 | `solid/solidTop/tileMerge` | 实心、平台型、合并规则 |')
+  out.push('| NPC | `townNPC/boss/lifeMax/aiStyle/catchItem/critter` | 城镇、Boss、生命、AI、捕捉和小动物判定 |')
+  out.push('')
+  return { markdown: out.join('\n'), missing, tiles: tiles.length, walls: walls.length, items: items.length, npcs: npcs.length }
 }
 
 async function main() {
@@ -255,13 +295,13 @@ async function main() {
   }
   const text = await readFile(resolve(tsvPath), 'utf8')
   const rows = parseTsv(text)
-  const { markdown, missing, tiles, walls, items } = buildMarkdown(rows)
+  const { markdown, missing, tiles, walls, items, npcs } = buildMarkdown(rows)
   if (missing.length) {
     console.error('这些名字在导出的常量表里找不到，先确认枚举名：' + missing.join(', '))
     process.exit(1)
   }
   await writeFile(OUT, markdown, 'utf8')
-  console.log(`ok: ${OUT}（物块 ${tiles} / 墙 ${walls} / 物品 ${items}）`)
+  console.log(`ok: ${OUT}（物块 ${tiles} / 墙 ${walls} / 物品 ${items} / NPC ${npcs}）`)
 }
 
 if (process.argv[1] && process.argv[1].endsWith('kb-ids.mjs')) await main()

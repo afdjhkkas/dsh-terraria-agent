@@ -572,13 +572,15 @@ namespace DshTerrariaBridge
                 }
 
                 int w = Main.screenWidth, h = Main.screenHeight;
-                int x0 = 120, x1 = Math.Max(x0 + 10, w - 120);
-                // 原版把对话按钮画在屏幕底部中间（Main.DrawNPCChatButtons），
-                // 所以只在底部一条带里扫就够。step 也不能太小：
-                // 一帧只结算一个点，step=10 时 1673×1046 的窗口要扫 3000+ 帧 ≈ 50 秒，
-                // 这期间玩家会被怪推走、对话自己就关了（实测就是这么失败的）。
-                int y0 = Math.Max(80, h - 200), y1 = h - 24;
-                const int step = 30;
+                int x0 = 100, x1 = Math.Max(x0 + 10, w - 100);
+                // 对话按钮画在**台词的下方**，不是屏幕底部。
+                // 实测（爆破专家，screen 1673×1046）：台词在 y≈119，按钮行在 y≈160，
+                // 「商店 / 关闭 / 幸福度」三个按钮横排在中央偏左。
+                // 所以扫上半屏（80 .. h/2）就够；一帧只结算一个点，
+                // step 取 40（按钮宽约 100 像素，够命中），
+                // 407 个点 ≈ 7 秒，玩家不会被怪推走把对话关掉。
+                int y0 = 80, y1 = Math.Max(y0 + 10, h / 2);
+                const int step = 40;
                 TalkOptX += step;
                 if (TalkOptX > x1) { TalkOptX = x0; TalkOptY += step; }
                 if (TalkOptY > y1)
@@ -709,6 +711,11 @@ namespace DshTerrariaBridge
             //   站在 type 19 木平台上 fly/jump 全部 velY:0、jumped:false，
             //   因为 ApplyMovement 开头（2069）已经把 IntentJump 清掉，只剩被 triggers 短路的那一半。
             player.controlJump |= IntentJump || JumpUntil > now;
+            // 坐骑不在这里写。实测：在 SetControls 里写 controlMount=true（mountFired 已是 true），
+            // 到 PostUpdateMiscEffects 读回来仍是 false —— 原版在 SetControls 之后会用输入层结果
+            // 重建 controlMount，写在早阶段的 true 当场被覆盖。这和 controlHook 是同一个病
+            // （见 ApplySyntheticInput 里抓钩那段注释）。真正的写入点在 ApplySyntheticInput
+            // （PreItemCheck / PostUpdateMiscEffects 阶段），那里晚于重建。
             // 诊断：只在这个函数返回前把 control 的当帧值记下来。命令线程读到 control* 时
             // Player.Update 早已跑完、原版已经重置，所以 humaninput 里的 control 不能当证据。
             DbgFlagsTick = (long)now;
@@ -816,10 +823,11 @@ namespace DshTerrariaBridge
             // 由 ApplyNativeControlFlags 写入 controlLeft/controlRight。
             ApplyBridgeTrigger(IntentLeft || LeftUntil > now, ref BridgeLeftHeld, t => t.Left = true, t => t.Left = true, t => t.Left = true);
             ApplyBridgeTrigger(IntentRight || RightUntil > now, ref BridgeRightHeld, t => t.Right = true, t => t.Right = true, t => t.Right = true);
-            // QuickMount is copied into Player.controlMount by vanilla's
-            // TriggersSet.CopyInto, immediately before Player.Update handles the
-            // controlMount/releaseMount edge. Do not synthesize controlMount later.
-            ApplyBridgeTrigger(MountUntil > now, ref BridgeMountHeld, t => t.QuickMount = true, t => t.QuickMount = true, t => t.QuickMount = true);
+            // 坐骑不在这里喂 Triggers。TriggersSet.CopyInto 只在 Main.hasFocus 时运行，
+            // 而本项目的一切操作都必须能在失焦下执行（硬规则 §0.56）。实测失焦时把
+            // QuickMount 写进 Triggers.Current，postUpdateInput.mount:true 但
+            // postControlMount 恒 false。真正的输出在 ApplyNativeControlFlags 里
+            // 直写 controlMount，并且只在窗口首帧发一次边沿。
             var triggers = PlayerInput.Triggers.Current;
             DbgInputTriggerTick = (long)now;
             DbgInputTriggerPlayer = player.whoAmI;
@@ -2393,6 +2401,19 @@ namespace DshTerrariaBridge
             if (p == null || !p.active) return;
 
             ApplyGuard(p, now);
+            // 坐骑：必须在这个晚阶段写。SetControls 里写完会被原版重建掉
+            // （实测 mountFired=true 但 prePhysicsMount=false）。原版 QuickMount 的判据是
+            // "controlMount 为真 + releaseMount 决定上/下"，所以这里一次不成对地都写。
+            // 只发一次边沿：controlMount 持续为真会让每帧反复上下坐骑。
+            if (MountUntil > now)
+            {
+                if (!MountFired)
+                {
+                    p.controlMount = true;
+                    p.releaseMount = false;
+                    MountFired = true;
+                }
+            }
             if (UseUntil > now)
             {
                 Main.mouseLeft = true;
@@ -3066,9 +3087,13 @@ namespace DshTerrariaBridge
         // Written from the bridge thread, read from the main thread: keep the
         // published values volatile instead of relying on x64 store atomicity.
         internal static ulong LeftUntil, RightUntil, UpUntil, DownUntil, JumpUntil, UseUntil, UseTileUntil;
-        // 坐骑键的时间窗；PostUpdateInput 会把它映射到
-        // PlayerInput.Triggers.Current.QuickMount，让原版自己生成 controlMount 和边沿。
+        // 坐骑键的时间窗。输出在 ApplyNativeControlFlags 里直写 Player.controlMount，
+        // 不用 Triggers：TriggersSet.CopyInto 只在 Main.hasFocus 时运行，失焦下写
+        // Triggers.Current.QuickMount 是空转（实测 mount:true / controlMount:false）。
         internal static ulong MountUntil;
+        // 边沿闸门：原版 controlMount 是"刚按下"的复制，持续为真会每帧反复上下坐骑，
+        // 所以一个时间窗只允许发一次 true。
+        internal static bool MountFired;
         // 结果驱动：目标格一挖空就收手，不靠“猜要按多久”。不同方块硬度差很多（土 1 下、
         // 石头 3 下、更硬的要更多），任何固定时长都必然在某些方块上不够、在另一些上白按。
         internal static bool UseStopWhenClear;
@@ -3240,6 +3265,8 @@ namespace DshTerrariaBridge
         ClimbUpUntil = ClimbDownUntil = LayRopeUntil = 0; ClimbTargetY = 0;
         IntentLeft = IntentRight = IntentUp = IntentDown = IntentJump = false;
         BridgeJumpHeld = BridgeLeftHeld = BridgeRightHeld = BridgeUpHeld = BridgeDownHeld = BridgeMountHeld = false;
+        // 坐骑边沿闸门也要清：否则 ClearControls 之后再 mount 会被上一轮的 MountFired 拦住。
+        MountFired = false;
         RopeReleasePending = RopeReleaseFailed = false;
         RopeReleaseUntil = RopeReleaseFailureTick = 0;
         RopeDeferredKind = RopeDeferredDir = "";

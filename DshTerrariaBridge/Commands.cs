@@ -65,6 +65,7 @@ namespace DshTerrariaBridge
                 case "recipes": return Recipes(p);
                 case "api": return ApiLookup(p);
                 case "idmap": return IdMap(p);
+                case "props": return Props(p);
                 case "talk": return TalkTo(p);
                 case "talkclose": return TalkClose(p);
                 case "talkoption": return TalkOption(p);
@@ -138,6 +139,7 @@ namespace DshTerrariaBridge
                 case "craft": return Craft(p);
                 case "npc": return Npcs(p);
                 case "chat": return Chat(p);
+                case "dialog": return Dialog(p);
                 case "help": return Help();
                 default: return Json.Error("unknown command: " + cmd + "（可用：" + string.Join("/", CommandNames) + "）");
             }
@@ -495,7 +497,7 @@ namespace DshTerrariaBridge
         /// 免得再出现"实现了但提示里没有、调用方以为不存在"的误导。</summary>
         internal static readonly string[] CommandNames = new[]
         {
-            "accessory", "api", "attack", "bobber", "boss", "buy", "capture", "castline", "chat", "chatpoll", "chatpost", "chest", "climb", "craft", "drop", "duplicate", "equip", "event", "fields", "fill", "find", "fly", "follow", "grab", "grapple", "gravity", "guard", "heal", "help", "homeroom", "hook", "hookdebug", "housediag", "housing", "humaninput", "idle", "idmap", "interact", "inventory", "items", "jump", "keyevents", "liquidop", "map", "methods", "mine", "minion", "mirror", "mount", "move", "moveto", "navrules", "needs", "nodig", "npc", "path", "ping", "place", "players", "quest", "recipes", "reel", "removeblock", "research", "roomcheck", "save", "scan", "select", "sell", "shoot", "shop", "shopdebug", "shops", "splitstack", "startevent", "state", "stop", "talk", "talkclose", "talkfocus", "talkoption", "tile", "tiledata", "trash", "travel", "travelstatus", "unhook", "use", "walkdiff", "walkmode", "walkto", "wall"
+            "accessory", "api", "attack", "bobber", "boss", "buy", "capture", "castline", "chat", "chatpoll", "chatpost", "chest", "climb", "craft", "dialog", "drop", "duplicate", "equip", "event", "fields", "fill", "find", "fly", "follow", "grab", "grapple", "gravity", "guard", "heal", "help", "homeroom", "hook", "hookdebug", "housediag", "housing", "humaninput", "idle", "idmap", "interact", "inventory", "items", "jump", "keyevents", "liquidop", "map", "methods", "mine", "minion", "mirror", "mount", "move", "moveto", "navrules", "needs", "nodig", "npc", "path", "ping", "place", "players", "props", "quest", "recipes", "reel", "removeblock", "research", "roomcheck", "save", "scan", "select", "sell", "shoot", "shop", "shopdebug", "shops", "splitstack", "startevent", "state", "stop", "talk", "talkclose", "talkfocus", "talkoption", "tile", "tiledata", "trash", "travel", "travelstatus", "unhook", "use", "walkdiff", "walkmode", "walkto", "wall"
         };
 
         private static string Help() => Json.Ok(new
@@ -751,6 +753,12 @@ namespace DshTerrariaBridge
                 data["prePhysicsUseTile"] = BridgeSystem.DbgPrePhysicsUseTile;
                 data["postControlMount"] = BridgeSystem.DbgPostControlMount;
                 data["postReleaseMount"] = BridgeSystem.DbgPostReleaseMount;
+                // 坐骑诊断：直写通路是否真的走过一次边沿。hasFocus 必须一起记——
+                // 硬规则 §0.56 要求"失焦通过才算通过"，有焦点的成功是假证据。
+                data["mountUntil"] = BridgeSystem.MountUntil;
+                data["mountUntilLive"] = BridgeSystem.MountUntil > BridgeSystem.Now;
+                data["mountFired"] = BridgeSystem.MountFired;
+                data["hasFocus"] = Main.hasFocus;
                 data["inputDiag"] = InputDiagnostics(pl);
                 data["guard"] = new
                 {
@@ -1805,12 +1813,14 @@ namespace DshTerrariaBridge
             BridgeSystem.TalkOptScanned = 0;
             BridgeSystem.TalkOptHitX = -1;
             BridgeSystem.TalkOptHitY = -1;
-            int yStart = Math.Max(80, Main.screenHeight - 200);
-            BridgeSystem.TalkOptX = 120;
+            // 与 BridgeSystem.StepTalkOption 的扫描带保持一致：按钮在台词下方（上半屏），不在屏幕底部。
+            int yStart = 80;
+            BridgeSystem.TalkOptX = 100;
             BridgeSystem.TalkOptY = yStart;
             BridgeSystem.TalkOptStart = Main.GameUpdateCount;
-            int cols = Math.Max(1, (Main.screenWidth - 240) / 30);
-            int rows = Math.Max(1, (Main.screenHeight - 24 - yStart) / 30);
+            int yEnd = Math.Max(yStart + 10, Main.screenHeight / 2);
+            int cols = Math.Max(1, (Main.screenWidth - 200) / 40);
+            int rows = Math.Max(1, (yEnd - yStart) / 40);
             BridgeSystem.TalkOptMsg = $"开始扫描按钮 {index}：约 {cols}×{rows} 个点，一帧一个点";
             return Json.Ok(TalkOptionStatus());
         }
@@ -2202,15 +2212,101 @@ namespace DshTerrariaBridge
             });
         }
 
+        private static readonly BindingFlags PublicStatic = BindingFlags.Public | BindingFlags.Static;
+
+        private static bool StaticBoolArrayAt(Type owner, string fieldName, int index)
+        {
+            try
+            {
+                var f = owner?.GetField(fieldName, PublicStatic);
+                if (f?.GetValue(null) is Array a && index >= 0 && index < a.Length)
+                    return a.GetValue(index) is bool b && b;
+            }
+            catch { }
+            return false;
+        }
+
+        private static bool TileSetBool(string fieldName, int type)
+        {
+            try
+            {
+                Type sets = typeof(TileID).GetNestedType("Sets", BindingFlags.Public | BindingFlags.NonPublic);
+                return StaticBoolArrayAt(sets, fieldName, type);
+            }
+            catch { return false; }
+        }
+
+        private static bool ProjectileSetBool(string fieldName, int projectile)
+        {
+            try
+            {
+                Type sets = typeof(ProjectileID).GetNestedType("Sets", BindingFlags.Public | BindingFlags.NonPublic);
+                return StaticBoolArrayAt(sets, fieldName, projectile);
+            }
+            catch { return false; }
+        }
+
+        private static int EnumIdByName(Type enumType, string name)
+        {
+            if (enumType == null || string.IsNullOrWhiteSpace(name)) return -1;
+            foreach (var f in enumType.GetFields(PublicStatic))
+            {
+                if (!f.IsLiteral) continue;
+                if (!string.Equals(f.Name, name.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
+                try { return Convert.ToInt32(f.GetRawConstantValue()); } catch { return -1; }
+            }
+            return -1;
+        }
+
+        private static string EnumNameById(Type enumType, int id)
+        {
+            if (enumType == null) return "";
+            foreach (var f in enumType.GetFields(PublicStatic))
+            {
+                if (!f.IsLiteral) continue;
+                try
+                {
+                    if (Convert.ToInt32(f.GetRawConstantValue()) == id) return f.Name;
+                }
+                catch { }
+            }
+            return "";
+        }
+
+        private static string Tsv(string value) => (value ?? "").Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ').Trim();
+
+        private static string ItemEnumName(int type)
+        {
+            try { return ItemID.Search.GetName(type) ?? ""; } catch { return ""; }
+        }
+
+        private static string IdMapItemRow(Item it)
+        {
+            int tile = it.createTile;
+            string en = ItemEnumName(it.type);
+            if (en.Length == 0) en = it.Name;
+            bool solid = tile >= 0 && StaticBoolArrayAt(typeof(Main), "tileSolid", tile);
+            bool solidTop = tile >= 0 && StaticBoolArrayAt(typeof(Main), "tileSolidTop", tile);
+            bool tileMerge = tile >= 0 && TileSetBool("BlockMergesWithMergeAllBlock", tile);
+            bool hook = it.shoot > 0 && StaticBoolArrayAt(typeof(Main), "projHook", it.shoot);
+            bool pet = it.shoot > 0 && StaticBoolArrayAt(typeof(Main), "projPet", it.shoot);
+            bool lightPet = it.shoot > 0 && ProjectileSetBool("LightPet", it.shoot);
+            return string.Join("\t", new object[]
+            {
+                "item", it.type, Tsv(en), Tsv(it.Name), it.createTile, it.createWall,
+                it.pick, it.axe, it.hammer, it.damage, it.maxStack,
+                it.headSlot, it.bodySlot, it.legSlot, it.waistSlot, it.accessory ? 1 : 0, it.wingSlot,
+                it.mountType, hook ? 1 : 0, pet ? 1 : 0, lightPet ? 1 : 0,
+                it.healLife, it.healMana, it.potion ? 1 : 0, it.ammo, it.useAmmo,
+                it.consumable ? 1 : 0, it.useStyle, it.shoot, it.buffType,
+                solid ? 1 : 0, solidTop ? 1 : 0, tileMerge ? 1 : 0,
+                -1, -1, -1, -1, -1,
+            });
+        }
+
         /// <summary>
-        /// Dump the engine constant tables to a TSV file so the knowledge base can be generated
-        /// instead of hand-typed. These numbers are program constants: the same id points at the
-        /// same object in every world, which is why they belong in the KB (user m05433).
-        ///
-        /// Two kinds of rows:
-        ///   tile/wall  → id + enum name (from the ID classes)
-        ///   item       → id + name + what it places + its tool/damage stats
-        /// Read-only with respect to the world; it only writes the file you name.
+        /// Dump engine constants and the fixed classification fields needed to decide what an
+        /// item, tile or NPC can do. The command only writes the requested TSV file.
         /// </summary>
         private static string IdMap(JsonElement p)
         {
@@ -2219,49 +2315,161 @@ namespace DshTerrariaBridge
 
             var lines = new List<string>
             {
-                "kind\tid\tenum\tname\tcreateTile\tcreateWall\tpick\taxe\thammer\tdamage\tmaxStack",
+                "kind\tid\tenum\tname\tcreateTile\tcreateWall\tpick\taxe\thammer\tdamage\tmaxStack\theadSlot\tbodySlot\tlegSlot\twaistSlot\taccessory\twingSlot\tmountType\thook\tpet\tlightPet\thealLife\thealMana\tpotion\tammo\tuseAmmo\tconsumable\tuseStyle\tshoot\tbuffType\tsolid\tsolidTop\ttileMerge\ttownNPC\tboss\tlifeMax\taiStyle\tcatchItem\tcritter",
             };
-            int tiles = 0, walls = 0, items = 0;
+            int tiles = 0, walls = 0, items = 0, npcs = 0;
 
             var tileT = typeof(Main).Assembly.GetType("Terraria.ID.TileID");
             if (tileT != null)
-                foreach (var f in tileT.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+                foreach (var f in tileT.GetFields(PublicStatic))
                 {
                     long id;
-                    try { id = Convert.ToInt64(f.GetRawConstantValue()); } catch { continue; }
-                    lines.Add("tile\t" + id + "\t" + f.Name + "\t" + f.Name + "\t-1\t-1\t0\t0\t0\t0\t0");
+                    try { if (!f.IsLiteral) continue; id = Convert.ToInt64(f.GetRawConstantValue()); } catch { continue; }
+                    int tid = (int)id;
+                    lines.Add(string.Join("\t", new object[]
+                    {
+                        "tile", id, f.Name, f.Name, -1, -1, 0, 0, 0, 0, 0,
+                        -1, -1, -1, -1, 0, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        StaticBoolArrayAt(typeof(Main), "tileSolid", tid) ? 1 : 0,
+                        StaticBoolArrayAt(typeof(Main), "tileSolidTop", tid) ? 1 : 0,
+                        TileSetBool("BlockMergesWithMergeAllBlock", tid) ? 1 : 0,
+                        -1, -1, -1, -1, -1, 0,
+                    }));
                     tiles++;
                 }
 
             var wallT = typeof(Main).Assembly.GetType("Terraria.ID.WallID");
             if (wallT != null)
-                foreach (var f in wallT.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+                foreach (var f in wallT.GetFields(PublicStatic))
                 {
                     long id;
-                    try { id = Convert.ToInt64(f.GetRawConstantValue()); } catch { continue; }
-                    lines.Add("wall\t" + id + "\t" + f.Name + "\t" + f.Name + "\t-1\t-1\t0\t0\t0\t0\t0");
+                    try { if (!f.IsLiteral) continue; id = Convert.ToInt64(f.GetRawConstantValue()); } catch { continue; }
+                    lines.Add(string.Join("\t", new object[]
+                    {
+                        "wall", id, f.Name, f.Name, -1, -1, 0, 0, 0, 0, 0,
+                        -1, -1, -1, -1, 0, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, -1, -1, -1, -1, -1, 0,
+                    }));
                     walls++;
                 }
 
-            // 物品行用游戏自己的原型表：名称、放置后变成哪个物块/墙、镐斧锤力、伤害、堆叠上限。
             foreach (var kv in ContentSamples.ItemsByType)
             {
                 Item it = kv.Value;
-                if (it == null || it.type <= 0) continue;
-                string nm = (it.Name ?? "").Replace('\t', ' ').Replace('\n', ' ').Trim();
-                if (nm.Length == 0) continue;
-                string en = "";
-                try { en = ItemID.Search.GetName(it.type) ?? ""; } catch { en = ""; }
-                if (en.Length == 0) en = nm;
-                lines.Add("item\t" + it.type + "\t" + en + "\t" + nm + "\t" + it.createTile + "\t" + it.createWall
-                          + "\t" + it.pick + "\t" + it.axe + "\t" + it.hammer + "\t" + it.damage
-                          + "\t" + it.maxStack);
+                if (it == null || it.type <= 0 || string.IsNullOrWhiteSpace(it.Name)) continue;
+                lines.Add(IdMapItemRow(it));
                 items++;
+            }
+
+            // NPC fixed attributes are exported from a disposable prototype. This is read-only
+            // and avoids learning static NPC facts by sending doomed commands to a live world.
+            for (int id = 1; id < NPCID.Count; id++)
+            {
+                try
+                {
+                    NPC n = new NPC();
+                    n.SetDefaults(id);
+                    if (n.type <= 0 || string.IsNullOrWhiteSpace(n.FullName)) continue;
+                    string en = EnumNameById(typeof(NPCID), id);
+                    if (en.Length == 0) en = n.FullName;
+                    lines.Add(string.Join("\t", new object[]
+                    {
+                        "npc", id, en, Tsv(n.FullName), -1, -1, 0, 0, 0, n.damage, 0,
+                        -1, -1, -1, -1, 0, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, n.townNPC ? 1 : 0, n.boss ? 1 : 0, n.lifeMax, n.aiStyle,
+                        n.catchItem, n.CountsAsACritter ? 1 : 0,
+                    }));
+                    npcs++;
+                }
+                catch { }
             }
 
             try { System.IO.File.WriteAllLines(path, lines); }
             catch (Exception ex) { return Json.Error("写不了 " + path + ": " + ex.Message); }
-            return Json.Ok(new { path, tiles, walls, items, rows = lines.Count - 1 });
+            return Json.Ok(new { path, tiles, walls, items, npcs, rows = lines.Count - 1, schema = "item/tile/wall/npc-v2" });
+        }
+
+        private static int ResolveItemType(string name)
+        {
+            if (int.TryParse(name, out int numeric)) return numeric;
+            foreach (var kv in ContentSamples.ItemsByType)
+            {
+                Item it = kv.Value;
+                if (it == null) continue;
+                string en = "";
+                try { en = ItemID.Search.GetName(it.type) ?? ""; } catch { }
+                if (string.Equals(en, name, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(it.Name, name, StringComparison.OrdinalIgnoreCase)) return it.type;
+            }
+            return -1;
+        }
+
+        private static string Props(JsonElement p)
+        {
+            string kind = (Json.Str(p, "kind", "") ?? "").Trim().ToLowerInvariant();
+            string name = (Json.Str(p, "name", "") ?? "").Trim();
+            int type = Json.Int(p, "type", -1);
+            if (type < 0 && name.Length > 0)
+            {
+                if (kind == "item") type = ResolveItemType(name);
+                else if (kind == "tile") type = EnumIdByName(typeof(TileID), name);
+                else if (kind == "wall") type = EnumIdByName(typeof(WallID), name);
+                else if (kind == "npc") type = EnumIdByName(typeof(NPCID), name);
+            }
+            if (kind == "item")
+            {
+                if (type <= 0 || !ContentSamples.ItemsByType.TryGetValue(type, out Item it) || it == null)
+                    return Json.Error("props item 找不到 type/name");
+                bool hook = it.shoot > 0 && StaticBoolArrayAt(typeof(Main), "projHook", it.shoot);
+                bool pet = it.shoot > 0 && StaticBoolArrayAt(typeof(Main), "projPet", it.shoot);
+                bool lightPet = it.shoot > 0 && ProjectileSetBool("LightPet", it.shoot);
+                return Json.Ok(new
+                {
+                    kind, type, enumName = ItemEnumName(type), name = it.Name,
+                    createTile = it.createTile, createWall = it.createWall,
+                    pick = it.pick, axe = it.axe, hammer = it.hammer, damage = it.damage, maxStack = it.maxStack,
+                    headSlot = it.headSlot, bodySlot = it.bodySlot, legSlot = it.legSlot, waistSlot = it.waistSlot,
+                    accessory = it.accessory, wingSlot = it.wingSlot, mountType = it.mountType,
+                    hook, pet, lightPet, shoot = it.shoot, buffType = it.buffType,
+                    healLife = it.healLife, healMana = it.healMana, potion = it.potion,
+                    ammo = it.ammo, useAmmo = it.useAmmo, consumable = it.consumable, useStyle = it.useStyle,
+                });
+            }
+            if (kind == "tile")
+            {
+                if (!ValidTileType(type)) return Json.Error("props tile 找不到 type/name");
+                return Json.Ok(new
+                {
+                    kind, type, enumName = TileID.Search.GetName(type),
+                    solid = StaticBoolArrayAt(typeof(Main), "tileSolid", type),
+                    solidTop = StaticBoolArrayAt(typeof(Main), "tileSolidTop", type),
+                    tileMerge = TileSetBool("BlockMergesWithMergeAllBlock", type),
+                    platform = TileSetBool("Platforms", type),
+                    rope = type == TileID.Rope,
+                });
+            }
+            if (kind == "wall")
+            {
+                if (type < 0 || type >= WallID.Count) return Json.Error("props wall 找不到 type/name");
+                return Json.Ok(new { kind, type, enumName = EnumNameById(typeof(WallID), type) });
+            }
+            if (kind == "npc")
+            {
+                if (!ValidNpcType(type)) return Json.Error("props npc 找不到 type/name");
+                try
+                {
+                    NPC n = new NPC();
+                    n.SetDefaults(type);
+                    return Json.Ok(new
+                    {
+                        kind, type, enumName = EnumNameById(typeof(NPCID), type), name = n.FullName,
+                        townNPC = n.townNPC, boss = n.boss, lifeMax = n.lifeMax, aiStyle = n.aiStyle,
+                        catchItem = n.catchItem, critter = n.CountsAsACritter,
+                    });
+                }
+                catch (Exception ex) { return Json.Error("props npc 初始化失败: " + ex.Message); }
+            }
+            return Json.Error("props 需要 kind=item|tile|wall|npc，并给 type 或 name");
         }
 
         /// <summary>
@@ -3981,8 +4189,23 @@ namespace DshTerrariaBridge
             int typeBefore = activeBefore ? pl.mount.Type : -1;
             if (action == "dismount")
             {
-                if (activeBefore) pl.mount.Dismount(pl);
-                return Json.Ok(new { action, activeBefore, typeBefore, activeAfter = pl.mount != null && pl.mount.Active });
+                if (!activeBefore)
+                    return Json.Ok(new { action, activeBefore, typeBefore, activeAfter = false, queued = false });
+
+                // 下坐骑也只发送原版快捷键；QuickMount() 会根据当前 mounted 状态
+                // 自己执行 Dismount。不要直接调用 mount.Dismount，这会绕过输入层。
+                ulong until = BridgeSystem.NowTick() + (ulong)Math.Max(2, Json.Int(p, "ticks", 12));
+                BridgeSystem.MountUntil = until;
+                BridgeSystem.MountFired = false;
+                return Json.Ok(new
+                {
+                    action,
+                    activeBefore,
+                    typeBefore,
+                    queued = true,
+                    untilTick = until,
+                    note = "已发送原版坐骑键下坐；等 untilTick 后回读 state.player.mounted / mountType",
+                });
             }
             // 快捷召唤：走原版坐骑键（controlMount），不是"掏出钥匙按左键"。
             // 装备格是 miscEquips[3]（mount），与抓钩的 miscEquips[4] 相邻。
@@ -3995,6 +4218,7 @@ namespace DshTerrariaBridge
                     return Json.Error("坐骑装备格（miscEquips[" + mslot + "]）里没有坐骑召唤物品");
                 ulong until = BridgeSystem.NowTick() + (ulong)Math.Max(2, Json.Int(p, "ticks", 12));
                 BridgeSystem.MountUntil = until;
+                BridgeSystem.MountFired = false;
                 return Json.Ok(new
                 {
                     action,
@@ -4909,6 +5133,52 @@ namespace DshTerrariaBridge
             if (string.IsNullOrWhiteSpace(text)) return Json.Error("chat 需要 text");
             Main.NewText(text, 255, 255, 255);
             return Json.Ok(new { sent = text });
+        }
+
+        /// <summary>
+        /// 批量把一段文本刷进本地聊天框，用来把长对话/日志搬进游戏里看。
+        /// 只追加 UI 聊天历史，不碰世界状态（不动 tile / 玩家 / NPC）。
+        /// 前缀决定颜色：`&gt;` 玩家、`&lt;` 助手、`~` 思考（灰）、`#` 标题、`!` 警告，其余白色。
+        /// 参数：text 或 path（二选一）、max（最多几行，默认 300，上限 500）、
+        /// maxLen（单行截断长度，默认 380）。
+        /// </summary>
+        private static string Dialog(JsonElement p)
+        {
+            string text = Json.Str(p, "text", "");
+            string path = Json.Str(p, "path", "");
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                try
+                {
+                    if (!System.IO.File.Exists(path)) return Json.Error("dialog 找不到文件: " + path);
+                    text = System.IO.File.ReadAllText(path);
+                }
+                catch (Exception ex) { return Json.Error("dialog 读文件失败: " + ex.Message); }
+            }
+            if (string.IsNullOrWhiteSpace(text)) return Json.Error("dialog 需要 text 或 path");
+
+            int max = Math.Clamp(Json.Int(p, "max", 300), 1, 500);
+            int maxLen = Math.Clamp(Json.Int(p, "maxLen", 380), 40, 400);
+            string[] raw = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+
+            int sent = 0, skipped = 0;
+            foreach (string line0 in raw)
+            {
+                if (sent >= max) break;
+                string line = line0.TrimEnd();
+                if (line.Trim().Length == 0) { skipped++; continue; }
+                if (line.Length > maxLen) line = line.Substring(0, maxLen - 3) + "...";
+                byte r = 255, g = 255, b = 255;
+                char lead = line.TrimStart()[0];
+                if (lead == '>') { r = 170; g = 255; b = 170; }
+                else if (lead == '<') { r = 150; g = 215; b = 255; }
+                else if (lead == '#') { r = 255; g = 215; b = 110; }
+                else if (lead == '!') { r = 255; g = 130; b = 130; }
+                else if (lead == '~') { r = 165; g = 170; b = 185; }
+                Main.NewText(line, r, g, b);
+                sent++;
+            }
+            return Json.Ok(new { total = raw.Length, sent, skipped, truncated = raw.Length > max });
         }
     }
 }

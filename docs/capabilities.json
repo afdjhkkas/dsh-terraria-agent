@@ -196,6 +196,21 @@
       "summary": ""
     },
     {
+      "name": "dialog",
+      "kind": "act",
+      "params": [
+        "text",
+        "path",
+        "max",
+        "maxLen"
+      ],
+      "returns": [
+        "total",
+        "truncated"
+      ],
+      "summary": ""
+    },
+    {
       "name": "drop",
       "kind": "act",
       "params": [
@@ -544,7 +559,8 @@
         "path"
       ],
       "returns": [
-        "rows"
+        "rows",
+        "schema"
       ],
       "summary": ""
     },
@@ -716,6 +732,9 @@
       ],
       "returns": [
         "activeAfter",
+        "queued",
+        "untilTick",
+        "note",
         "mountSlot",
         "mountItem",
         "held",
@@ -868,6 +887,54 @@
       "returns": [
         "count",
         "players"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "props",
+      "kind": "read",
+      "params": [
+        "kind",
+        "name",
+        "type"
+      ],
+      "returns": [
+        "enumName",
+        "name",
+        "createTile",
+        "createWall",
+        "pick",
+        "axe",
+        "hammer",
+        "damage",
+        "maxStack",
+        "headSlot",
+        "bodySlot",
+        "legSlot",
+        "waistSlot",
+        "accessory",
+        "wingSlot",
+        "mountType",
+        "shoot",
+        "buffType",
+        "healLife",
+        "healMana",
+        "potion",
+        "ammo",
+        "useAmmo",
+        "consumable",
+        "useStyle",
+        "solid",
+        "solidTop",
+        "tileMerge",
+        "platform",
+        "rope",
+        "townNPC",
+        "boss",
+        "lifeMax",
+        "aiStyle",
+        "catchItem",
+        "critter"
       ],
       "summary": ""
     },
@@ -1164,6 +1231,9 @@
         "prePhysicsUseTile",
         "postControlMount",
         "postReleaseMount",
+        "mountUntil",
+        "mountUntilLive",
+        "mountFired",
         "inputDiag",
         "guard",
         "attack",

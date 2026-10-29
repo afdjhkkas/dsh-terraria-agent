@@ -3,7 +3,7 @@
 > 本文件由 `node scripts/kb-sync.mjs` 从 `DshTerrariaBridge/Commands.cs` 与
 > `index.js` 生成。**不要手改**；要改就改代码再重新生成。
 
-## mod 桥命令（92 个）
+## mod 桥命令（94 个）
 
 | 命令 | 参数 |
 |---|---|
@@ -21,6 +21,7 @@
 | `chest` | `action` `slot` `count` `invSlot` |
 | `climb` | `dir` `ms` `tiles` |
 | `craft` | `item` `times` |
+| `dialog` | `text` `path` `max` `maxLen` |
 | `drop` | `slot` `count` |
 | `duplicate` | `item` `count` |
 | `equip` | `slot` |
@@ -66,6 +67,7 @@
 | `ping` | — |
 | `place` | `x` `y` `type` `ms` |
 | `players` | — |
+| `props` | `kind` `name` `type` |
 | `quest` | — |
 | `recipes` | `q` `limit` |
 | `reel` | `ms` |

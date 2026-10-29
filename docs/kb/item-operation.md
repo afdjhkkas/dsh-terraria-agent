@@ -42,6 +42,27 @@
 - **治疗类药水有共享冷却**：刚喝完再喝会失败，要等冷却结束。
 - **多格家具需要足够空间与正确支撑**（下方实心、上方留空），空间不够就是放不下。
 - **方块需要支撑或允许悬空**；悬空放置会失败，除非该方块本身允许。
+- **装备槽按品类分格，放错格子必然失败**：护甲只能在头部/上衣/裤腿三格，饰品在饰品格，
+  钩爪在钩爪格，坐骑、宠物各有专格。把武器、方块、材料塞进装备槽会被拒绝
+  （`equip` 会明确报「天顶剑 不是护甲」），这是品类校验，不是缺前置也不是 bug。
+  判断某物品能不能穿：看它有没有 `headSlot / bodySlot / legSlot`（护甲）或饰品标记，
+  有才进得去对应格子；**光看名字里的"剑/弓/甲"不算依据**。
+- **固定属性先查表，动态结果再进游戏闭环**：`idmap` 导出的 `headSlot/bodySlot/legSlot/waistSlot/accessory/wingSlot`
+  是装备分类；`mountType` 是坐骑类别（矿车还要用 `MountID.Sets.Cart` 区分）；`hook/pet/lightPet`
+  是抓钩、宠物、照明宠物的投射物分类。不要为了确认这些常量去发送一次必然失败的动作。
+- **杂项装备槽是五格且顺序固定**：`miscEquips[0]` 宠物、`[1]` 照明宠物、`[2]` 矿车、
+  `[3]` 坐骑、`[4]` 抓钩。矿车和坐骑都带 `mountType`，不能只看这个数就把矿车当普通坐骑；
+  必须用 `MountID.Sets.Cart` 再分一次。桥的 `inventory`/`props` 输出必须按这五类标记，避免槽位错位。
+- **只读 `props` 是判定入口**：
+  `{"cmd":"props","params":{"kind":"item","type":50}}` 查询物品固定字段；
+  `kind:"tile"` 查询 `solid/solidTop/tileMerge`；`kind:"npc"` 查询
+  `townNPC/boss/lifeMax/aiStyle/catchItem/critter`。数字 `type` 必须和 `kind` 一起传，
+  因为物品、物块、NPC 的编号空间彼此独立。
+- **消耗与使用分支看字段，不看名字**：`healLife/healMana/potion` 判断治疗/回魔/药水，
+  `ammo/useAmmo` 判断弹药匹配，`consumable` 判断是否消耗，`useStyle` 只说明使用分支。
+  最终是否成功仍要回读堆叠、生命、魔力或世界状态。
+- **弹药栏是独立的四格**：原版使用需要弹药的武器时，会优先从弹药栏再查主背包；
+  因此“主背包没箭”不能推出“没有箭”，`inventory` 必须同时读 `slot 54..57` 的特殊栏。
 - **不可逆操作要慎重**：拆掉承重结构会让上方整体掉落/塌方，爆炸物会连带毁掉周边。
 - **消耗品和挥动类是两条使用分支**：镐斧锤剑弓与投掷物靠"起手动画"驱动，而生命水晶、药水、召唤物要求使用瞬间动画为 0 才会走"吃掉并生效"。给消耗品强行播动画＝永久的空挥：命令回 ok、物品还在、上限/血量一点没涨。判断依据很简单——回读前后对比物品数量与属性，没变就是没吃到。
 - **"用了"必须由回读证明**：消耗品看堆叠数减没减、生命水晶看生命上限涨没涨（+20/颗，上限 200），药水看血量与冷却。只看命令返回 ok 会漏掉上面那条分支错误。
@@ -86,8 +107,22 @@
 桥的命令收的是**数字 id**（`place` 的 `type` 是物块 id，`craft` 的是产物物品 id，
 `find` 的是物块 id），名字只给人看，不能直接填。
 
-完整对照表在 [_generated-ids.md](_generated-ids.md)（5513 物品 / 693 物块 / 347 墙，
-从游戏导出后生成）。手上最常用的一小撮：
+完整对照表在 [_generated-ids.md](_generated-ids.md)；它由游戏内 `idmap` 导出后生成，
+包含物品、物块、墙，并在下一次导出后包含 NPC 固定属性。手上最常用的一小撮：
+
+`idmap` 的 TSV 还包含固定判定字段；重新导出游戏表后用 `npm run kb:ids -- --tsv <ids.tsv>`
+生成附录。生成器会向后兼容旧的 11 列 TSV，因此旧导出仍能读取，但旧文件不会凭空出现新字段。
+
+| 对象 | 字段 | 规则 |
+|---|---|---|
+| 物品 | `createTile/createWall` | 使用后对应的物块/墙类型；放置成功必须回读该类型 |
+| 物品 | `headSlot/bodySlot/legSlot/waistSlot` | ≥ 0 表示对应装备部位 |
+| 物品 | `accessory/wingSlot` | 饰品与翅膀分类 |
+| 物品 | `mountType/hook/pet/lightPet` | 坐骑、抓钩、宠物、照明宠物分类 |
+| 物品 | `healLife/healMana/potion/ammo/useAmmo` | 治疗、回魔、药水、弹药与消耗匹配 |
+| 物品 | `consumable/useStyle` | 消耗与使用分支 |
+| 物块 | `solid/solidTop/tileMerge` | 实心、平台型、合并规则 |
+| NPC | `townNPC/boss/lifeMax/aiStyle/catchItem/critter` | 城镇、Boss、生命、AI、捕捉和小动物判定 |
 
 | 用途 | 物品 | 物品 ID | 放置后物块 ID |
 |---|---|---|---|
