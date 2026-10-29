@@ -688,7 +688,13 @@ namespace DshTerrariaBridge
             // 它们必须直接参与判断，不能躲在 triggers 后面。
             player.controlUp |= IntentUp || UpUntil > now || ClimbUpUntil > now;
             player.controlDown |= IntentDown || DownUntil > now || ClimbDownUntil > now;
-            player.controlJump |= IntentJump || (triggers.Jump && JumpUntil > now);
+            // jump 与上下同一个病：triggers.Jump 只有键盘真的按住才为真。桥发的跳跃意图全部落在
+            // JumpUntil 这个时间窗里，躲在 triggers 后面就等于"后台控制时 controlJump 恒 false"。
+            // 实测证据（同一存档、同一命令、只换脚下地形）：
+            //   站在实心方块上 fly 能一路升 22 格，因为那一次 ApplyMovement 还没跑过、IntentJump 还在；
+            //   站在 type 19 木平台上 fly/jump 全部 velY:0、jumped:false，
+            //   因为 ApplyMovement 开头（2069）已经把 IntentJump 清掉，只剩被 triggers 短路的那一半。
+            player.controlJump |= IntentJump || JumpUntil > now;
             // 诊断：只在这个函数返回前把 control 的当帧值记下来。命令线程读到 control* 时
             // Player.Update 早已跑完、原版已经重置，所以 humaninput 里的 control 不能当证据。
             DbgFlagsTick = (long)now;

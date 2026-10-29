@@ -492,7 +492,7 @@ Error: 拒绝在出生点 4198,485 附近 100 格内挖（起点 4198,484，终�
 - 下次验的三种办法（任选一）：①新建一个平坦世界，NPC 站同一层开阔处；②先把竖井挖成 **≥2 格宽**（玩家碰撞箱 1.25 格，1 格塞不进）；③用 `platform`/`place` 在走廊里垫一条到 457.8 层的台阶。
 - **这条写进用例库的话**：`N04`/`F04` 的"点对话选项交付任务"仍标 **待验证（环境不足）**，不要标通过。
 
-## 缺陷 17（新，未修）：**站在木平台（type 19）上，`fly` 与 `jump` 都起不来**
+## 缺陷 17（**已修，已验证**）：**站在木平台（type 19）上，`fly` 与 `jump` 都起不来**
 
 同一份存档、同一个角色、同一条命令，脚下是**实心方块**和脚下是**平台**的结果完全相反：
 
@@ -515,3 +515,40 @@ Error: 拒绝在出生点 4198,485 附近 100 格内挖（起点 4198,484，终�
 **下次修的时候先看这三处**：`BridgeSystem.cs:1990`（`MovementAppliedTick` 早退）、
 `BridgeSystem.cs:2622-2630`（`BeginJump` 只写三个字段）、`ApplyNativeControlFlags`（`BridgeSystem.cs:616`）
 里 `IntentJump` 有没有在写进 `controlJump` 之后被同一个 tick 清掉。**对照实验**：站在实心方块上跑同一条 `fly`。
+
+### 根因（一行）
+
+`BridgeSystem.cs:691`：
+
+```csharp
+// 改前
+player.controlJump |= IntentJump || (triggers.Jump && JumpUntil > now);
+// 改后
+player.controlJump |= IntentJump || JumpUntil > now;
+```
+
+`ApplyMovement` 开头（`BridgeSystem.cs:2067-2069`）就在清意图：
+
+```csharp
+if (MovementAppliedTick == Now) return;
+MovementAppliedTick = Now;
+IntentLeft = IntentRight = IntentUp = IntentDown = IntentJump = false;   // ← 这里
+```
+
+于是 `controlJump` 那一行里的 `IntentJump` **在大部分帧里已经是 false**，只剩
+`triggers.Jump && JumpUntil > now` —— 而 `triggers.Jump` 只有键盘真的按住才为真，
+后台控制恒为 false。**所以起跳只在那一次"ApplyMovement 还没跑过、IntentJump 还在"的凑巧时机成功**
+（第一次 fly 升 22 格就是这么来的，之后每次都失败）。
+
+同一段代码里 up/down 那两行（`BridgeSystem.cs:689-690`）早就写成 `IntentUp || UpUntil > now`
+并附了注释「不能躲在 triggers 后面」—— **jump 这一行当时漏改了**。
+
+### 修复后的验证（18:20 打包，真机）
+
+| 步骤 | 脚下 | 结果 |
+|---|---|---|
+| `fly {"ms":900}` | y=486 实心地面 | 484.7 → **462.7**（+22）✓ |
+| `fly {"ms":800}` | y=464 **type 19 平台** | 462.7 → **441.7**（+21）✓ ← 修复前这一步每次都 `velY:0` |
+| `fly {"ms":700}` | 441.7 | 不动（头顶 y=443 楼板挡住，属正常碰撞） |
+
+**同一个"站平台上再飞一次"的动作，修复前 5 次全失败、修复后第一次就成功。**
