@@ -1639,3 +1639,50 @@ Error: 拒绝在出生点 4198,485 附近 100 格内挖（起点 4198,484，终�
 **教训：默认值比实现更容易出事。** 这三条的实现逻辑都没写错，出事的全是"没传参数"那一次。
 会毁东西的参数，默认值必须是**最小的那一个**；有保护圈的逻辑，保护要按**位置**判，不能按**方向**判
 （"向下挖会掉进坑"是现象，不是边界 —— 水平挖同样能把出生点掀了）。
+
+### 第 195 轮（再续）：一行 `||` 让翅膀在平台上永远打不开
+
+进游戏实测 91 条命令的过程中，`fly` 的表现自相矛盾：从出生点（脚下是实心土）能一路升 22 格，
+落到基地走廊（脚下是 type 19 木平台）之后，`fly`、`jump`、`move up` **全部一格不动**，
+连"把头顶两格挖开"也救不回来。
+
+先按 §7.45 的规矩把现象钉死：同一角色、同一命令、只换脚下地形 → 结果相反，所以不是翅膀、
+不是头顶空间、不是意图没写进去。然后读代码找"同族命令的差异"：
+
+```
+BridgeSystem.cs:689  player.controlUp   |= IntentUp   || UpUntil   > now || ClimbUpUntil > now;
+BridgeSystem.cs:690  player.controlDown |= IntentDown || DownUntil > now || ClimbDownUntil > now;
+BridgeSystem.cs:691  player.controlJump |= IntentJump || (triggers.Jump && JumpUntil > now);   ← 就它多一层
+```
+
+689/690 上面还留着上一轮写的注释："上下不能只靠 triggers …… 它们必须直接参与判断，
+不能躲在 triggers 后面。" —— **jump 这行当时漏改了**。
+
+再看意图是怎么没的：`ApplyMovement` 开头（`2067-2069`）
+
+```csharp
+if (MovementAppliedTick == Now) return;
+MovementAppliedTick = Now;
+IntentLeft = IntentRight = IntentUp = IntentDown = IntentJump = false;
+```
+
+`IntentJump` 在大部分帧里到这里就被清成 false，只剩 `triggers.Jump && JumpUntil > now`。
+后台控制没有真键盘 → `triggers.Jump` 恒 false → `controlJump` 恒 false。
+
+**这解释了那个"偶尔能成"的假象**：第一次 `fly` 之所以成功，是因为那一次 `ApplyMovement`
+还没跑过、`IntentJump` 还在，凑巧走通了；之后每一帧都走不通。**一条命令时好时坏，
+先怀疑"时序窗口"而不是"地形巧合"。**
+
+改一行，重新编译打包（203938），重启进世界实测：
+
+| 步骤 | 脚下 | 结果 |
+|---|---|---|
+| `fly {"ms":900}` | y=486 实心 | 484.7 → 462.7（+22）✓ |
+| `fly {"ms":800}` | y=464 **type 19 平台** | 462.7 → **441.7**（+21）✓ |
+| `fly {"ms":700}` | 441.7 | 不动（头顶 y=443 楼板，正常碰撞） |
+
+修复前第二步连试 5 次全失败，修复后第一次就成。
+
+**教训**：`triggers.*` 是"真键盘按住了吗"，桥发的意图全在 `*Until` 时间窗里 —— 凡是
+`control* |= ... && triggers.X && ...` 这种把时间窗藏到 triggers 后面的写法，在后台控制下
+等于永远不生效。全部命令过一遍，别让同族里剩下的那一行继续留着。
