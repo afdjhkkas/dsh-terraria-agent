@@ -334,8 +334,8 @@ api {type:"Terraria.Player", member:"controlHook"} → "field | Boolean controlH
 
 标记必须**独占一行**；写在句子中间不算数，工具会报 `nearMiss` 让上层重写一行再来。
 
-十三个标签与加载顺序：
-`safety_limit` → `game_rule` → `world_biome` → `progression_boss` → `gear_route` → `combat_math` → `loot_source` → `npc_town` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。
+十四个标签与加载顺序：
+`safety_limit` → `game_rule` → `world_biome` → `progression_boss` → `gear_route` → `abilities` → `combat_math` → `loot_source` → `npc_town` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。
 
 | 标签 | 库 | 管什么 |
 |---|---|---|
@@ -345,6 +345,7 @@ api {type:"Terraria.Player", member:"controlHook"} → "field | Boolean controlH
 | `progression_boss` | `progression-boss.md` | 进程骨牌、首领召唤与前置、祭坛、困难模式、战前准备 |
 | `combat_math` | `combat-math.md` | 伤害结算、防御减法、暴击/无敌帧、穿透、减益、幸运 |
 | `gear_route` | `gear-route.md` | 镐力门槛、矿石阶梯、护甲三件与职业分支、四条武器线、机动性、词条、药水 |
+| `abilities` | `abilities.md` | 当前能力门槛、连续移动 profile、闭环动作、可达性标定、失效与重标 |
 | `loot_source` | `loot-source.md` | 容器与掉落、钓鱼板条箱、首领掉落、商店幸福度、转化回收 |
 | `npc_town` | `npc-town.md` | 入住两条件、各 NPC 出现条件、幸福度三因素、传送水晶、商店价格 |
 | `build_standard` | `build-standard.md` | 房屋/平台/农场/竖井/隧道的通用建造规范 |

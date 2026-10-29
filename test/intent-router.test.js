@@ -37,12 +37,12 @@ function expectedRows() {
   return rows
 }
 
-test('分类器 Prompt 存在且覆盖全部十三个标签', () => {
+test('分类器 Prompt 存在且覆盖全部十四个标签', () => {
   assert.ok(ROUTER_PROMPT_PATH.endsWith('intent-router.md'))
   for (const tag of Object.keys(LIBRARIES)) {
     assert.match(ROUTER_PROMPT, new RegExp('`' + tag + '`'), `Prompt 里缺标签 ${tag}`)
   }
-  assert.equal(TAGS.length, 13)
+  assert.equal(TAGS.length, 14)
 })
 
 test('Prompt 咬死“只输出标签”和固定顺序', () => {
@@ -113,6 +113,8 @@ test('离线兜底：每句话至少命中它的一个核心标签，且永远�
     // m18346：自建房的进出方式（门/屋顶平台口），不许靠拆墙
     ['我被困在自己房子里出不去，要拆墙吗', 'build_standard'],
     ['屋顶留两格平台当出口', 'build_standard'],
+    ['换了装备后，怎么判断现在能做什么动作', 'abilities'],
+    ['这个坑跳得过去吗', 'abilities'],
   ]
   for (const [text, want] of core) {
     const { tags } = route(text)

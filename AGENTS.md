@@ -222,7 +222,7 @@ grep -n "Main\.tile\[[^]]*\]\.\(type\|wall\|active\) *=" DshTerrariaBridge/*.cs
 
 1. **永远先读** `docs/kb/safety-limit.md`（禁令 / 范围 / 边界 / 确认），不参与判定。
 2. 收到玩家指令，**第一行先写标记**（独占一行，只写一次）：
-   `NEED_KNOWLEDGE:标签1,标签2`，标签取自下文十三个，可多选。
+   `NEED_KNOWLEDGE:标签1,标签2`，标签取自下文十四个，可多选。
    system prompt 原文：`prompts/self-route.md`（`node scripts/route.mjs --system` 可取）。
    细则：动手改世界/动身体必带 `atomic_action` 或 `actor_behavior`；危险或大范围动土必带 `safety_limit`；
    玩家在纠正我必带 `task_correct`。
@@ -279,7 +279,7 @@ grep -n "Main\.tile\[[^]]*\]\.\(type\|wall\|active\) *=" DshTerrariaBridge/*.cs
    所以 `begin` 会把原始目标没命中的分类记进 `pending`，后续每轮补查一批（`SWEEP_PER_ROUND`）；
    `pending` 没清空前，答案只能是 `retry`（"还有分类没查过，不能判做不到"），不能是 `give-up`。
 
-分类体系不变（仍是十三个库），只是**检索的输入主体不能被中途冒出的新问题顶替**。
+分类体系不变（仍是十四个库），只是**检索的输入主体不能被中途冒出的新问题顶替**。
 
 ### 入库校验（往知识库写任何东西之前必答）
 

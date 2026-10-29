@@ -57,6 +57,7 @@ test('标签常量不被手改坏', () => {
     'world_biome',
     'progression_boss',
     'gear_route',
+    'abilities',
     'combat_math',
     'loot_source',
     'npc_town',

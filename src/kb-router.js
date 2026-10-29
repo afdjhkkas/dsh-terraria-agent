@@ -24,6 +24,7 @@ export const LIBRARIES = {
   world_biome: 'world-biome.md',
   progression_boss: 'progression-boss.md',
   gear_route: 'gear-route.md',
+  abilities: 'abilities.md',
   combat_math: 'combat-math.md',
   loot_source: 'loot-source.md',
   npc_town: 'npc-town.md',
@@ -187,7 +188,7 @@ const KEYWORDS = {
   ],
   actor_behavior: [
     '走', '跑', '跳', '挖', '砍', '打', '攻击', '射', '放', '捡', '拾取', '喝',
-    '说话', '对话', '买', '卖', '商店', '爬', '移动', '撤退', '躲',
+    '说话', '对话', '买', '卖', '商店', '爬', '爬绳', '按上键', '上方向键', '移动', '撤退', '躲',
   ],
   atomic_action: [
     '原子动作', '动作', '操作步骤', '先后顺序', '先做什么', '执行', '判定', '算不算成功',
@@ -200,6 +201,7 @@ const KEYWORDS = {
     '按键输入', '跳跃键', '右键交互', '输入层', 'humaninput.control', 'control位', '当帧控制位',
     'flagLeft', 'flagRight', 'flagUp', 'flagDown', 'flagJump', '脚底绳', '真实绳格', '脱绳', '挂绳',
     'GameViewMatrix', 'MouseWorld', '鼠标世界坐标', '瞄准坐标', '缩放逆变换', '抓钩坐标',
+    '方向键输入', '按键输入', '上方向键', '向上按键', 'controlUp', '爬绳',
   ],
   task_correct: [
     '不是', '别', '不要', '错了', '又', '听不懂', '我说过', '上次', '纠正', '重新',
@@ -217,6 +219,15 @@ const KEYWORDS = {
     '护腿', '武器线', '近战', '远程', '魔法', '召唤', '饰品', '词条', '重铸',
     '前缀', '机动性', '翅膀', '靴子', '二段跳', '进阶', '该做什么装备', '下一步装备',
   , '做镐', '做把镐', '铁镐', '铜镐', '升级镐', '做武器', '做防具', '穿什么', '装备路线'],
+  abilities: [
+    '能力', '能力指纹', '能力画像', '现在能做什么', '能不能飞', '飞行能力', '二段跳',
+    '跳跃次数', '冲刺', '冲刺能力', '水上行走', '水上走', '岩浆行走', '火走', '免摔伤',
+    '摔伤免疫', '抓钩能力', '照明能力', '光源能力', '生物探测', '危险探测', '宝藏探测',
+    '可达性', '能跳过', '跳得过', '跳不过', '跨坑', '跳墙', '能到达', '闭环动作', '动作闭环',
+    '动作标定', '重新标定', '重标', '失效', '移速加成', '跑速', '跳跃高度', '跳跃 profile',
+    '移动 profile', 'mobility profile', 'maxRunSpeed', 'jumpSpeedBoost', 'doubleJumpAvailable',
+    'canDash', 'canWalkOnWater', 'immuneFallDamage',
+  ],
 }
 
 const SCORE_STRONG = 3 // 明确的技术词
@@ -251,6 +262,7 @@ const STRONG = new Set([
   ...KEYWORDS.gear_route.filter(
     (w) => !['装备', '武器线', '翅膀', '靴子', '召唤', '魔法', '远程', '近战'].includes(w),
   ),
+  ...KEYWORDS.abilities,
   // 建造类明确词：房子/建/造/盖/搭 直接指向"怎么盖、要多大"，不是泛用动作
   '房', '房子', '建', '造', '盖', '搭', '屋',
   '镐', '斧', '锤', '物品', '道具', '工具', '装备', '武器', '弓', '箭', '弹药',

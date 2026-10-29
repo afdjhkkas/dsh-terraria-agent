@@ -6,7 +6,7 @@ import {
   loadSelfRoutePrompt, buildContext, LIBRARIES,
 } from '../src/kb-router.js'
 
-test('单轮自路由：system prompt 能取到，且七个标签都在里面', () => {
+test('单轮自路由：system prompt 能取到，且全部已注册标签都在里面', () => {
   const p = loadSelfRoutePrompt()
   assert.ok(p.includes(NEED_MARKER), 'system prompt 必须写明标记格式')
   for (const t of TAGS) assert.ok(p.includes(t), `system prompt 缺标签 ${t}`)
