@@ -539,6 +539,11 @@ namespace DshTerrariaBridge
                     chatRelease = BridgeSystem.DbgTalkChatRelease,
                     finalMouseX = BridgeSystem.DbgTalkFinalMouseX,
                     finalMouseY = BridgeSystem.DbgTalkFinalMouseY,
+                    rawMouseX = BridgeSystem.DbgTalkRawMouseX,
+                    rawMouseY = BridgeSystem.DbgTalkRawMouseY,
+                    screenX = BridgeSystem.DbgTalkScreenX,
+                    screenY = BridgeSystem.DbgTalkScreenY,
+                    zoom = BridgeSystem.DbgTalkZoom,
                 };
                 data["world"] = new
                 {

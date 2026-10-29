@@ -17,6 +17,7 @@ using Terraria.ID;
 using Terraria.Localization;
 using Terraria.GameInput;
 using Terraria.ModLoader;
+using Terraria.UI;
 using Microsoft.Xna.Framework;
 
 namespace DshTerrariaBridge
@@ -475,37 +476,33 @@ namespace DshTerrariaBridge
             DbgHookScreenY = Main.screenPosition.Y;
         }
 
-        /// <summary>NPC interaction uses the final, already zoom-converted screen point.</summary>
-        private static void ApplyTalkAimAfterZoom()
+        private static void ApplyTalkAimBeforeZoom()
         {
             if (TalkTargetNpc < 0 || TalkUntil <= Main.GameUpdateCount) return;
+            ApplyWorldAimBeforeZoom(TalkAimWorld);
             float finalX = TalkAimWorld.X - Main.screenPosition.X;
             float finalY = TalkAimWorld.Y - Main.screenPosition.Y;
             Player p = Main.LocalPlayer;
             if (p != null && p.gravDir == -1f)
                 finalY = Main.screenHeight - finalY;
-            Main.mouseX = (int)MathF.Round(finalX);
-            Main.mouseY = (int)MathF.Round(finalY);
-            DbgTalkFinalMouseX = Main.mouseX;
-            DbgTalkFinalMouseY = Main.mouseY;
-        }
-
-        private static void ApplyTalkAimBeforeZoom()
-        {
-            if (TalkTargetNpc < 0 || TalkUntil <= Main.GameUpdateCount) return;
-            ApplyWorldAimBeforeZoom(TalkAimWorld);
+            DbgTalkFinalMouseX = (int)MathF.Round(finalX);
+            DbgTalkFinalMouseY = (int)MathF.Round(finalY);
+            DbgTalkRawMouseX = Main.mouseX;
+            DbgTalkRawMouseY = Main.mouseY;
+            DbgTalkScreenX = Main.screenPosition.X;
+            DbgTalkScreenY = Main.screenPosition.Y;
+            DbgTalkZoom = Main.GameViewMatrix != null ? Main.GameViewMatrix.Zoom.X : 1f;
         }
 
         /// <summary>
-        /// Keep one released frame before the synthetic right click.  Vanilla updates
-        /// npcChatRelease from Main.mouseRight in the interface pass; this gives the
-        /// original HoverOverNPCs path the same press edge as a real mouse click.
+        /// Finish or expire a pending talk request.  The actual mouse state is supplied
+        /// by ApplyTalkInputBeforeMouseOver, immediately before vanilla DrawMouseOver.
         /// </summary>
         private static void ApplyTalkInputAfterZoom()
         {
-            ulong now = Main.GameUpdateCount;
             if (TalkTargetNpc < 0) return;
 
+            ulong now = Main.GameUpdateCount;
             Player p = Main.LocalPlayer;
             if (p != null && p.talkNPC == TalkTargetNpc && !string.IsNullOrWhiteSpace(Main.npcChatText))
             {
@@ -530,23 +527,55 @@ namespace DshTerrariaBridge
                 Main.mouseRightRelease = true;
                 return;
             }
+        }
 
-            ApplyTalkAimAfterZoom();
+        /// <summary>
+        /// Run in the interface layer immediately before vanilla's "Mouse Over" layer.
+        /// DrawMouseOver itself calls SetZoom_Unscaled/SetZoom_MouseInWorld and then
+        /// HoverOverNPCs.  Seeding the private raw mouse cache here makes that vanilla
+        /// conversion use the current camera position, rather than the camera from
+        /// PostUpdateInput earlier in the tick.
+        /// </summary>
+        private static bool ApplyTalkInputBeforeMouseOver()
+        {
+            if (TalkTargetNpc < 0) return true;
+            ulong now = Main.GameUpdateCount;
+            if (TalkUntil <= now) return true;
+
+            // DrawInterface starts in UI zoom. Restore the original screen dimensions
+            // before calculating the raw input that DrawMouseOver will convert.
+            try { PlayerInput.SetZoom_Unscaled(); } catch { }
+            ApplyTalkAimBeforeZoom();
+
             if (TalkPhase == 1)
             {
-                // Release/arming frame.  DrawInterface_41 will publish npcChatRelease=true.
+                // Release/arming frame. DrawInterface_41 will publish npcChatRelease=true
+                // after this layer, so the next frame has a real right-button edge.
                 Main.mouseRight = false;
                 Main.mouseRightRelease = true;
                 TalkPhase = 2;
-                return;
             }
+            else
+            {
+                // Press frame. HoverOverNPCs consumes mouseRight && npcChatRelease and
+                // performs the complete vanilla conversation setup.
+                Main.mouseRight = true;
+                Main.mouseRightRelease = true;
+                DbgTalkMouseRight = true;
+                DbgTalkChatRelease = Main.npcChatRelease;
+            }
+            return true;
+        }
 
-            // Press frame(s). HoverOverNPCs consumes mouseRight && npcChatRelease and
-            // performs the complete vanilla conversation setup.
-            Main.mouseRight = true;
-            Main.mouseRightRelease = true;
-            DbgTalkMouseRight = true;
-            DbgTalkChatRelease = Main.npcChatRelease;
+        public override void ModifyInterfaceLayers(List<GameInterfaceLayer> layers)
+        {
+            if (Main.dedServ) return;
+            int mouseOver = layers.FindIndex(layer => layer.Name == "Vanilla: Mouse Over");
+            if (mouseOver < 0) return;
+            layers.Insert(mouseOver, new LegacyGameInterfaceLayer(
+                "DshTerrariaBridge: Talk Input",
+                ApplyTalkInputBeforeMouseOver,
+                InterfaceScaleType.Game));
         }
 
         /// <summary>
@@ -3010,6 +3039,8 @@ namespace DshTerrariaBridge
         internal static volatile int TalkPhase; // 0=idle, 1=release/arm, 2=press
         internal static volatile bool DbgTalkMouseRight, DbgTalkChatRelease;
         internal static volatile int DbgTalkFinalMouseX, DbgTalkFinalMouseY;
+        internal static volatile int DbgTalkRawMouseX, DbgTalkRawMouseY;
+        internal static volatile float DbgTalkScreenX, DbgTalkScreenY, DbgTalkZoom;
         internal static ulong AttackUntil, AttackNextTick;
         internal static volatile int AttackTarget = -1, AttackRadius = 40, AttackIntervalTicks = 10;
         internal static volatile bool AttackAutoTarget, AttackFinished, AttackFinishedCleanly, AttackKilled, AttackBlockedByTerrain, JumpIssued;

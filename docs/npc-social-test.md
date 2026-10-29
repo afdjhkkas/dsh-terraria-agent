@@ -12,7 +12,9 @@
 
 ## 失败排查
 
-- `talkInput.finalMouseX/finalMouseY`：桥在最终缩放阶段写入的准星位置。
+- `talkInput.finalMouseX/finalMouseY`：按当前相机换算出的最终游戏屏幕坐标。
+- `talkInput.rawMouseX/rawMouseY`：交给 `PlayerInput.SetZoom_MouseInWorld` 的原始坐标。
+- `talkInput.screenX/screenY/zoom`：这次命中计算使用的相机位置和世界缩放。
 - `npcChatRelease`：原版右键边沿状态。
 - `talkInput.phase`：先释放一帧，再发送按下边沿，避免沿用上一轮右键状态。
-- 如果台词为空，先读 `state.mouseTile` 和 `state.talkInput`，确认准星和输入边沿，再检查 NPC 是否仍在附近。
+- 如果台词为空，先读 `state.mouseTile` 和 `state.talkInput`，确认最终鼠标世界格落在 NPC 碰撞框内，再检查 NPC 是否仍在附近。
