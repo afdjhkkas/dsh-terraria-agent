@@ -199,6 +199,7 @@ const KEYWORDS = {
     '参数没生效', '报文', '协议格式', '两级结构', '真实输入', '原生输入', '真操作',
     '按键输入', '跳跃键', '右键交互', '输入层', 'humaninput.control', 'control位', '当帧控制位',
     'flagLeft', 'flagRight', 'flagUp', 'flagDown', 'flagJump', '脚底绳', '真实绳格', '脱绳', '挂绳',
+    'GameViewMatrix', 'MouseWorld', '鼠标世界坐标', '瞄准坐标', '缩放逆变换', '抓钩坐标',
   ],
   task_correct: [
     '不是', '别', '不要', '错了', '又', '听不懂', '我说过', '上次', '纠正', '重新',

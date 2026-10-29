@@ -23,12 +23,12 @@
 | `frostmoon` | — |
 | `help` | — |
 | `hook` | — |
-| `hookdebug` | `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `mouseWorldTile` |
+| `hookdebug` | `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `grapplingAll` `misc4Shoot` `projHook646` `mouseWorldTile` |
 | `housediag` | `x` `y` `tiles` `box` |
 | `housing` | `townNPCs` |
 | `humaninput` | `inWorld` `tick` `paused` `focus` `playerIndex` `inputDiag` `control` `left` `right` `up` `down` `jump` `useItem` `useTile` `grapple` `mount` |
 | `idmap` | `rows` |
-| `inventory` | `selected` `count` `free` `freeMain` `freeAll` `items` `special` `coinSlots` `ammoSlots` `trashSlot` `equipment` `canFly` |
+| `inventory` | `selected` `count` `free` `freeMain` `freeAll` `items` `special` `coinSlots` `ammoSlots` `trashSlot` `equipment` `miscEquips` `canFly` |
 | `items` | `count` `items` |
 | `keyevents` | `lastTick` `count` `time` `stride` |
 | `map` | `mapWidth` `mapHeight` `sampled` `revealedPercent` `explored` |
@@ -58,7 +58,7 @@
 | `walkdiff` | `dual` `newRule` `newPriority` `newKind` `oldRule` `oldKind` `same` |
 | `walkmode` | `useNew` `reactive` `dual` |
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
-| `down` | `untilTick` `tick` `inputOnly` `note` `native` `compatibilityNativeFalse` `tiles` `from` `slot` `held` `interact` `method` `off` `radius` `hostileInRange` `weaponSlot` `weapon` `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `mouseWorldTile` `grapCountBefore` `proj` `equipped` `hasWings` `wingTimeMax` `wingTime` `velY` `hint` `activeAfter` `action` `active` `type` `flight` `items` `slots` `follow` `target` `targetIndex` `guard` `range` `dist` `idle` `count` `players` `attacking` `who` `selected` `free` `freeMain` `freeAll` `special` `coinSlots` `ammoSlots` `trashSlot` `equipment` `canFly` `item` `name` `reason` `perCraft` `groupsUsed` `npcs` |
+| `down` | `untilTick` `tick` `inputOnly` `note` `native` `compatibilityNativeFalse` `tiles` `from` `slot` `held` `interact` `method` `off` `radius` `hostileInRange` `weaponSlot` `weapon` `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `grapplingAll` `misc4Shoot` `projHook646` `mouseWorldTile` `grapCountBefore` `proj` `equipped` `hasWings` `wingTimeMax` `wingTime` `velY` `hint` `activeAfter` `action` `active` `type` `flight` `items` `slots` `follow` `target` `targetIndex` `guard` `range` `dist` `idle` `count` `players` `attacking` `who` `selected` `free` `freeMain` `freeAll` `special` `coinSlots` `ammoSlots` `trashSlot` `equipment` `miscEquips` `canFly` `item` `name` `reason` `perCraft` `groupsUsed` `npcs` |
 | `guard` | `off` `note` `untilTick` `radius` `hostileInRange` `weaponSlot` `weapon` |
 | `mount` | `activeAfter` `held` `action` `active` `type` `flight` `items` |
 

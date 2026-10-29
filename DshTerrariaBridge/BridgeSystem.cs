@@ -374,6 +374,78 @@ namespace DshTerrariaBridge
         }
 
         /// <summary>
+        /// Feed a hook target into the same pre-zoom mouse path that vanilla uses.
+        /// Do not use `target - screenPosition` here: DoUpdate_HandleInput calls
+        /// SetZoom_Unscaled/CacheMousePositionForZoom/SetZoom_MouseInWorld after
+        /// PostUpdateInput, and that chain rebuilds Main.mouseX/Y from the private
+        /// original mouse coordinates.  The inverse of vanilla's formula is:
+        ///
+        ///   final = halfScreen + (raw - halfScreen) / zoom
+        ///   raw   = halfScreen + (final - halfScreen) * zoom
+        ///
+        /// This only supplies mouse input.  Projectile creation and grappling remain
+        /// entirely in Player.QuickGrapple.
+        /// </summary>
+        private static void ApplyHookAimBeforeZoom()
+        {
+            ulong now = Main.GameUpdateCount;
+            if (!HookHeld || HookUntil <= now) return;
+
+            float zoom = Main.GameViewMatrix != null ? Main.GameViewMatrix.Zoom.X : 1f;
+            if (!float.IsFinite(zoom) || zoom <= 0f) zoom = 1f;
+
+            float finalX = HookAimWorld.X - Main.screenPosition.X;
+            float finalY = HookAimWorld.Y - Main.screenPosition.Y;
+            Player p = Main.LocalPlayer;
+            // Main.MouseWorld mirrors the vanilla gravDir=-1 conversion.  Solve for
+            // the pre-conversion screen Y so upside-down gravity aims at the same world
+            // point as normal gravity.
+            if (p != null && p.gravDir == -1f)
+                finalY = Main.screenHeight - finalY;
+
+            float halfX = Main.screenWidth / 2f;
+            float halfY = Main.screenHeight / 2f;
+            int rawX = (int)(halfX + (finalX - halfX) * zoom);
+            int rawY = (int)(halfY + (finalY - halfY) * zoom);
+
+            DbgHookRawMouseX = rawX;
+            DbgHookRawMouseY = rawY;
+            DbgHookFinalMouseX = (int)finalX;
+            DbgHookFinalMouseY = (int)finalY;
+            DbgHookZoom = zoom;
+            DbgHookScreenX = Main.screenPosition.X;
+            DbgHookScreenY = Main.screenPosition.Y;
+
+            // These fields are exactly what SetZoom_Unscaled copies into Main.mouseX/Y
+            // on the next step.  Keep a direct fallback for a loader build that changes
+            // the private field names; the later post-zoom write still handles it.
+            try
+            {
+                OriginalMouseXField?.SetValue(null, rawX);
+                OriginalMouseYField?.SetValue(null, rawY);
+            }
+            catch { }
+            Main.mouseX = rawX;
+            Main.mouseY = rawY;
+        }
+
+        /// <summary>Write the already-zoomed screen coordinate immediately before QuickGrapple.</summary>
+        private static void ApplyHookAimAfterZoom()
+        {
+            float finalX = HookAimWorld.X - Main.screenPosition.X;
+            float finalY = HookAimWorld.Y - Main.screenPosition.Y;
+            Player p = Main.LocalPlayer;
+            if (p != null && p.gravDir == -1f)
+                finalY = Main.screenHeight - finalY;
+            Main.mouseX = (int)finalX;
+            Main.mouseY = (int)finalY;
+            DbgHookFinalMouseX = Main.mouseX;
+            DbgHookFinalMouseY = Main.mouseY;
+            DbgHookScreenX = Main.screenPosition.X;
+            DbgHookScreenY = Main.screenPosition.Y;
+        }
+
+        /// <summary>
         /// Copy the bridge's movement intent into Terraria's per-player control flags in
         /// ModPlayer.SetControls, after vanilla ResetControls/TriggersSet.CopyInto.  This
         /// tModLoader build does not copy mod-written Triggers.Current into control* (the
@@ -542,6 +614,10 @@ namespace DshTerrariaBridge
                     if (KeyEvents.Count > KeyEventCap) KeyEvents.RemoveRange(0, KeyEvents.Count - KeyEventCap);
                 }
             }
+            // This callback runs immediately before vanilla's zoom conversion.  Feed
+            // the inverse coordinate now; ApplySyntheticInput writes the final screen
+            // coordinate again in the player update phase before QuickGrapple consumes it.
+            ApplyHookAimBeforeZoom();
             // ApplyMovement is intentionally not called here.  It must run from
             // DshControlPlayer.PreUpdate, after these triggers are present, so vanilla does
             // not rebuild controlLeft/controlRight/controlJump over the bridge's input.
@@ -2099,21 +2175,18 @@ namespace DshTerrariaBridge
                 // 不会像以前那样把这一帧变成"使用当前物品"。
                 Main.mouseLeft = true;
                 Main.mouseLeftRelease = false;
-                // 鼠标屏幕坐标 = 世界坐标 - 屏幕左上角；输入层每帧重建，所以每帧都要写。
-                // 换算实测过：Main.MouseWorld = screenPosition + (mouse - 屏幕中心)，zoom=1。
-                // 只写 mouse = world - screenPosition 会差半个屏幕（读到 2044 而不是 2096）。
-                Main.mouseX = (int)(HookAimWorld.X - Main.screenPosition.X + Main.screenWidth / 2f);
-                Main.mouseY = (int)(HookAimWorld.Y - Main.screenPosition.Y + Main.screenHeight / 2f);
-                // 抓钩发射要「刚按下」这一沿。这里必须是 releaseHook=false：原版 QuickGrapple
-                // 开头就是 `if (releaseHook) return;`，置 true 等于自己把发射挡掉。
-                if (HookJustStarted)
-                {
-                    p.releaseHook = false;
-                    HookJustStarted = false;
-                }
-                // releaseHook 是每帧从输入层重建的，只在这一沿清一次会被下一帧的 true 盖回去
-                // （实测：controlHook/mouseLeft/isProjHook 全对，唯独 releaseHook 恒 true → QuickGrapple 第一行就 return）。
-                p.releaseHook = false;
+                // 这里已经过了 PlayerInput 的 zoom 转换，写入最终屏幕坐标；
+                // 目标在输入前阶段则由 ApplyHookAimBeforeZoom 负责逆变换。
+                ApplyHookAimAfterZoom();
+                // 抓钩发射要「刚按下」这一沿。反编译 Player.Update 确认原版逻辑是：
+                //   if (controlHook) { if (releaseHook) QuickGrapple(); releaseHook = false; }
+                //   else releaseHook = true;
+                // 也就是说 **controlHook 与 releaseHook 同时为真** 才会发射。
+                // 以前这里写 false（误以为 QuickGrapple 开头是 if (releaseHook) return），
+                // 结果 releaseHook 恒假 → QuickGrapple 一次都没被调用（grapCount 恒 0）。
+                // 每帧都置 true 是安全的：QuickGrapple 内部对"已有同型弹幕"直接 return，
+                // 不会重复发射，等钩子收回后才允许再发。
+                p.releaseHook = true;
             }
             if (HookReleasePending)
             {
@@ -2787,6 +2860,17 @@ namespace DshTerrariaBridge
         // 钩子弹幕朝**鼠标世界坐标**飞（原版用 Main.MouseWorld 算方向），不是朝 tileTargetX/Y。
         // 之前只 SetAim 不改鼠标，光标还停在别处，钩子永远没有合法落点。
         internal static Vector2 HookAimWorld;
+        // PlayerInput.SetZoom_MouseInWorld 在 PostUpdateInput 之后会把
+        // `_originalMouseX/Y` 重新换算成 Main.mouseX/Y。抓钩若只写最终坐标，
+        // 下一步会被物理鼠标覆盖；这里缓存原版私有字段，把目标反解回原始屏幕坐标。
+        private static readonly FieldInfo OriginalMouseXField =
+            typeof(PlayerInput).GetField("_originalMouseX", BindingFlags.Static | BindingFlags.NonPublic);
+        private static readonly FieldInfo OriginalMouseYField =
+            typeof(PlayerInput).GetField("_originalMouseY", BindingFlags.Static | BindingFlags.NonPublic);
+        internal static volatile int DbgHookRawMouseX, DbgHookRawMouseY;
+        internal static volatile int DbgHookFinalMouseX, DbgHookFinalMouseY;
+        internal static volatile float DbgHookZoom;
+        internal static volatile float DbgHookScreenX, DbgHookScreenY;
         // 诊断：Player.Update 跑完之后这些控制位到底是什么——抓钩逻辑看到的就是这份。
         internal static volatile bool DbgPostControlHook, DbgPostReleaseHook, DbgPostMouseLeft;
         internal static volatile int DbgProjHookCount;

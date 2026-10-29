@@ -279,6 +279,16 @@
   但速度没有任何朝钩子方向的拉力（竖直速度 -1.8 → 继续下坠），人照常落回地面。
 - 判据：**看速度有没有变向**，别只看"按过抓钩"。勾住了会持续被拽向锚点；没勾住只是一次无效按键。
 
+### 抓钩瞄准要经过原版缩放链
+- 抓钩方向取 `Main.MouseWorld`，只写一个看似正确的 `目标世界像素 - screenPosition`
+  可能在 `PlayerInput.SetZoom_MouseInWorld` 后被重建，导致输入回读落在别处。
+- 原版先把原始鼠标坐标按 `GameViewMatrix.Zoom.X` 换算，再得到最终屏幕坐标。输入发生在
+  缩放前时，要用原版公式的逆变换；进入玩家更新、`QuickGrapple` 即将消费输入前，再写一次
+  最终屏幕坐标。上下颠倒重力还要沿用 `Main.MouseWorld` 的 Y 轴翻转规则。
+- 诊断必须同时回读目标世界像素、`screenPosition`、缩放值、原始/最终鼠标坐标和
+  `mouseWorldTile`。只有最终 `mouseWorldTile` 与目标一致，且 `grapCount`/`grappling` 产生
+  真实变化，才算抓钩动作成功。
+
 - 竖直速度必须写在"算完重力、位置积分之前"的那一帧（tModLoader 的 `PostUpdateRunSpeeds`）。
   写在 `PreUpdate`/`PostUpdate` 都会被原版覆盖：实测表现为"先升 4 格、然后钉死不动"。
   另外**不能置 `Player.pulley`**——它是"挂在某一格"的状态，置了会把人吸附住，不是往上爬。

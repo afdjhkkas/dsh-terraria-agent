@@ -3426,8 +3426,10 @@ namespace DshTerrariaBridge
         // [3]坐骑 [4]抓钩。抓钩是**装备**，不是"手持物品"——放背包里、把它选中
         // 都没用，controlHook 照样不发射（实测：选中背包里的抓钩按下去，
         // grapCount 连续 3 秒停在 0）。
-        // 以前这里写成 3，读到的是坐骑槽：用户在钩爪槽装了抓钩，hookdebug 却报
-        // "宇宙车钥匙"（坐骑），hook 命令还回"背包里没有抓钩"。
+        // 这个 4 曾经被误判成错误、改成了 3，实测立刻打脸：miscEquips[3] 里装的是
+        // 宇宙车钥匙（mountType 7），[4] 才是月钩（hookType 646）。当时 hookdebug
+        // 报"宇宙车钥匙"，真正的成因是部署的 dll 还是旧的 3，不是这个常量错。
+        // 教训：报错先核对"跑的是不是刚编译的那份"，再改常量。
         private const int HookEquipSlot = 4;
 
         private static void EnsureHookEquipped(Player pl, out string how)
@@ -3482,7 +3484,21 @@ namespace DshTerrariaBridge
                 hookEquip = hook != null ? hook.Name : "",
                 hookShoot = hook != null ? hook.shoot : -1,
                 isProjHook = hook != null && hook.shoot > 0 && hook.shoot < Main.projHook.Length && Main.projHook[hook.shoot],
+                grapplingAll = pl.grappling == null ? null : pl.grappling.Take(6).ToArray(),
+                misc4Shoot = pl.miscEquips != null && pl.miscEquips.Length > 4 && pl.miscEquips[4] != null ? pl.miscEquips[4].shoot : -1,
+                projHook646 = Main.projectile == null ? -1 : Enumerable.Range(0, Main.projectile.Length).Count(i => Main.projectile[i] != null && Main.projectile[i].active && Main.projectile[i].owner == Main.myPlayer && (Main.projectile[i].type == 646 || Main.projectile[i].type == 647 || Main.projectile[i].type == 648 || Main.projectile[i].type == 649)),
                 mouseWorldTile = new { x = (int)(Main.MouseWorld.X / 16f), y = (int)(Main.MouseWorld.Y / 16f) },
+                mouse = new { x = Main.mouseX, y = Main.mouseY },
+                screen = new { x = Main.screenPosition.X, y = Main.screenPosition.Y, w = Main.screenWidth, h = Main.screenHeight },
+                zoom = Main.GameViewMatrix != null ? Main.GameViewMatrix.Zoom.X : 1f,
+                hookAimWorld = new { x = BridgeSystem.HookAimWorld.X, y = BridgeSystem.HookAimWorld.Y },
+                hookAimInput = new
+                {
+                    rawX = BridgeSystem.DbgHookRawMouseX,
+                    rawY = BridgeSystem.DbgHookRawMouseY,
+                    finalX = BridgeSystem.DbgHookFinalMouseX,
+                    finalY = BridgeSystem.DbgHookFinalMouseY,
+                },
                 post = new { controlHook = BridgeSystem.DbgPostControlHook, releaseHook = BridgeSystem.DbgPostReleaseHook, mouseLeft = BridgeSystem.DbgPostMouseLeft, projHook = BridgeSystem.DbgProjHookCount },
             });
         }
@@ -3853,6 +3869,26 @@ namespace DshTerrariaBridge
                     wingSlot = it.wingSlot > 0,
                 });
             }
+            // miscEquips 是宠物/照明宠物/矿车/抓钩/坐骑这五格，跟背包和饰品栏都不是
+            // 同一个数组。不输出它，调用方就永远看不到抓钩有没有装备（hook 这条链
+            // 之所以长期查不下去，就是因为这里读不到，只能靠 hookdebug 那个错字段）。
+            var misc = new List<object>();
+            string[] miscKinds = { "pet", "lightPet", "minecart", "hook", "mount" };
+            for (int i = 0; i < pl.miscEquips.Length; i++)
+            {
+                Item it = pl.miscEquips[i];
+                bool empty = it == null || it.type <= 0;
+                misc.Add(new
+                {
+                    slot = i,
+                    kind = i < miscKinds.Length ? miscKinds[i] : "other",
+                    empty,
+                    type = empty ? 0 : it.type,
+                    name = empty ? "" : it.Name,
+                    hookType = empty ? 0 : it.shoot,
+                    mountType = empty ? 0 : it.mountType,
+                });
+            }
             // 空位数量：背包满时掉落物会静默丢失，调用方必须能提前看到。
             int freeMain = 0, freeAll = 0;
             for (int i = 0; i < pl.inventory.Length; i++)
@@ -3874,6 +3910,7 @@ namespace DshTerrariaBridge
                 ammoSlots = Enumerable.Range(54, Math.Max(0, Math.Min(4, pl.inventory.Length - 54))).ToArray(),
                 trashSlot = pl.inventory.Length > 58 ? 58 : -1,
                 equipment = equip.ToArray(),
+                miscEquips = misc.ToArray(),
                 canFly = pl.wingTimeMax > 0 || pl.velocity.Y != 0f && pl.wingsLogic > 0,
                 // statDefense is a struct (Positive/Negative); callers want one number.
                 defense = pl.statDefense.Positive - pl.statDefense.Negative,

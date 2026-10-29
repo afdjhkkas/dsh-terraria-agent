@@ -266,6 +266,9 @@
         "hookEquip",
         "hookShoot",
         "isProjHook",
+        "grapplingAll",
+        "misc4Shoot",
+        "projHook646",
         "mouseWorldTile",
         "grapCountBefore",
         "proj",
@@ -302,6 +305,7 @@
         "ammoSlots",
         "trashSlot",
         "equipment",
+        "miscEquips",
         "canFly",
         "item",
         "name",
@@ -614,6 +618,9 @@
         "hookEquip",
         "hookShoot",
         "isProjHook",
+        "grapplingAll",
+        "misc4Shoot",
+        "projHook646",
         "mouseWorldTile"
       ],
       "summary": ""
@@ -721,6 +728,7 @@
         "ammoSlots",
         "trashSlot",
         "equipment",
+        "miscEquips",
         "canFly"
       ],
       "summary": ""
