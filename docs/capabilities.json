@@ -812,7 +812,8 @@
       "name": "npc",
       "kind": "read",
       "params": [
-        "r"
+        "r",
+        "radius"
       ],
       "returns": [
         "radius",
@@ -1188,6 +1189,7 @@
       "name": "talk",
       "kind": "act",
       "params": [
+        "who",
         "npc",
         "ms"
       ],
@@ -1219,6 +1221,18 @@
         "npcShop",
         "closed",
         "note"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "talkfocus",
+      "kind": "read",
+      "params": [
+        "x",
+        "y"
+      ],
+      "returns": [
+        "screen"
       ],
       "summary": ""
     },

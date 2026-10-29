@@ -68,6 +68,7 @@ namespace DshTerrariaBridge
                 case "talk": return TalkTo(p);
                 case "talkclose": return TalkClose(p);
                 case "talkoption": return TalkOption(p);
+                case "talkfocus": return TalkFocus(p);
                 case "shop": return ShopList(p);
                 case "shopdebug": return ShopDebug(p);
                 case "shops": return ShopFind(p);
@@ -494,7 +495,7 @@ namespace DshTerrariaBridge
         /// 免得再出现"实现了但提示里没有、调用方以为不存在"的误导。</summary>
         internal static readonly string[] CommandNames = new[]
         {
-            "accessory", "api", "attack", "bobber", "boss", "buy", "capture", "castline", "chat", "chatpoll", "chatpost", "chest", "climb", "craft", "drop", "duplicate", "equip", "event", "fields", "fill", "find", "fly", "follow", "grab", "grapple", "gravity", "guard", "heal", "help", "homeroom", "hook", "hookdebug", "housediag", "housing", "humaninput", "idle", "idmap", "interact", "inventory", "items", "jump", "keyevents", "liquidop", "map", "methods", "mine", "minion", "mirror", "mount", "move", "moveto", "navrules", "needs", "nodig", "npc", "path", "ping", "place", "players", "quest", "recipes", "reel", "removeblock", "research", "roomcheck", "save", "scan", "select", "sell", "shoot", "shop", "shopdebug", "shops", "splitstack", "startevent", "state", "stop", "talk", "talkclose", "talkoption", "tile", "tiledata", "trash", "travel", "travelstatus", "unhook", "use", "walkdiff", "walkmode", "walkto", "wall"
+            "accessory", "api", "attack", "bobber", "boss", "buy", "capture", "castline", "chat", "chatpoll", "chatpost", "chest", "climb", "craft", "drop", "duplicate", "equip", "event", "fields", "fill", "find", "fly", "follow", "grab", "grapple", "gravity", "guard", "heal", "help", "homeroom", "hook", "hookdebug", "housediag", "housing", "humaninput", "idle", "idmap", "interact", "inventory", "items", "jump", "keyevents", "liquidop", "map", "methods", "mine", "minion", "mirror", "mount", "move", "moveto", "navrules", "needs", "nodig", "npc", "path", "ping", "place", "players", "quest", "recipes", "reel", "removeblock", "research", "roomcheck", "save", "scan", "select", "sell", "shoot", "shop", "shopdebug", "shops", "splitstack", "startevent", "state", "stop", "talk", "talkclose", "talkfocus", "talkoption", "tile", "tiledata", "trash", "travel", "travelstatus", "unhook", "use", "walkdiff", "walkmode", "walkto", "wall"
         };
 
         private static string Help() => Json.Ok(new
@@ -1655,7 +1656,25 @@ namespace DshTerrariaBridge
             if (!InWorld(out string err)) return Json.Error(err);
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             Player pl = P;
-            NPC npc = NearbyTownNPC(pl, Json.Int(p, "npc", -1), out float d);
+            // who 优先：同类型可能有多个（两个向导 approve 不一样的名字），按类型找只会拿到最近的，
+            // 想跟"另一个"说话就只能靠 who。
+            int wantWho = Json.Int(p, "who", -1);
+            NPC npc;
+            float d;
+            if (wantWho >= 0 && wantWho < Main.maxNPCs)
+            {
+                npc = Main.npc[wantWho];
+                if (npc == null || !npc.active || !npc.townNPC)
+                {
+                    return Json.Error($"who={wantWho} 不是活着的城市 NPC（type={(npc == null ? -1 : npc.type)}，"
+                        + $"active={(npc != null && npc.active)}，townNPC={(npc != null && npc.townNPC)}）；用 npc 命令先查 who");
+                }
+                d = Vector2.Distance(pl.Center, npc.Center);
+            }
+            else
+            {
+                npc = NearbyTownNPC(pl, Json.Int(p, "npc", -1), out d);
+            }
             if (npc == null) return Json.Error("附近没有可以对话的城市 NPC");
             if (d > 12 * 16f) return Json.Error($"离 {npc.FullName} 太远（{d / 16f:F0} 格），先走过去");
             int idx = npc.whoAmI;
@@ -1786,14 +1805,70 @@ namespace DshTerrariaBridge
             BridgeSystem.TalkOptScanned = 0;
             BridgeSystem.TalkOptHitX = -1;
             BridgeSystem.TalkOptHitY = -1;
-            int yStart = Math.Max(80, Main.screenHeight - 240);
+            int yStart = Math.Max(80, Main.screenHeight - 200);
             BridgeSystem.TalkOptX = 120;
             BridgeSystem.TalkOptY = yStart;
             BridgeSystem.TalkOptStart = Main.GameUpdateCount;
-            int cols = Math.Max(1, (Main.screenWidth - 240) / 10);
-            int rows = Math.Max(1, (Main.screenHeight - 24 - yStart) / 10);
+            int cols = Math.Max(1, (Main.screenWidth - 240) / 30);
+            int rows = Math.Max(1, (Main.screenHeight - 24 - yStart) / 30);
             BridgeSystem.TalkOptMsg = $"开始扫描按钮 {index}：约 {cols}×{rows} 个点，一帧一个点";
             return Json.Ok(TalkOptionStatus());
+        }
+
+        /// <summary>
+        /// 诊断用：读/探 NPC 对话按钮的四个焦点位。
+        ///
+        /// 原版每帧绘制按钮时用 Main.mouseX/Y 判悬停，把结果写进 Main.npcChatFocus1..4。
+        /// talkoption 的扫描靠这一点反推按钮矩形，但扫完 342 点一个都没命中 —— 到底是
+        /// 坐标算错、还是这个 NPC 的对话压根没有按钮，得能直接问。
+        ///
+        /// 用法：
+        ///   talkfocus                 → 只读：屏幕、鼠标、四个焦点位、对话状态
+        ///   talkfocus {x,y}           → 把鼠标写到位一帧，返回"下一帧再读"
+        /// 写鼠标走的是 BridgeSystem 那条既有通路（ApplyTalkInputBeforeMouseOver），
+        /// 只写输入，不碰游戏状态。
+        /// </summary>
+        private static string TalkFocus(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+
+            int px = Json.Int(p, "x", -1);
+            int py = Json.Int(p, "y", -1);
+            bool wrote = false;
+            if (px >= 0 && py >= 0)
+            {
+                BridgeSystem.ProbeMouseX = px;
+                BridgeSystem.ProbeMouseY = py;
+                wrote = true;
+            }
+
+            return Json.Ok(new
+            {
+                screen = new { w = Main.screenWidth, h = Main.screenHeight },
+                mouse = new { x = Main.mouseX, y = Main.mouseY },
+                focus = new
+                {
+                    f1 = Main.npcChatFocus1,
+                    f2 = Main.npcChatFocus2,
+                    f3 = Main.npcChatFocus3,
+                    f4 = Main.npcChatFocus4,
+                },
+                talk = new
+                {
+                    npc = pl.talkNPC,
+                    chatLen = Main.npcChatText == null ? 0 : Main.npcChatText.Length,
+                    cornerItem = Main.npcChatCornerItem,
+                    shop = Main.npcShop,
+                    inventoryOpen = Main.playerInventory,
+                    mouseText = Main.mouseText,
+                },
+                wrote,
+                note = wrote
+                    ? $"已把鼠标写到 ({px},{py})，下一帧原版会重算四个焦点位：再调一次 talkfocus 读 focus"
+                    : "只读。想探某一点就先 talkfocus {x,y}，等一帧再读。",
+            });
         }
 
         private static object TalkOptionStatus()
@@ -4491,7 +4566,8 @@ namespace DshTerrariaBridge
         private static string Npcs(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
-            int r = Math.Clamp(Json.Int(p, "r", 40), 1, 200);
+            // r 是老名字；radius 是直觉写法，两个都认（实测有人传 radius 却拿到默认 40 的坑）。
+            int r = Math.Clamp(Json.Int(p, "r", Json.Int(p, "radius", 40)), 1, 200);
             Player pl = P;
             float centerX = pl != null && pl.active ? pl.Center.X : Main.spawnTileX * 16f;
             float centerY = pl != null && pl.active ? pl.Center.Y : Main.spawnTileY * 16f;

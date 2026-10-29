@@ -4,7 +4,7 @@
 > 元自检的第 4、5 维（动作原语 / 状态读取）就是拿这张表对照的：
 > 表里没有的接口和命令，一律视为不存在，不许在计划里使用。
 
-## 一、状态读取能力（46 个命令）
+## 一、状态读取能力（47 个命令）
 
 | 命令 | 能读到什么（返回值顶层字段） |
 |---|---|
@@ -45,6 +45,7 @@
 | `shops` | `scanned` |
 | `state` | `inWorld` `version` `paused` `hasFocus` `screen` `mouseWorld` `mouseTile` `talkNPC` `npcChatText` `npcShopIndex` `npcChatRelease` `talkInput` `world` `player` `ropeContact` `ropeRelease` `flagTick` `flagLeft` `flagRight` `flagUp` `flagDown` `flagJump` `flagIntentRight` `flagIntentJump` `flagRightUntilLive` `flagJumpUntilLive` `afterTick` `preTick` `preCtrlLeft` `preCtrlRight` `preCtrlUp` `preCtrlDown` `preCtrlJump` `preVelX` `afterCtrlLeft` `afterCtrlRight` `afterCtrlUp` `afterCtrlDown` `afterCtrlJump` `afterTrigLeft` `afterTrigRight` `afterTrigUp` `afterTrigDown` `afterTrigJump` `afterVelX` `prePhysicsTick` `prePhysicsUp` `prePhysicsDown` `prePhysicsHook` `prePhysicsMount` `prePhysicsReleaseMount` `prePhysicsUseItem` `prePhysicsUseTile` `postControlMount` `postReleaseMount` `inputDiag` `guard` `attack` `path` `walk` `exact` `input` `hint` |
 | `talkclose` | `beforeTalkNPC` `talkNPC` `chatText` `npcShop` `closed` `note` |
+| `talkfocus` | `screen` |
 | `talkoption` | — |
 | `tile` | `hasTile` `type` `name` `wall` `liquid` `liquidName` `slope` `halfBlock` `actuator` |
 | `tiledata` | `name` `hasObjectData` `frameImportant` `width` `height` `originX` `originY` `styleHorizontal` `styleWrapLimit` |
@@ -97,7 +98,7 @@
 | `splitstack` | `slot` `count` | — |
 | `startevent` | `event` | — |
 | `stop` | — | — |
-| `talk` | `npc` `ms` | — |
+| `talk` | `who` `npc` `ms` | — |
 | `trash` | `slot` `count` | — |
 | `travel` | `stop` `dir` `distance` `ms` `dig` | — |
 | `unhook` | — | — |

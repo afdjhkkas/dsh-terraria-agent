@@ -573,8 +573,12 @@ namespace DshTerrariaBridge
 
                 int w = Main.screenWidth, h = Main.screenHeight;
                 int x0 = 120, x1 = Math.Max(x0 + 10, w - 120);
-                int y0 = Math.Max(80, h - 240), y1 = h - 24;
-                const int step = 10;
+                // 原版把对话按钮画在屏幕底部中间（Main.DrawNPCChatButtons），
+                // 所以只在底部一条带里扫就够。step 也不能太小：
+                // 一帧只结算一个点，step=10 时 1673×1046 的窗口要扫 3000+ 帧 ≈ 50 秒，
+                // 这期间玩家会被怪推走、对话自己就关了（实测就是这么失败的）。
+                int y0 = Math.Max(80, h - 200), y1 = h - 24;
+                const int step = 30;
                 TalkOptX += step;
                 if (TalkOptX > x1) { TalkOptX = x0; TalkOptY += step; }
                 if (TalkOptY > y1)
@@ -611,6 +615,16 @@ namespace DshTerrariaBridge
 
         private static bool ApplyTalkInputBeforeMouseOver()
         {
+            // talkfocus {x,y} 的单帧探针：写一次鼠标位置，让原版这一帧重算 npcChatFocus1..4。
+            if (ProbeMouseX >= 0 && ProbeMouseY >= 0)
+            {
+                Main.mouseX = ProbeMouseX;
+                Main.mouseY = ProbeMouseY;
+                ProbeMouseX = -1;
+                ProbeMouseY = -1;
+                return true;
+            }
+
             // talkoption 与 talk 互斥：它自己管鼠标，别让 talk 的右键帧把它顶掉。
             if (TalkOptPhase != 0) { StepTalkOption(); return true; }
             if (TalkTargetNpc < 0) return true;
@@ -3130,8 +3144,10 @@ namespace DshTerrariaBridge
         internal static volatile int TalkOptX, TalkOptY;
         internal static volatile int TalkOptHitX = -1, TalkOptHitY = -1;
         internal static ulong TalkOptStart;
-        internal static volatile string TalkOptMsg = "";
         internal static volatile int TalkOptScanned;
+        internal static volatile string TalkOptMsg = "";
+        // talkfocus 的单帧探针：>=0 表示这一帧要把鼠标写到这里，写完立刻置 -1
+        internal static volatile int ProbeMouseX = -1, ProbeMouseY = -1;
         internal static ulong AttackUntil, AttackNextTick;
         internal static volatile int AttackTarget = -1, AttackRadius = 40, AttackIntervalTicks = 10;
         internal static volatile bool AttackAutoTarget, AttackFinished, AttackFinishedCleanly, AttackKilled, AttackBlockedByTerrain, JumpIssued;

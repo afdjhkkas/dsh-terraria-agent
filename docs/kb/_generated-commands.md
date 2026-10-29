@@ -3,7 +3,7 @@
 > 本文件由 `node scripts/kb-sync.mjs` 从 `DshTerrariaBridge/Commands.cs` 与
 > `index.js` 生成。**不要手改**；要改就改代码再重新生成。
 
-## mod 桥命令（91 个）
+## mod 桥命令（92 个）
 
 | 命令 | 参数 |
 |---|---|
@@ -61,7 +61,7 @@
 | `navrules` | `reload` |
 | `needs` | `x` `y` |
 | `nodig` | `action` `x1` `y1` `x2` `y2` |
-| `npc` | `r` |
+| `npc` | `r` `radius` |
 | `path` | `x` `y` `ms` `dig` |
 | `ping` | — |
 | `place` | `x` `y` `type` `ms` |
@@ -84,8 +84,9 @@
 | `startevent` | `event` |
 | `state` | — |
 | `stop` | — |
-| `talk` | `npc` `ms` |
+| `talk` | `who` `npc` `ms` |
 | `talkclose` | — |
+| `talkfocus` | `x` `y` |
 | `talkoption` | `stop` `index` |
 | `tile` | `x` `y` |
 | `tiledata` | `type` `style` `alternate` |

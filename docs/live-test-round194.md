@@ -620,3 +620,74 @@ IntentLeft = IntentRight = IntentUp = IntentDown = IntentJump = false;   // ← 
 
 **换场景验证 `talkoption` 是唯一出路**：需要一份 NPC 站在开阔平地上的存档（向导、商人这类通常就在地表出生点旁边），
 而不是这种四层楼板夹柱子阵的基地。
+
+## 20:10 版追问：向导没有对话按钮，`talkoption` 卡在这里是正确行为
+
+上一节说"扫完 342 个点都没有按钮 1"，这轮加了 `talkfocus` 诊断命令追到底：
+
+```
+> talkfocus                       # OS 光标当时停在 (0,0)
+{"screen":{"w":1673,"h":1046},"mouse":{"x":0,"y":0},
+ "focus":{"f1":false,"f2":false,"f3":false,"f4":false},
+ "talk":{"npc":1,"chatLen":33,"cornerItem":0,"shop":0,"inventoryOpen":false,"mouseText":false}}
+
+# 用 computer use 把光标挪到屏幕底部 (960,1000)
+> talkfocus
+{"mouse":{"x":836,"y":967},"focus":{"f1":false,"f2":false,"f3":false,"f4":false},...}
+```
+
+**读得到 `Main.mouseX/Y`（忠实的 OS 镜像），写探针也生效，但 `npcChatFocus1..4` 在任何位置都是 false。**
+
+结论：**向导（Guide）的对话框根本没有按钮**。原版只有 NPC 调过 `SetChatButtons` 才画按钮、
+才会每帧结算 `npcChatFocus1..4`；向导是纯文字对话，`Main.DrawNPCChatButtons` 不执行。
+所以 `talkoption` 扫完 342 点报「扫完 342 个点都没有按钮 1」是**正确的拒绝**，不是缺陷。
+
+能验 `talkoption` 的只有带按钮的 NPC：护士（治疗）、商人/爆破专家/军火商（商店）、渔夫（任务 + 交付）。
+
+## 20:10 版：两处参数不兼容（已修）
+
+| 命令 | 症状 | 根因 | 修法 |
+|---|---|---|---|
+| `npc` | 传 `{radius:30}` 永远只回默认 40 个 | 代码读的是 `Json.Int(p, "r", 40)`，**参数名是 `r`** | `Math.Clamp(Json.Int(p, "r", Json.Int(p, "radius", 40)), 1, 200)`，两个都认；实测 `{radius:30}` → `"radius":30`、`{r:200}` → `"radius":200, count:5` |
+| `talk` | 同类型 NPC 有两个时（两个向导），只能拿到最近那个 | `NearbyTownNPC` 只按类型找 | 新增 `who` 参数优先：`Main.npc[who]` 是活着的 `townNPC` 就用它，否则回退按类型找；不在范围报「who=N 不是活着的城市 NPC」 |
+
+## 20:10 版：终于走到 449–458 层，`talkoption` 就差最后一步
+
+`fly` 的修复（缺陷 17）在 462.7 层稳定：`fly {ms:900}` 484.7 → 462.7。
+
+进 449–458 层的可行路线（可复现）：
+
+1. `move right 4000` → (4285.2,462.7)；`move right 1600` → **(4317.7,456.7)**（x≥4304 有斜坡走上楼）
+2. `jump {ms:800, dir:"left", moveMs:1200}` 从 (4312.1,460.7) → **(4287.2,446.7)**（升 14 格进 444–447 夹层）
+3. `move left 2400` → (4236.6,446.7)；`move right 250` → 4245.1；再 `move right 300` → **掉到 (4246.7,457.7)**（y=448 缺口在 x=4246–4247）
+4. `move right 900` → (4257.4,457.7)，被 x=4258–4259 柱子挡住
+5. `mine (4258,456)` + `mine (4259,456)` 各 1 下 → `move right 450` → **(4261.5,457.7)** ✓
+6. `fly {ms:700}` → **(4261.5,452.7)**（进 x=4260–4262 竖直通道）
+7. `mine (4261,448)` / `(4262,448)` / `(4263,448)` 各 1 下 → y=448 开了口
+
+**但第 7 步之后 `fly` 在新位置完全不动**：`fly {ms:600/700/1500}` 全部 `velY:0`、
+`wingTime:180/180`、`grounded:true`；`jump {ms:600, dir:"right", moveMs:150}` 也不动。
+`gravity` 读 `standing:454`，脚下 `x=4261,y=454` 是 **type 698**（`solidTop:true`），
+`state` 里 `flying:true` / `flagJumpUntilLive:false` / `intentJump:false`。
+
+**同一角色同一条 `fly`：462.7 层能飞 +22 格，452.7 层一格不动** —— 缺陷 18 候选，待查。
+（462.7 脚下是 type 19 平台，452.7 脚下是 type 698，但 19 也能飞，所以不单纯是
+"平台 vs 实心"的差别。）
+
+## 20:10 版：`startevent` 正式跑过一次
+
+```
+> startevent {"event":"bloodmoon"}
+{"started":"bloodMoon","bloodMoon":true,"eclipse":false,"pumpkinMoon":false,
+ "snowMoon":false,"invasionType":0,"dayTime":false}
+```
+✓ 从"只验了拒绝路径"升级为"真跑过"。之后 `attack {radius:30}` 报
+「半径 30 格内没有可攻击的敌怪」（血月刚起、怪还没刷到身边）。
+
+## 「单人」基地 NPC 分布（20:10 版实测，`npc {radius:20/40}`）
+
+| 层（y） | NPC（who / type） |
+|---|---|
+| 457.8 | 爆破专家Oten 4/38 (4271.2)、哥布林工匠Sarx 12/107 (4286.6) |
+| 441.8 | 商人Mortimer 2/17 (4266)、军火商Darnell 5/19 (4260.9)、动物学家Robyn 10/633 (4246.9)、巫医Abibe 14/228 (4242.1)、发型师Kati 6/353 (4281.7)、粗暴史莱姆 22 (4285.6,442.4) |
+| 425.8 / 426.4 | 树妖Kanna 8 (4296.5)、猫咪图拉 9 (4291.2)、笨拙史莱姆 13 (4297.4)、服装商Cedric 16 (4286.4)、渔夫Billy 25/369 (4301.8) |

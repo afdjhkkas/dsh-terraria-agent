@@ -451,7 +451,7 @@ node scripts/testcases.mjs --dry --baseline docs/testcases/baseline.json   # 回
 
 <!-- caps:begin 本节由 scripts/kb-caps.mjs 生成，不要手改 -->
 
-**只读（43）**：api bobber boss chatpoll event fields find follow help hook hookdebug housediag housing humaninput idmap inventory items keyevents map methods navrules needs nodig npc path ping players quest recipes research roomcheck scan shop shopdebug shops state talkclose talkoption tile tiledata travelstatus walkdiff walkmode
+**只读（44）**：api bobber boss chatpoll event fields find follow help hook hookdebug housediag housing humaninput idmap inventory items keyevents map methods navrules needs nodig npc path ping players quest recipes research roomcheck scan shop shopdebug shops state talkclose talkfocus talkoption tile tiledata travelstatus walkdiff walkmode
 
 **动作（45）**：accessory attack buy capture castline chat chatpost climb craft drop duplicate equip fill fly grab grapple gravity heal homeroom idle interact jump liquidop mine minion mirror move moveto place reel removeblock save select sell shoot splitstack startevent stop talk trash travel unhook use walkto wall
 
