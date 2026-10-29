@@ -24,7 +24,7 @@
 | `climb` | `dir` `ms` `tiles` |
 | `craft` | `item` `times` |
 | `down` | — |
-| `down` | `ms` `moveMs` `slot` `right` `x` `y` `item` `off` `action` `r` `player` `guard` `range` `who` `interval` `times` `event` |
+| `down` | `ms` `moveMs` `slot` `right` `x` `y` `item` `off` `action` `r` `ticks` `player` `guard` `range` `who` `interval` `times` `event` |
 | `drop` | `slot` `count` |
 | `duplicate` | `item` `count` |
 | `eclipse` | — |
@@ -66,7 +66,7 @@
 | `mine` | `x` `y` `ms` |
 | `minion` | `slot` |
 | `mirror` | — |
-| `mount` | `action` `slot` |
+| `mount` | `action` `ticks` `slot` |
 | `move` | `dir` `ms` `tiles` |
 | `moveto` | `x` `ms` |
 | `navrules` | `reload` |

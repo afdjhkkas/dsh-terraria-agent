@@ -226,6 +226,7 @@
         "off",
         "action",
         "r",
+        "ticks",
         "player",
         "guard",
         "range",
@@ -279,6 +280,8 @@
         "velY",
         "hint",
         "activeAfter",
+        "mountSlot",
+        "mountItem",
         "action",
         "active",
         "type",
@@ -881,10 +884,13 @@
       "kind": "both",
       "params": [
         "action",
+        "ticks",
         "slot"
       ],
       "returns": [
         "activeAfter",
+        "mountSlot",
+        "mountItem",
         "held",
         "action",
         "active",

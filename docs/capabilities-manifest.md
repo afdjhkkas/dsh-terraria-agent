@@ -58,9 +58,9 @@
 | `walkdiff` | `dual` `newRule` `newPriority` `newKind` `oldRule` `oldKind` `same` |
 | `walkmode` | `useNew` `reactive` `dual` |
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
-| `down` | `untilTick` `tick` `inputOnly` `note` `native` `compatibilityNativeFalse` `tiles` `from` `slot` `held` `interact` `method` `off` `radius` `hostileInRange` `weaponSlot` `weapon` `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `grapplingAll` `misc4Shoot` `projHook646` `mouseWorldTile` `grapCountBefore` `proj` `equipped` `hasWings` `wingTimeMax` `wingTime` `velY` `hint` `activeAfter` `action` `active` `type` `flight` `items` `slots` `follow` `target` `targetIndex` `guard` `range` `dist` `idle` `count` `players` `attacking` `who` `selected` `free` `freeMain` `freeAll` `special` `coinSlots` `ammoSlots` `trashSlot` `equipment` `miscEquips` `canFly` `item` `name` `reason` `perCraft` `groupsUsed` `npcs` |
+| `down` | `untilTick` `tick` `inputOnly` `note` `native` `compatibilityNativeFalse` `tiles` `from` `slot` `held` `interact` `method` `off` `radius` `hostileInRange` `weaponSlot` `weapon` `controlHook` `releaseHook` `mouseLeft` `mouseLeftRelease` `mouseInterface` `grapCount` `grappling0` `pulley` `dead` `selectedSlot` `heldName` `hookEquip` `hookShoot` `isProjHook` `grapplingAll` `misc4Shoot` `projHook646` `mouseWorldTile` `grapCountBefore` `proj` `equipped` `hasWings` `wingTimeMax` `wingTime` `velY` `hint` `activeAfter` `mountSlot` `mountItem` `action` `active` `type` `flight` `items` `slots` `follow` `target` `targetIndex` `guard` `range` `dist` `idle` `count` `players` `attacking` `who` `selected` `free` `freeMain` `freeAll` `special` `coinSlots` `ammoSlots` `trashSlot` `equipment` `miscEquips` `canFly` `item` `name` `reason` `perCraft` `groupsUsed` `npcs` |
 | `guard` | `off` `note` `untilTick` `radius` `hostileInRange` `weaponSlot` `weapon` |
-| `mount` | `activeAfter` `held` `action` `active` `type` `flight` `items` |
+| `mount` | `activeAfter` `mountSlot` `mountItem` `held` `action` `active` `type` `flight` `items` |
 
 ## 二、动作能力（60 个命令）
 
@@ -123,9 +123,9 @@
 | `walkto` | `x` `y` `tol` `ms` `dig` | — |
 | `wall` | `x` `y` `type` `remove` `ms` | — |
 | `chest` | `action` `slot` `count` `invSlot` | — |
-| `down` | `ms` `moveMs` `slot` `right` `x` `y` `item` `off` `action` `r` `player` `guard` `range` `who` `interval` `times` `event` | 按住跳跃键时长 → 跳跃顶点高度（格） |
+| `down` | `ms` `moveMs` `slot` `right` `x` `y` `item` `off` `action` `r` `ticks` `player` `guard` `range` `who` `interval` `times` `event` | 按住跳跃键时长 → 跳跃顶点高度（格） |
 | `guard` | `off` `action` `ms` `r` | — |
-| `mount` | `action` `slot` | — |
+| `mount` | `action` `ticks` `slot` | — |
 
 ## 三、明确做不到的（做计划前先看这里）
 

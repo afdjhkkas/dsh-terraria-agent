@@ -3431,6 +3431,24 @@ namespace DshTerrariaBridge
         // 报"宇宙车钥匙"，真正的成因是部署的 dll 还是旧的 3，不是这个常量错。
         // 教训：报错先核对"跑的是不是刚编译的那份"，再改常量。
         private const int HookEquipSlot = 4;
+        /// <summary>坐骑在 miscEquips 里的格子：pet/lightPet/minecart/mount/hook → 3。</summary>
+        private const int MountEquipSlot = 3;
+
+        // Player.miscEquips[2] 也是一个 mountType 槽，但它专门保存矿车。
+        // 不能只看 mountType > 0（或 != -1）就把它当成普通坐骑；原版用
+        // MountID.Sets.Cart 区分这两类物品。
+        private static bool IsCartMount(Item it)
+        {
+            if (it == null) return false;
+            int mt = it.mountType;
+            return mt >= 0 && mt < MountID.Sets.Cart.Length && MountID.Sets.Cart[mt];
+        }
+
+        private static bool IsRegularMount(Item it)
+        {
+            return it != null && it.type > 0 && it.stack > 0
+                && it.mountType != -1 && !IsCartMount(it);
+        }
 
         private static void EnsureHookEquipped(Player pl, out string how)
         {
@@ -3602,6 +3620,29 @@ namespace DshTerrariaBridge
                 if (activeBefore) pl.mount.Dismount(pl);
                 return Json.Ok(new { action, activeBefore, typeBefore, activeAfter = pl.mount != null && pl.mount.Active });
             }
+            // 快捷召唤：走原版坐骑键（controlMount），不是"掏出钥匙按左键"。
+            // 装备格是 miscEquips[3]（mount），与抓钩的 miscEquips[4] 相邻。
+            if (action == "quick")
+            {
+                int mslot = MountEquipSlot;
+                Item mit = mslot >= 0 && mslot < pl.miscEquips.Length ? pl.miscEquips[mslot] : null;
+                bool hasMountItem = IsRegularMount(mit);
+                if (!hasMountItem)
+                    return Json.Error("坐骑装备格（miscEquips[" + mslot + "]）里没有坐骑召唤物品");
+                ulong until = BridgeSystem.NowTick() + (ulong)Math.Max(2, Json.Int(p, "ticks", 12));
+                BridgeSystem.MountUntil = until;
+                BridgeSystem.MountRelease = true;
+                return Json.Ok(new
+                {
+                    action,
+                    mountSlot = mslot,
+                    mountItem = new { type = mit.type, name = mit.Name, mountType = mit.mountType },
+                    untilTick = until,
+                    activeBefore,
+                    typeBefore,
+                    note = "已发送原版坐骑键（controlMount）；等 untilTick 后回读 state.player.mounted / mountType",
+                });
+            }
             if (action == "ride")
             {
                 int slot = Json.Int(p, "slot", -1);
@@ -3610,7 +3651,7 @@ namespace DshTerrariaBridge
                     for (int i = 0; i < MainBagSlots; i++)
                     {
                         Item it = pl.inventory[i];
-                        if (it != null && it.type > 0 && it.stack > 0 && it.mountType > 0) { slot = i; break; }
+                        if (IsRegularMount(it)) { slot = i; break; }
                     }
                 }
                 if (slot < 0) return Json.Error("背包里没有坐骑召唤物品");
@@ -3623,7 +3664,8 @@ namespace DshTerrariaBridge
                 active = activeBefore,
                 type = typeBefore,
                 flight = activeBefore && pl.mount.Flight(),
-                items = Array.FindAll(pl.inventory, it => it != null && it.mountType > 0).Select(it => new { it.type, it.Name }),
+                items = Array.FindAll(pl.inventory, it => it != null && it.type > 0 && it.stack > 0 && it.mountType != -1)
+                    .Select(it => new { it.type, it.Name, it.mountType, kind = IsCartMount(it) ? "cart" : "mount" }),
             });
         }
 
@@ -3873,7 +3915,9 @@ namespace DshTerrariaBridge
             // 同一个数组。不输出它，调用方就永远看不到抓钩有没有装备（hook 这条链
             // 之所以长期查不下去，就是因为这里读不到，只能靠 hookdebug 那个错字段）。
             var misc = new List<object>();
-            string[] miscKinds = { "pet", "lightPet", "minecart", "hook", "mount" };
+            // 顺序必须与 Player.miscEquips 的真实布局一致：pet / lightPet / minecart / mount / hook。
+            // 曾经写成 "hook","mount"，导致 [3] 坐骑被标成 hook、[4] 抓钩被标成 mount。
+            string[] miscKinds = { "pet", "lightPet", "minecart", "mount", "hook" };
             for (int i = 0; i < pl.miscEquips.Length; i++)
             {
                 Item it = pl.miscEquips[i];

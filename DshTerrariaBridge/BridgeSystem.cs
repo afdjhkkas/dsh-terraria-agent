@@ -454,6 +454,9 @@ namespace DshTerrariaBridge
         /// These are input flags only; physics, collision, jump impulse, and rope state remain
         /// entirely owned by the vanilla Player.Update implementation.
         /// </summary>
+        /// <summary>当前游戏 tick，命令线程取时间窗时用（与 ApplyNativeControlFlags 同源）。</summary>
+        internal static ulong NowTick() => Main.GameUpdateCount;
+
         internal static void ApplyNativeControlFlags(Player player)
         {
             if (player == null || player.whoAmI != Main.myPlayer) return;
@@ -478,6 +481,13 @@ namespace DshTerrariaBridge
             player.controlUp |= IntentUp || UpUntil > now || ClimbUpUntil > now;
             player.controlDown |= IntentDown || DownUntil > now || ClimbDownUntil > now;
             player.controlJump |= IntentJump || (triggers.Jump && JumpUntil > now);
+            // 坐骑键：和抓钩一样是一个"按住 + 边沿"的动作。
+            // 原版 Player.Update 里 controlMount 为真时才读 releaseMount，读到真就 QuickMount()。
+            if (MountUntil > now)
+            {
+                player.controlMount = true;
+                if (MountRelease) { player.releaseMount = true; MountRelease = false; }
+            }
             // 诊断：只在这个函数返回前把 control 的当帧值记下来。命令线程读到 control* 时
             // Player.Update 早已跑完、原版已经重置，所以 humaninput 里的 control 不能当证据。
             DbgFlagsTick = (long)now;
@@ -2821,6 +2831,10 @@ namespace DshTerrariaBridge
         // Written from the bridge thread, read from the main thread: keep the
         // published values volatile instead of relying on x64 store atomicity.
         internal static ulong LeftUntil, RightUntil, UpUntil, DownUntil, JumpUntil, UseUntil, UseTileUntil;
+        // 坐骑键的时间窗与"按键边沿"。原版 ordering 与抓钩相同：
+        // controlMount 为真且 releaseMount 为真时才会 QuickMount()。
+        internal static ulong MountUntil;
+        internal static bool MountRelease;
         // 结果驱动：目标格一挖空就收手，不靠“猜要按多久”。不同方块硬度差很多（土 1 下、
         // 石头 3 下、更硬的要更多），任何固定时长都必然在某些方块上不够、在另一些上白按。
         internal static bool UseStopWhenClear;

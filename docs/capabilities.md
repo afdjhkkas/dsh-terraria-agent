@@ -165,6 +165,10 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 | `fly {ms}` | 飞行/跳跃 | 无翅膀时回 `hasWings:false` + 明确提示，不假装飞起来 |
 | `mount {action}` | 坐骑 | `info` 返回可用坐骑物品；无坐骑时 `{active:false,items:[]}` |
 
+`Player.miscEquips` 是五格固定布局：`[0] pet`、`[1] lightPet`、`[2] minecart`、`[3] mount`、`[4] hook`。
+矿车和普通坐骑都带 `mountType`，判断是否为矿车必须再查 `MountID.Sets.Cart[mountType]`，不能只看
+`mountType` 是否为正数。`mount {action:"quick"}` 只读取 `[3]`，抓钩链只读取 `[4]`。
+
 **竖井闭环**（唯一可靠的下行方式）：逐格 `mine`，每格后等 1.5 秒让角色落到下一格；碰撞盒 20px 宽 ≈ 1.25 格，要挖的两列随中心点小数位变化：
 `[floor(cx-0.55), floor(cx+0.55)]`。井底铺绳再用 `climb` 爬出。
 
