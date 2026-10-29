@@ -414,3 +414,35 @@ Error: 拒绝在出生点 4198,485 附近 100 格内挖（起点 4198,484，终�
 1. 命令清单 ↔ 代码 `case`（16 个幽灵命令名，反向验证才发现）；
 2. 参数默认值 ↔ 实际损失（整栈销毁、自动开挖）；
 3. 保护条件 ↔ 几何维度（只挡"向下"等于不挡）。
+
+## 两条旧缺陷的复核（第 195 轮末）
+
+### 缺陷 10（`drop` 不落地）—— **撤销**
+
+17:38 版重新测了一次，`drop` 是好的，只是**有 1 帧延迟**：
+
+```
+> drop {"slot":14,"count":1}
+{"dropped":"南瓜","count":1,"idx":-1,"onGround":false,"left":21,
+ "note":"背包账目已经减了…本帧读 Main.item 必然还是空的。1 秒后用 items 或 grab 复查。",
+ "verify":"grab 能捡回来才算真的落地"}
+
+> items                                  // 约 1 秒后
+{"count":2,"items":[{"who":10,"name":"坠落之星","type":75,…},
+                    {"who":36,"name":"南瓜","type":1725,"stack":1,"tile":{"x":4228.5,"y":485.7},"dist":4.68}]}
+
+> grab {"radius":8}
+{"picked":1,"seen":1,"radius":8,"actives":39,"nearest":"南瓜","nearestDist":4.7,
+ "items":[{"type":1725,"name":"南瓜","stack":1}],"diag":{"whoAmI":0,"myPlayer":0,"netMode":1}}
+```
+
+**丢 → 落地 → 捡回来，闭环成立。** 之前判"不落地"是因为紧接着 2 秒时调的是 `grab`（默认半径更小）
+而物品落在 4.7 格外，`items` 也没查 —— 那次是**测法有问题，不是命令有问题**。
+
+### 缺陷「`mirror` 不认贝壳电话」—— 代码里认，**待复验**
+
+`MirrorHome`（`Commands.cs:3090`）的名单是
+`MagicMirror / IceMirror / CellPhone / Shellphone / ShellphoneDummy / ShellphoneSpawn`，
+**贝壳电话在名单里**。当前角色 `why` 背包里确实没有这一类物品（`mirror` 报错是对的），
+所以当时那条判断要么是另一个角色的槽位问题、要么是记错了。
+**这条只能等拿到"背包里真有贝壳电话"的角色再测，先标"待复验"，不算缺陷。**
