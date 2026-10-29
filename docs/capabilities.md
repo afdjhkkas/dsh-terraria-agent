@@ -38,7 +38,7 @@
 | 移动 | 回城 | `mirror` | ✅ |
 | 移动 | 抓钩 | `hook {x,y,ms}` / `unhook` | ✅ |
 | 移动 | 坐骑 | `mount {action}` | ✅ 骑上／下骑都成，失焦下也有效（靠 `preOpenTicks` 预开闸） |
-| 移动 | 飞行 | `fly {ms}` | ❌ **不升空**：有翅膀也 `velY` 恒 0；上升必须用 `jump {ms}` 按住 |
+| 移动 | 飞行 | `fly {ms}` | ✅ 自动选键：翅膀/普通飞行坐骑走跳键、悬停坐骑走上键（回包 `key`/`hovering` 可核对） |
 | 挖掘 | 真实挥镐挖一格 | `mine {x,y,ms}` | ✅ |
 | 挖掘 | 挥锤拆方块 | `removeblock {x,y,ms}` | ✅ |
 | 建造 | 放一格方块 | `place {x,y,type,ms}` | ✅ |
@@ -70,6 +70,17 @@
 ## 1. 感知
 
 ### `state` — 角色 + 世界
+
+**蓝量：`mana` / `manaMax` 就是自己的蓝**（`Commands.cs` 里取 `pl.statMana` / `pl.statManaMax2`）。
+想知道"这次施法到底耗了多少蓝"，做法是**采最低点**，不是 `use` 完立刻读：
+
+```
+use {ms:300} → 每 150ms 连续读 mana（读 8 次）→ 记录最低点 → 与施法前的值相减
+```
+
+`use` 回包时人还没开始施法，扣蓝发生在几帧之后；立刻读会得到"耗 0"的假结论。
+施法后蓝会自己回，所以过了几秒再读同样看不出来。真机数据：终极棱镜单次 **12 点**
+（200→188），四次连续施法都是 12，每次之间等到回满再测。
 返回 `player{ tile,pos,velocity,life,lifeMax,mana,dead,direction,grounded,breath,wet,held,buffs,zones,
 minions,minionSlots,grapCount,hookType,mounted,wingTime,hasWings,itemAnimation,playerIndex }`、
 `world{ name,width,height,dayTime,time,raining,bloodMoon,eclipse,hardmode,tick }`、
@@ -188,7 +199,7 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 读取到同一帧的输入；`PlayerInput.Triggers.Current` 负责边沿与诊断，鼠标动作走 `Main.mouseLeft` /
 `Main.mouseRight` 及释放边沿，物品结果由 `ItemCheck` 和原版物理结算。桥不写 `velocity`、`position`、
 `pulley`、`grapCount` 或弹幕结果。每个改变世界或角色状态的动作都必须在命令返回后回读确认。
-| `fly {ms}` | 飞行 | **已废弃，别用**：有翅膀也 `velY` 恒 0、一帧都不升。要飞就 `jump {ms:1600}` 按住跳键（升约 60 格） |
+| `fly {ms}` | 飞行 | 按坐骑类型自动选键。回包 `key:"jump"` 表示走了跳键（翅膀/普通飞行坐骑），`key:"up"` 表示走上键（悬停坐骑）；`hovering` 直接告诉你判成了哪种 |
 | `mount {action:"ride"}` | 坐骑（手动） | 掏出坐骑物品按左键。**只查背包**，而坐骑在 `miscEquips[3]`，所以会错过装备栏里那把钥匙 |
 | `mount {action:"quick"}` | 坐骑（快捷） | 走 `PlayerInput.Triggers.Current.QuickMount` + 预开闸 `preOpenTicks`；骑上/下骑同一个命令来回切 |
 | `mount {action:"info"}` | 坐骑 | 读 `miscEquips[3]` 的 `mountType`；无坐骑时 `{active:false}` |
@@ -344,7 +355,7 @@ api {type:"Terraria.Player", member:"controlHook"} → "field | Boolean controlH
 | 项目 | 状态 | 说明 |
 |---|---|---|
 | 排水 | ❌ | 水里悬空放不上方块（9 格全失败） |
-| 飞行 `fly` | ⚠️ | 已定位并改（待真机复验）：原版两种飞行不是同一个键——`Player.cs:25783` 是 `if (mount.CanHover()) { mount.Hover(this); } else if (mount.CanFly() && controlJump && ...)`，悬停类坐骑读 `controlUp`、翅膀与普通飞行坐骑读 `controlJump`。旧实现只写 `controlJump`，所以骑悬停坐骑时 `velY` 恒 0。现在按 `CanHover()` 分流，回包带 `key: "up"|"jump"` 与 `hovering` |
+| ~~飞行 `fly`~~ | ✅ | **已修好并真机复验**。根因：原版两种飞行不是同一个键——`Player.cs:25783` 的 `if (mount.CanHover()) {...} else if (mount.CanFly() && controlJump ...)`，悬停坐骑读 `controlUp`、翅膀与普通飞行坐骑读 `controlJump`；旧实现只写跳键，骑悬停坐骑时 `velY` 恒 0。现在按 `CanHover()` 分流。真机：`hasWings:true` 时 `fly {ms:1500}` 从地面升 56 格（`vy` −4.61→−11.91、`wingTime` 180→148） |
 | 坐骑 `ride` 子命令 | ⚠️ | `ride` 只查背包槽，读不到 `miscEquips[3]`，所以在坐骑只在装备槽时误报背包里没有坐骑召唤物品。用 `quick` 或先读 `miscEquips[3]` 确认 |
 | 箱子收纳 `chest` | 🚧 | 代码有，世界还没箱子，未实测 |
 | 液体类型 `liquidop` | 🚧 | §3.5 新加，只编译过 |
