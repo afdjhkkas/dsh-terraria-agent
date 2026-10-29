@@ -104,3 +104,53 @@ player.controlJump |= IntentJump || (triggers.Jump && JumpUntil > now);
 
 - `talk` 在多人大厅模式下依然成立（此前单机实测 `talkNPC`+`npcChatText` 同时回读到）。
 - 8 条缺陷里 **3 条是明确的代码 bug**（fly 缺 IntentJump、accessory 默认值、shop 中文名解析），**2 条是能力缺口**（close-chat、平台寻路），**2 条是文档红线**（api filter、save 在客户端不落盘），**1 条是设计问题**（上下层移动）。
+## 追加实测（同一轮，修完代码但**尚未重启加载**时跑的第二批）
+
+这一批跑的是**旧版 mod**（`Mods/DshTerrariaBridge.tmod` 还是 13:24 那份），
+所以下面每条都是旧行为；修好的代码已提交 `6b06f2a`，等重启加载后再复测。
+
+| 命令 | 结果 |
+|---|---|
+| `items` | ✓ `{count:0}` |
+| `equip {slot:1}` | ✓ 诚实拒绝：`天顶剑 不是护甲` |
+| `use {ms:200}` | ✓ `anim:13`，手持锯刃镐真的挥了 |
+| `guard` / `guard {off:true}` | ✓ 开启返回 `untilTick`+武器，关闭返回 `off:true` |
+| `attack` | ✓ 诚实拒绝：`半径 40 格内没有可攻击的敌怪` |
+| `mount {action:"info"}` | ✓ `active:false, items:[]` |
+| `research` | ✓ `slot 越界`（探索模式无此功能） |
+| `duplicate {slot:0}` | ✓ `duplicate 需要 item`（应给 item id） |
+| `place {x,y}` | ✓ 先报 `需要 type`，给了 type 后报 `背包里没有能放置 Dirt 的物品` |
+| `bobber` | ✓ `{count:0}` |
+| `castline` | ✓ 先报 `需要 x,y（水面那一格）` |
+| `reel` | ✓ `{used:true, poleSlot:8}` |
+| `grab` | ✓ `seen:0, actives:7, nearest:"发光蘑菇" 371` |
+| `moveto {x:4240}` | ⚠ 返回 `{from:4235.88,target:4240,delta:4.12}`，但角色只挪了 0.1 格 — **未真正走到** |
+| `drop {slot:14,count:1}` | ⚠ `left:2070`（背包少了 1 个），但随后 `items`/`grab` 都 `seen:0` — **物品消失，未落地** |
+| `talk {npc:38}`（距离 10 格） | ⚠ `armed:true`、鼠标被放到 `finalMouseX:1001/finalMouseY:454`（正好是 NPC 的屏幕坐标），但回读 `talkNPC:-1`、`npcChatText:""` |
+
+## 缺陷 9：`talk` 的距离阈值大于引擎自己的对话距离
+
+`Commands.cs` 里 `talk` 的门槛是 **12 格**（`if (d > 12 * 16f)`），实测在 **10 格**处
+`armed:true`、鼠标定位完全正确（`finalMouseX/Y` 与世界坐标差值和 NPC 位置对得上），
+但引擎没开对话（`talkNPC:-1`）。
+
+Terraria 自己的 NPC 交互判定比 12 格严得多（约 5 格），而且要求**视线不被方块挡住**。
+本轮那次尝试里玩家在 y=462.7（脚踩 y=464 平台层），爆破商在 y=457.8（脚踩 y=459 楼板层），
+中间隔着一整层实心楼板 —— 就算距离改成 5 格也谈不起来。
+
+**修法**（未做）：把阈值降到 5 格左右，并在返回里明确报"隔着方块看不到"，
+不要用 `armed:true` 让人误以为马上会开对话。
+
+## 缺陷 10：`drop` 之后物品既不在地上也不在包里
+
+`drop {slot:14,count:1}` 返回 `{dropped:"火把",count:1,onGround:false,left:2070}`，
+背包确实从 2071 → 2070，但紧接着 `items` 与 `grab` 都是 `seen:0`。
+Host & Play 下掉落物由服务端生成再同步，可能只是延迟；但也可能客户端吞了物品。
+**待复现**：换单人模式重复一次，确认是同步问题还是真丢。
+
+## 缺陷 11：`moveto` 只回报目标不执行
+
+`moveto {x:4240,tol:1,ms:3000}` 返回 `{from:4235.88,target:4240,delta:4.12}`，
+看起来像"已经算好要走 4.12 格"，但角色实际只从 4235.88 挪到 4236。
+`state.exact.stopReason` 报 `"manual-move"` —— 说明它被后面的 `move` 覆盖掉了。
+需要确认 `moveto` 是同步执行还是异步下达；如果是异步，就不该在返回值里写 `from/target` 让人以为已到位。
