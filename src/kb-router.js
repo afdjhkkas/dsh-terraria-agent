@@ -227,6 +227,10 @@ const KEYWORDS = {
     '动作标定', '重新标定', '重标', '失效', '移速加成', '跑速', '跳跃高度', '跳跃 profile',
     '移动 profile', 'mobility profile', 'maxRunSpeed', 'jumpSpeedBoost', 'doubleJumpAvailable',
     'canDash', 'canWalkOnWater', 'immuneFallDamage',
+    // 用户实际问法补充（m25396 实测漏判，按 AGENTS.md 0.6 补命中）
+    '能飞', '飞多高', '飞多久', '飞吗', '能不能飞起来', '这身装备', '装备之后',
+    '装备变了', '数值变了', '数值变', '走路会变', '变快', '变慢', '饰品有什么用',
+    '这件有什么用', '装备效果', '装备加成', '属性加成', '速度加成',
   ],
 }
 

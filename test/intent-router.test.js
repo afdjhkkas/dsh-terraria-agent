@@ -115,6 +115,12 @@ test('离线兜底：每句话至少命中它的一个核心标签，且永远�
     ['屋顶留两格平台当出口', 'build_standard'],
     ['换了装备后，怎么判断现在能做什么动作', 'abilities'],
     ['这个坑跳得过去吗', 'abilities'],
+    // m25396 实测漏判，补完关键词后锁住
+    ['我这身装备能飞吗', 'abilities'],
+    ['我能飞多高', 'abilities'],
+    ['装备之后数值变了怎么办', 'abilities'],
+    ['这个饰品有什么用', 'abilities'],
+    ['换个装备走路会变快吗', 'abilities'],
   ]
   for (const [text, want] of core) {
     const { tags } = route(text)
