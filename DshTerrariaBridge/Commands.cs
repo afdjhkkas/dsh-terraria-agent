@@ -372,6 +372,7 @@ namespace DshTerrariaBridge
                     up = BridgeSystem.DbgInputTriggerUp,
                     down = BridgeSystem.DbgInputTriggerDown,
                     jump = BridgeSystem.DbgInputTriggerJump,
+                    mount = BridgeSystem.DbgInputTriggerMount,
                 },
                 postUpdateRunSpeeds = new
                 {
@@ -3639,7 +3640,6 @@ namespace DshTerrariaBridge
                     return Json.Error("坐骑装备格（miscEquips[" + mslot + "]）里没有坐骑召唤物品");
                 ulong until = BridgeSystem.NowTick() + (ulong)Math.Max(2, Json.Int(p, "ticks", 12));
                 BridgeSystem.MountUntil = until;
-                BridgeSystem.MountRelease = true;
                 return Json.Ok(new
                 {
                     action,

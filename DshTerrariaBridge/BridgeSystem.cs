@@ -311,7 +311,7 @@ namespace DshTerrariaBridge
         // uses Current for held input and JustPressed/JustReleased for jump and other
         // actions.  Keeping our own previous state lets a command begin with one real
         // press edge, remain held for its requested duration, and end with one release.
-        private static bool BridgeJumpHeld, BridgeLeftHeld, BridgeRightHeld, BridgeUpHeld, BridgeDownHeld;
+        private static bool BridgeJumpHeld, BridgeLeftHeld, BridgeRightHeld, BridgeUpHeld, BridgeDownHeld, BridgeMountHeld;
         // Movement decisions are made before Player.Update.  Keep them as input intents so
         // PostUpdateInput can present the same key state to vanilla in the correct phase.
         // internal 而不是 private：Commands.cs 的 state 回包要只读地暴露这五个意图位，
@@ -588,6 +588,10 @@ namespace DshTerrariaBridge
             // 由 ApplyNativeControlFlags 写入 controlLeft/controlRight。
             ApplyBridgeTrigger(IntentLeft || LeftUntil > now, ref BridgeLeftHeld, t => t.Left = true, t => t.Left = true, t => t.Left = true);
             ApplyBridgeTrigger(IntentRight || RightUntil > now, ref BridgeRightHeld, t => t.Right = true, t => t.Right = true, t => t.Right = true);
+            // QuickMount is copied into Player.controlMount by vanilla's
+            // TriggersSet.CopyInto, immediately before Player.Update handles the
+            // controlMount/releaseMount edge. Do not synthesize controlMount later.
+            ApplyBridgeTrigger(MountUntil > now, ref BridgeMountHeld, t => t.QuickMount = true, t => t.QuickMount = true, t => t.QuickMount = true);
             var triggers = PlayerInput.Triggers.Current;
             DbgInputTriggerTick = (long)now;
             DbgInputTriggerPlayer = player.whoAmI;
@@ -596,6 +600,7 @@ namespace DshTerrariaBridge
             DbgInputTriggerUp = triggers.Up;
             DbgInputTriggerDown = triggers.Down;
             DbgInputTriggerJump = triggers.Jump;
+            DbgInputTriggerMount = triggers.QuickMount;
             // Compatibility field now follows the native trigger, which is the actual input source.
             DbgCtrlUp = triggers.Up;
             // 采集边沿事件：只记“变化”，同一状态不重复记。
@@ -787,7 +792,7 @@ namespace DshTerrariaBridge
         // Input timing snapshots: native Triggers after PostUpdateInput and controls after engine processing.
         internal static long DbgInputTriggerTick = -1, DbgInputControlTick = -1;
         internal static int DbgInputTriggerPlayer = -1, DbgInputControlPlayer = -1;
-        internal static bool DbgInputTriggerLeft, DbgInputTriggerRight, DbgInputTriggerUp, DbgInputTriggerDown, DbgInputTriggerJump;
+        internal static bool DbgInputTriggerLeft, DbgInputTriggerRight, DbgInputTriggerUp, DbgInputTriggerDown, DbgInputTriggerJump, DbgInputTriggerMount;
         internal static bool DbgInputControlLeft, DbgInputControlRight, DbgInputControlUp, DbgInputControlDown, DbgInputControlJump;
 
         internal static List<(int x, int y)> ComputePath(int sx, int sy, int tx, int ty, out string why, int margin = 10)
@@ -2129,7 +2134,7 @@ namespace DshTerrariaBridge
         /// Point the cursor at the armed tile and pretend the mouse button is held. Called
         /// from PreItemCheck, so vanilla's own use/placement/mining logic runs.
         /// </summary>
-        internal static void ApplySyntheticInput(bool lateInput = false)
+        internal static void ApplySyntheticInput()
         {
             SynthCalls++;
             ulong now = Now;
@@ -2150,21 +2155,6 @@ namespace DshTerrariaBridge
             if (bridging && AimTileX >= 0) ApplyAim();
             Player p = Main.LocalPlayer;
             if (p == null || !p.active) return;
-
-            // 坐骑快捷键必须在 ResetControls 之后、QuickMount 消费输入之前落到
-            // Player.controlMount。这个路径和抓钩/物品合成输入相同；不要放回
-            // ApplyNativeControlFlags（它还会在更早的生命周期阶段被调用）。
-            if (MountUntil > now)
-            {
-                p.controlMount = true;
-                // releaseMount 只在晚输入阶段发送一次，避免 SetControls 等早期调用
-                // 把边沿消耗掉，也避免按住窗口期间每帧反复切换坐骑。
-                if (lateInput && MountRelease)
-                {
-                    p.releaseMount = true;
-                    MountRelease = false;
-                }
-            }
 
             ApplyGuard(p, now);
             if (UseUntil > now)
@@ -2840,10 +2830,9 @@ namespace DshTerrariaBridge
         // Written from the bridge thread, read from the main thread: keep the
         // published values volatile instead of relying on x64 store atomicity.
         internal static ulong LeftUntil, RightUntil, UpUntil, DownUntil, JumpUntil, UseUntil, UseTileUntil;
-        // 坐骑键的时间窗与"按键边沿"。原版 ordering 与抓钩相同：
-        // controlMount 为真且 releaseMount 为真时才会 QuickMount()。
+        // 坐骑键的时间窗；PostUpdateInput 会把它映射到
+        // PlayerInput.Triggers.Current.QuickMount，让原版自己生成 controlMount 和边沿。
         internal static ulong MountUntil;
-        internal static bool MountRelease;
         // 结果驱动：目标格一挖空就收手，不靠“猜要按多久”。不同方块硬度差很多（土 1 下、
         // 石头 3 下、更硬的要更多），任何固定时长都必然在某些方块上不够、在另一些上白按。
         internal static bool UseStopWhenClear;
@@ -2993,7 +2982,7 @@ namespace DshTerrariaBridge
         LeftUntil = RightUntil = UpUntil = DownUntil = JumpUntil = UseUntil = UseTileUntil = 0;
         ClimbUpUntil = ClimbDownUntil = LayRopeUntil = 0; ClimbTargetY = 0;
         IntentLeft = IntentRight = IntentUp = IntentDown = IntentJump = false;
-        BridgeJumpHeld = BridgeLeftHeld = BridgeRightHeld = BridgeUpHeld = BridgeDownHeld = false;
+        BridgeJumpHeld = BridgeLeftHeld = BridgeRightHeld = BridgeUpHeld = BridgeDownHeld = BridgeMountHeld = false;
         RopeReleasePending = RopeReleaseFailed = false;
         RopeReleaseUntil = RopeReleaseFailureTick = 0;
         RopeDeferredKind = RopeDeferredDir = "";
@@ -3213,7 +3202,7 @@ namespace DshTerrariaBridge
         {
             if (Player.whoAmI != Main.myPlayer) return;
             BridgeSystem.ApplyNativeControlFlags(Player);
-            BridgeSystem.ApplySyntheticInput(lateInput: true);
+            BridgeSystem.ApplySyntheticInput();
             BridgeSystem.DbgPrePhysicsTick = (long)Main.GameUpdateCount;
             BridgeSystem.DbgPrePhysicsUp = Player.controlUp;
             BridgeSystem.DbgPrePhysicsDown = Player.controlDown;

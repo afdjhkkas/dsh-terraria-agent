@@ -111,12 +111,13 @@ y227.38  vy0.00  grap 0  × 8 帧
 player.controlLeft/right/up/down/jump
 ```
 
-抓钩、物品使用和坐骑快捷键走 `ApplySyntheticInput`，并在
-`PostUpdateMiscEffects` 以 `lateInput:true` 再写一次，确保落在 `ResetControls` 之后、
-原版消费者读取之前：
+抓钩和物品使用走 `ApplySyntheticInput`；坐骑快捷键走 `PostUpdateInput` 的
+`PlayerInput.Triggers.Current.QuickMount`，由原版 `TriggersSet.CopyInto` 在
+`ResetControls` 之后生成 `controlMount`，再由原版处理 `releaseMount` 边沿：
 
 ```csharp
-BridgeSystem.ApplySyntheticInput(lateInput: true);
+ApplyBridgeTrigger(MountUntil > now, ref BridgeMountHeld,
+    t => t.QuickMount = true, t => t.QuickMount = true, t => t.QuickMount = true);
 ```
 
 该路径只写输入标志，不碰 `velocity` / `position` / `pulley`。其中：
