@@ -172,3 +172,20 @@ ApplyBridgeTrigger(MountUntil > now, ref BridgeMountHeld,
 
 **判据**：一个控制位该写在哪，取决于它的读点在 `Player.Update` 里有多早 —— 早于 23678
 就必须写输入层（`TriggersSet`）；晚于 24956 才能直接写 `Player.control*`。
+
+### 两种飞行不是同一个键（飞不起来先看这一步）
+
+翅膀和坐骑的上升走的不是同一条判定，按错了键不会有任何报错，只会「不动」：
+
+| 你身上是什么 | 用哪个键 | 原版判定 |
+|---|---|---|
+| 翅膀（`equippedWings` / `wingTimeMax > 0`） | **跳键**（`controlJump`） | `Player.cs:25787` 的 `CanFly()` 分支之外的翅膀逻辑 |
+| 普通飞行坐骑（`CanFly()` 为真、非悬停） | **跳键** | 同上，`else if (mount.CanFly() && controlJump && jump == 0)` |
+| 悬停类坐骑（`usesHover`，`CanHover()` 为真） | **上键**（`controlUp`） | `Player.cs:25585` 的 `controlUp && releaseUp` |
+
+判据顺序不能反：`Player.cs:25783` 先判 `CanHover()`，命中就完全不走 `controlJump` 那条路。
+所以「骑着悬停坐骑一直按跳键」的结局是纹丝不动，而读数上 `velY` 会稳定在 0 ——
+看起来像"没有飞行能力"，其实是键按错了。
+
+命令层用 `fly {ms}`，它会按 `CanHover()` 自己分流，回包的 `key` 字段说明这次用的是哪个键。
+需要分步控制时：翅膀用 `jump {ms}`，悬停坐骑用 `move {dir:"up", ms}`。

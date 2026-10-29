@@ -143,13 +143,11 @@ foreach ($pattern in $patterns) {
 if ($copied -eq 0) { Fail "没有从 $srcDir 复制到任何文件" '确认仓库里 DshTerrariaBridge 目录下确实有 .cs / .csproj' }
 Ok "复制 $copied 个文件"
 
-# ---------------------------------------------------------------- 4. 编译 + 打包
-# 注意：csproj 里的 tMLMod.targets 会在 build 结束时**自动**调用
-#   dotnet tModLoader.dll -server -build <dir> -eac <dll> -define ...
-# 所以 `dotnet build` 一步就把 .tmod 打出来了，不需要（也不该）再手工调一次
-# tModLoader.dll —— 手工调会因为没有 -define 而得到不同的产物。
-Step '4/6 dotnet build -c Release --no-incremental（build 结束会自动打包 tmod）'
-$buildLog = & $dotnet build $modSources -c Release --no-incremental 2>&1
+# ---------------------------------------------------------------- 4. 编译
+# 禁用 tMLMod.targets 的自动 BuildMod target，明确把“编译”和“打包”分成两步。
+# 这样流程与 HANDOFF.md 的硬规矩一致：先得到刚编译的 DLL，再显式用 -eac 打包。
+Step '4/6 dotnet build -c Release --no-incremental（只编译）'
+$buildLog = & $dotnet build $modSources -c Release --no-incremental -p:BuildMod=false 2>&1
 $buildExit = $LASTEXITCODE
 if ($buildExit -ne 0) {
     $tail = ($buildLog | Select-Object -Last 25) -join "`n"
@@ -159,16 +157,31 @@ if ($buildExit -ne 0) {
     }
     Fail "编译失败（exit $buildExit）" '看上面报错的第一条 CS / TML 错误；改完源码重跑本脚本'
 }
-$builtDll = Join-Path $modSources 'bin\Release\net8.0\' + $ModName + '.dll'
+$builtDll = Join-Path $modSources ("bin\Release\net8.0\$ModName.dll")
 if (-not (Test-Path $builtDll)) { Fail "编译成功但找不到 $builtDll" '确认 .csproj 的 TargetFramework 是 net8.0' }
 $dllSize = (Get-Item $builtDll).Length
 Ok ("$ModName.dll  {0:N0} 字节" -f $dllSize)
 
-# ---------------------------------------------------------------- 5. 校验包
-Step '5/6 校验 .tmod（体积 + 魔数）'
+# ---------------------------------------------------------------- 5. 显式打包 + 校验
+Step '5/6 tModLoader -server -build -eac（显式打包并校验）'
+$packLog = @()
+Push-Location $gameDir
+try {
+    $packLog = & $dotnet tModLoader.dll -server -build $modSources -eac $builtDll 2>&1
+    $packExit = $LASTEXITCODE
+} finally { Pop-Location }
+if ($packExit -ne 0) {
+    $tail = ($packLog | Select-Object -Last 25) -join "`n"
+    Write-Host $tail
+    if ($packLog -match 'TML003') {
+        Fail '游戏还在跑（TML003）' '把 tModLoader 完整退出到桌面再重跑。只关到主菜单不算关。'
+    }
+    Fail "打包失败（exit $packExit）" '确认 tModLoader.dll、ModSources 路径和刚生成的 Release DLL 都存在。'
+}
+
 $tmodOut = Join-Path $modSources ($ModName + '.tmod')
 if (-not (Test-Path $tmodOut)) {
-    Fail "build 成功但没生成 $tmodOut" '确认 .csproj 引用了 tMLMod.targets；缺它就不会打包'
+    Fail "显式打包成功但没生成 $tmodOut" '确认 tModLoader 的 -build 目标目录正确，且命令带了 -eac <刚生成的 DLL>'
 }
 
 $tmodSize = (Get-Item $tmodOut).Length

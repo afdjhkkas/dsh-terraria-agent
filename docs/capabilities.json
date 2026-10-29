@@ -335,6 +335,7 @@
         "ms"
       ],
       "returns": [
+        "key",
         "hasWings",
         "wingTimeMax",
         "wingTime",

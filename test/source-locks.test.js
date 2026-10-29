@@ -114,6 +114,23 @@ test('预开闸回包：mount 的 quick 与 dismount 都必须带 preOpenTicks',
     '少了它就没法从回包判断预开闸真的生效了')
 })
 
+test('聊天读取：只收原版真实发送，不用输入框变空猜测', async () => {
+  const src = await read(BRIDGE)
+  // 发送判定必须镜像原版：聊天框打开、回车释放、原版确认 Enter，且原文非空并被原版清空。
+  assert.match(src,
+    /bool\s+sent\s*=\s*wasChatOpen\s*&&\s*releaseBefore\s*&&\s*Main\.inputTextEnter\s*&&/,
+    'chatpoll 必须以原版 inputTextEnter + chatRelease 发送分支为准')
+  assert.match(src,
+    /trimmed\.Length\s*>\s*0\s*&&\s*\(Main\.chatText\s*\?\?\s*""\)\.Length\s*==\s*0/,
+    '必须确认原版发送后输入框被清空，不能按中间态文本入队')
+  assert.match(src, /bool\s+cancelled\s*=\s*wasChatOpen\s*&&\s*!sent\s*&&\s*Main\.inputTextEscape/,
+    'Esc 取消必须走独立分支，不能进入聊天 lines')
+  assert.match(src, /ChatLastEvent\s*=\s*command\s*\?\s*"command"\s*:\s*"sent"/,
+    '必须区分普通消息与原版命令')
+  assert.doesNotMatch(src, /else\s+if\s*\(ChatPending\.Length\s*>\s*0\)/,
+    '不许回退到“输入框变空就算发送”的旧状态机')
+})
+
 test('假操作：不许出现直接写 velocity / position / pulley 的赋值', async () => {
   for (const p of [BRIDGE, CMDS]) {
     const name = p.split(/[\\/]/).pop()
@@ -130,4 +147,19 @@ test('假操作：不许出现直接写 velocity / position / pulley 的赋值',
         `${name} 出现直接写 ${label}；这属于替引擎算物理（AGENTS.md §0.55）`)
     }
   }
+})
+
+// fly 必须按坐骑类型分流用键。
+// 原版 Player.cs:25783 是 if (mount.CanHover()) { mount.Hover(this); }
+//                      else if (mount.CanFly() && controlJump && ...)
+// —— 悬停坐骑读的是 controlUp，只写 controlJump 一个字都不会被读到。
+// 曾经的后果：fly 在骑着坐骑时 velY 恒 0，被误判成"没翅膀所以诚实拒绝"。
+test('fly 必须区分悬停坐骑与翅膀，不能用同一个键', async () => {
+  const src = await read(CMDS)
+  const fly = src.slice(src.indexOf('private static string Fly('))
+  const body = fly.slice(0, fly.indexOf('\n        }'))
+  assert.match(body, /CanHover\(\)/, '必须判断 CanHover()')
+  assert.match(body, /UpUntil\s*=/, '悬停坐骑要走上键时间窗')
+  assert.match(body, /BeginJump\(/, '翅膀/普通飞行坐骑要走上跳键')
+  assert.match(body, /key\s*=\s*hovering\s*\?\s*"up"\s*:\s*"jump"/, '回包要说清这次用的是哪个键')
 })

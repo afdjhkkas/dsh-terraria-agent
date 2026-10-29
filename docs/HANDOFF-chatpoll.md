@@ -1,9 +1,9 @@
-# 游戏聊天框读取（chatpoll）坏了 —— 交接单
+# 游戏聊天框读取（chatpoll）——交接单
 
 ## 一句话
 
-`chatpoll` 要么把一句话记成几百条（旧版），要么一条都读不到（我改的中间版）。
-现在代码里是第三版（状态机），**还没打包验证**，游戏已关闭。
+`chatpoll` 已改为镜像原版真实发送分支，并完成 Release 编译与带 `-eac` 的打包。
+本次没有启动或重启游戏；仍需在游戏里发一条普通消息做最终验收。
 
 ## 涉及的文件（两个位置，内容必须一致）
 
@@ -20,31 +20,33 @@
 |---|---|---|
 | 旧版（已证实有问题） | 在 hook 里按电平看 `Main.chatRelease && Main.chatText` 非空就入队 | 玩家发「你能说话吗」攒出 725 条：`你`×92、`你能`×258、`你能看`×70、`你能看到`×102、`你能看到我`×144、`你能说话`×40、`你能说话吗`×19 |
 | 我改的第 1 版 | 改成 `chatRelease` 的上升沿（`rel && !lastRel`） | **一条都收不到**（`lines: []`）。推测 `Main.chatRelease` 常态为真，真→真没有上升沿 |
-| 我改的第 2 版（当前代码） | 状态机：每帧 `cur = chatText.Trim()`，非空就存进 `ChatPending`，等它变空时把 `ChatPending` 入队 | **未验证**（游戏已关，没打包） |
+| 当前版 | 在 `DoUpdate_HandleChat` hook 前保存文本和释放状态，调用 `orig()` 后按原版发送条件确认 | 已编译、已打包；待游戏内验收 |
 
 ## 当前代码位置
 
-### 1. 字段（`BridgeSystem.cs:913-927`）
+### 1. 字段（`BridgeSystem.cs:913-929`）
 
 ```csharp
 private static readonly object ChatLock = new object();
 private static readonly List<string> ChatInbox = new List<string>();
-private static readonly List<string> ChatSent = new List<string>();
-// 输入框每变一次就会被看到一次，所以不能"看到就记"。
-// ChatPending 保存"当前这一版最长的输入"，等输入框变空时把它当成一条消息收下。
+// ChatPending 只用于诊断当前输入框内容；它不承担“变空即发送”的判定。
 private static string ChatPending = "";
-private static string ChatLastText = "";
-private static ulong ChatLastTextTick;
+private static ulong ChatPendingTick;
 // 上限与"丢了多少"：ChatPoll 的 since 是绝对序号，丢了旧的就要把序号补回去，
 // 否则调用方手里的 since 会指向错位的内容。
 private const int ChatInboxCap = 500;
 private static int ChatDropped;
+private static ulong ChatHookCalls;
+private static ulong ChatLastSendTick;
+private static ulong ChatLastCancelTick;
+private static string ChatLastEvent = "";
+private static string ChatLastCandidate = "";
 internal static bool ChatHookInstalled;
 internal static string ChatHookError = "";
 private static bool ChatHookTried;
 ```
 
-### 2. Hook（`BridgeSystem.cs:929-977`）
+### 2. Hook（`BridgeSystem.cs:931-1005`）
 
 ```csharp
 internal static void InstallChatHook()
@@ -58,37 +60,62 @@ internal static void InstallChatHook()
         if (mi == null) { ChatHookError = "找不到 Main.DoUpdate_HandleChat"; return; }
         Terraria.ModLoader.MonoModHooks.Add(mi, (Action<Action>)(orig =>
         {
+            string beforeText = Main.chatText ?? "";
+            string trimmed = beforeText.Trim();
+            bool wasChatOpen = Main.drawingPlayerChat;
+            bool releaseBefore = Main.chatRelease;
+            lock (ChatLock)
+            {
+                ChatHookCalls++;
+                if (wasChatOpen && trimmed.Length > 0)
+                {
+                    ChatPending = trimmed;
+                    ChatPendingTick = Main.GameUpdateCount;
+                }
+            }
+
+            orig();
+
             try
             {
-                string cur = (Main.chatText ?? "").Trim();
-                if (cur.Length > 0)
+                ulong now = Main.GameUpdateCount;
+                bool sent = wasChatOpen && releaseBefore && Main.inputTextEnter &&
+                    trimmed.Length > 0 && (Main.chatText ?? "").Length == 0;
+                bool cancelled = wasChatOpen && !sent && Main.inputTextEscape;
+                if (sent)
                 {
-                    ChatPending = cur;
-                }
-                else if (ChatPending.Length > 0)
-                {
-                    string text = ChatPending;
-                    ChatPending = "";
-                    ulong now = Main.GameUpdateCount;
-                    bool sameAgain = text == ChatLastText && now - ChatLastTextTick < 30;
-                    if (!sameAgain)
+                    bool command = trimmed.StartsWith("/", StringComparison.Ordinal);
+                    lock (ChatLock)
                     {
-                        lock (ChatLock)
+                        ChatLastCandidate = trimmed;
+                        ChatLastEvent = command ? "command" : "sent";
+                        if (!command)
                         {
-                            ChatInbox.Add(text);
+                            ChatInbox.Add(trimmed);
                             while (ChatInbox.Count > ChatInboxCap)
                             {
                                 ChatInbox.RemoveAt(0);
                                 ChatDropped++;
                             }
+                            ChatLastSendTick = now;
                         }
-                        ChatLastText = text;
-                        ChatLastTextTick = now;
+                        ChatPending = "";
+                        ChatPendingTick = 0;
+                    }
+                }
+                else if (cancelled)
+                {
+                    lock (ChatLock)
+                    {
+                        ChatLastCandidate = trimmed;
+                        ChatLastEvent = "cancel";
+                        ChatLastCancelTick = now;
+                        ChatPending = "";
+                        ChatPendingTick = 0;
                     }
                 }
             }
             catch { }
-            orig();
         }));
         ChatHookInstalled = true;
     }
@@ -132,35 +159,28 @@ case "chatpoll":
         Math.Clamp(Json.Int(p, "max", 20), 1, 500)));
 ```
 
-## 还没查清的两件事（给改的人）
+## 已排除的旧方案
 
-1. **`Main.chatRelease` 到底什么时候为真？** 我推断它常态为真（否则上升沿不会一次都触发不了），但没有证据。用 `ilspycmd` 反编译 `Terraria.Main` 搜 `chatRelease` 的赋值点能确认。
+- 逐帧看到非空文本就入队：中文输入法会把一句话拆成大量中间态。
+- `chatRelease` 上升沿：已实测收不到消息，不能作为独立发送信号。
+- “输入框变空就算发送”：Esc 取消和原版处理时序会造成误报。
 
-2. **`Main.DoUpdate_HandleChat` 是不是只在聊天框打开时每帧调用？** 如果是，那"输入框变空"那一帧之后就再也不调用这个函数了，状态机第 2 版会永远等不到"变空"。这是当前版本最大的风险点。
-
-   验证办法：临时在 hook 里加 `ChatHookCalls++` 计数器，回包带上。聊天框关着时数字涨不涨，一试就知道。
-
-## 正确的方向（如果状态机也不成）
-
-不要靠 hook 猜"发送时刻"，改成**比较输入框内容的两个连续帧**：
-
-```csharp
-string now_ = Main.chatText ?? "";
-if (now_.Length > 0 && now_ != ChatPrevNonEmpty) ChatPrevNonEmpty = now_;   // 记录最长版本
-if (now_.Length == 0 && ChatPrevNonEmpty.Length > 0) { 入队(ChatPrevNonEmpty); ChatPrevNonEmpty = ""; }
-ChatPrev = now_;
-```
-
-本质和现在的状态机一样，区别是**不依赖 hook 被调用的频率**——只要还在调就能收敛。
+当前实现只在 `orig()` 返回后同时满足 `wasChatOpen && releaseBefore &&
+Main.inputTextEnter && trimmed.Length > 0 && (Main.chatText ?? "").Length == 0` 时入队；
+Esc 取消走 `lastEvent: "cancel"`，以 `/` 开头且由原版处理的命令走 `lastEvent: "command"`，都不会进入 `lines`。
 
 ## 编译 / 部署
 
-```bash
-export DOTNET_ROOT="C:/Users/联想/AppData/Local/Microsoft/dotnet"
-cp -f DshTerrariaBridge/BridgeSystem.cs DshTerrariaBridge/Commands.cs \
-  "C:/Users/联想/Documents/My Games/Terraria/tModLoader/ModSources/DshTerrariaBridge/"
-cd "C:/Users/联想/Documents/My Games/Terraria/tModLoader/ModSources/DshTerrariaBridge"
-"$DOTNET_ROOT/dotnet.exe" build
+```powershell
+$repo = "D:\deepseek harness\官方版\work\dsh-terraria-agent-repo"
+$sync = "C:\Users\联想\Documents\My Games\Terraria\tModLoader\ModSources\DshTerrariaBridge"
+$dotnet = "C:\Users\联想\AppData\Local\Microsoft\dotnet\dotnet.exe"
+$game = "D:\STEAM\steamapps\common\tModLoader"
+Copy-Item "$repo\DshTerrariaBridge\*.cs" $sync -Force
+& $dotnet build "$sync\DshTerrariaBridge.csproj" -c Release --no-incremental
+Push-Location $game
+& $dotnet tModLoader.dll -server -build $sync -eac "$sync\bin\Release\net8.0\DshTerrariaBridge.dll"
+Pop-Location
 ```
 
 **必须先把游戏关干净**，否则报 `TML003: Please close tModLoader`。
@@ -172,11 +192,12 @@ Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'tModLoader
 
 打包成功后 `.tmod` 会自动出现在
 `C:/Users/联想/Documents/My Games/Terraria/tModLoader/Mods/DshTerrariaBridge.tmod`，
-看时间戳和体积确认是新包（上一版 243202 字节 / 00:14）。
+必须检查体积大于 50 KB、前四字节为 `TMOD`，并把同一个包同步到仓库 `artifacts/`。
+本次产物为 215792 字节，魔数 `TMOD`；游戏未启动或重启。
 
 ## 验收
 
 1. 进游戏，在聊天框打一句完整的话（比如「你能说话吗」）发出去
 2. `node scripts/bridge.mjs chatpoll --params '{"since":0,"max":100}'`
 3. **期望：`lines` 里只有一条完整句，`pending: 0`，`dropped: 0`**
-4. 出错时先看回包里的 `pendingText`：非空说明它以为你还在打字、没收到"发送"信号
+4. 出错时先看 `hooked/hookError/hookCalls`；输入中看 `pendingText`，取消或命令看 `lastEvent`。

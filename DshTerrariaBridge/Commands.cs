@@ -4153,6 +4153,16 @@ namespace DshTerrariaBridge
             int ms = Math.Clamp(Json.Int(p, "ms", 900), 60, 8000);
             bool wings = pl.wingTimeMax > 0 || pl.equippedWings != null;
             bool mounted = pl.mount != null && pl.mount.Active;
+            // 两种飞行压根不是同一个键，必须分流：
+            //
+            //   有翅膀 / 普通飞行坐骑 → controlJump（Player.cs:25787 的 CanFly() 分支）
+            //   悬停类坐骑（usesHover） → controlUp  （Player.cs:25585 的 CanHover() 分支）
+            //
+            // Player.cs:25783 是 if (mount.CanHover()) { mount.Hover(this); }
+            //                      else if (mount.CanFly() && controlJump && ...)
+            // 所以骑悬停坐骑时只写 controlJump 一个字都不会被读到 —— 这正是 fly 在
+            // "骑着坐骑"情况下 velY 恒 0 的原因：不是没翅膀，是键按错了。
+            bool hovering = mounted && pl.mount.CanHover();
             // 手动飞也要先抢回控制权：exact/path/walk/follow 只要有一个还活着，
             // ApplyMovement 就会在那个分支里提前 return（BridgeSystem.cs:2005/2071/2072/2089），
             // JumpUntil 那一段永远走不到，表现就是"翅膀不开、velY 恒 0"。
@@ -4162,17 +4172,28 @@ namespace DshTerrariaBridge
             // 必须走 BeginJump：它除了写 JumpUntil 还会置 IntentJump=true。
             // BridgeSystem.cs:616 的 controlJump 只在 IntentJump 或真实按键 triggers.Jump 为真时才成立，
             // 这套环境没有物理按键，只写 JumpUntil 会让 controlJump 恒 false（翅膀永远不开，实测 velY 恒 0）。
-            BridgeSystem.BeginJump(BridgeSystem.Now + BridgeSystem.Ticks(ms));
-            // 飞/脱钩都是"按住跳跃键"的语义：走原生输入。
+            if (hovering)
+            {
+                // 悬停坐骑：按住上键。UpUntil 本身就是时间窗，ApplyNativeControlFlags 会把它
+                // 并进 controlUp（BridgeSystem.cs:720），不需要额外的 Intent 标志。
+                BridgeSystem.UpUntil = BridgeSystem.Now + BridgeSystem.Ticks(ms);
+                BridgeSystem.DownUntil = 0;
+            }
+            else
+            {
+                BridgeSystem.BeginJump(BridgeSystem.Now + BridgeSystem.Ticks(ms));
+            }
             return Json.Ok(new
             {
                 ms,
+                key = hovering ? "up" : "jump",
+                hovering,
                 hasWings = wings,
                 wingTimeMax = pl.wingTimeMax,
                 wingTime = pl.wingTime,
                 mounted,
                 velY = pl.velocity.Y,
-                hint = wings || mounted ? null : "没有翅膀也没有飞行坐骑，按住跳跃只会起跳，不会飞",
+                hint = hovering || wings || mounted ? null : "没有翅膀也没有飞行坐骑，按住跳跃只会起跳，不会飞",
             });
         }
 

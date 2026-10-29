@@ -27,7 +27,7 @@
 | 感知 | 背包 | `inventory` | ✅ 主背包、货币栏、弹药栏、垃圾桶槽位 |
 | 感知 | 地上掉落物 | `items {r}` | ✅ |
 | 感知 | 玩家列表 | `players` | ✅ |
-| 感知 | 游戏聊天读取 | `chatpoll {since,max}` | ⚠️ 只收原版真实发送的完整消息；输入中和 Esc 取消都有诊断字段 |
+| 感知 | 游戏聊天读取 | `chatpoll {since,max}` | 🚧 代码已编译打包，待本轮游戏内验收；设计上只收原版真实发送的完整消息 |
 | 感知 | Boss / 事件状态 | `boss` / `event` | ✅ |
 | 感知 | 房屋判定 | `housing {x,y}` / `needs {x,y}` | ✅ |
 | 移动 | 逐帧方向控制 | `move {dir,ms}` / `jump {ms}` | ✅ |
@@ -109,6 +109,7 @@ minions,minionSlots,grapCount,hookType,mounted,wingTime,hasWings,itemAnimation,p
 验收时先记住 `next`，发送一条普通消息后轮询同一个桥，期望 `lastEvent:"sent"`、`lines` 只增加一条
 完整文本、`pendingText:""`。只输入不发送时应只有 `pendingText`；按 Esc 时应为 `lastEvent:"cancel"`，
 `lines` 不增加。`chatpost` 是桥向游戏显示文本的写出命令，不会伪造 `chatpoll` 的输入消息。
+当前实现已完成 Release 编译与带 `-eac` 打包；本轮尚未在游戏内验证真实发送、Esc 取消和 `/` 命令三条路径，验收通过前不标为实测可用。
 
 ### `scan {x,y,r,walls}` — 网格快照
 返回 `(2r+1)²` 网格，每格 `[type,wall,liquid,shape]`，`r ≤ 48`。**只覆盖已加载区段**（约玩家周围 ±100 格）。
@@ -343,7 +344,7 @@ api {type:"Terraria.Player", member:"controlHook"} → "field | Boolean controlH
 | 项目 | 状态 | 说明 |
 |---|---|---|
 | 排水 | ❌ | 水里悬空放不上方块（9 格全失败） |
-| 飞行 `fly` | ❌ | **有翅膀也不升空**：`hasWings:true` 但 `velY` 恒 0，属不报错也不动，比拒绝更危险。上升必须用 `jump {ms}` 按住（同样装备下实测升 60 格） |
+| 飞行 `fly` | ⚠️ | 已定位并改（待真机复验）：原版两种飞行不是同一个键——`Player.cs:25783` 是 `if (mount.CanHover()) { mount.Hover(this); } else if (mount.CanFly() && controlJump && ...)`，悬停类坐骑读 `controlUp`、翅膀与普通飞行坐骑读 `controlJump`。旧实现只写 `controlJump`，所以骑悬停坐骑时 `velY` 恒 0。现在按 `CanHover()` 分流，回包带 `key: "up"|"jump"` 与 `hovering` |
 | 坐骑 `ride` 子命令 | ⚠️ | `ride` 只查背包槽，读不到 `miscEquips[3]`，所以在坐骑只在装备槽时误报背包里没有坐骑召唤物品。用 `quick` 或先读 `miscEquips[3]` 确认 |
 | 箱子收纳 `chest` | 🚧 | 代码有，世界还没箱子，未实测 |
 | 液体类型 `liquidop` | 🚧 | §3.5 新加，只编译过 |

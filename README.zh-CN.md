@@ -116,20 +116,36 @@ config:
 
 ## 构建 Mod
 
-把 `DshTerrariaBridge/` 放到 tModLoader 的 `ModSources` 下（本机是
-`%USERPROFILE%\Documents\My Games\Terraria\tModLoader\ModSources\DshTerrariaBridge`），
-然后用 .NET 8 SDK 构建——**这是产出 `artifacts/DshTerrariaBridge.tmod` 的实际方式**：
+改过 `DshTerrariaBridge/*.cs` 后，部署必须按固定顺序完成：
+
+1. 先确认游戏完全退出；
+2. 把仓库源码同步到 tModLoader 的 `ModSources\DshTerrariaBridge\`；
+3. 用 Release 配置完整编译；
+4. 用带 `-eac` 的 tModLoader 命令显式打包 `.tmod`，再校验包体积和 `TMOD` 魔数。
+
+推荐直接运行仓库脚本，它会执行这四步、拒绝空壳包、安装成品并同步
+`artifacts\DshTerrariaBridge.tmod`，且不会启动或重启游戏：
 
 ```powershell
-cd "$env:USERPROFILE\Documents\My Games\Terraria\tModLoader\ModSources\DshTerrariaBridge"
-& "$env:LOCALAPPDATA\Microsoft\dotnet\dotnet.exe" build -c Release
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-mod.ps1
 ```
 
-`dotnet build` 除了编译，还会跑 tModLoader 自己的 `BuildMod` target
-（`tMLMod.targets` 里 `dotnet tModLoader.dll -build <projectDir> -eac <TargetPath>`），
-把 `DshTerrariaBridge.tmod` 打包进
-`%USERPROFILE%\Documents\My Games\Terraria\tModLoader\Mods\`。把这个文件复制成
-`artifacts/DshTerrariaBridge.tmod`，再运行 `install-mod.ps1`。
+如果需要手工复现，命令必须保持下面的顺序；`ModSources` 没同步或漏掉 `-eac` 都会得到旧包或空壳：
+
+```powershell
+$repo = (Get-Location).Path
+$sync = "$env:USERPROFILE\Documents\My Games\Terraria\tModLoader\ModSources\DshTerrariaBridge"
+$dotnet = "$env:LOCALAPPDATA\Microsoft\dotnet\dotnet.exe"
+$game = "D:\STEAM\steamapps\common\tModLoader"
+Copy-Item "$repo\DshTerrariaBridge\*.cs" $sync -Force
+& $dotnet build "$sync\DshTerrariaBridge.csproj" -c Release --no-incremental
+Push-Location $game
+& $dotnet tModLoader.dll -server -build $sync -eac "$sync\bin\Release\net8.0\DshTerrariaBridge.dll"
+Pop-Location
+```
+
+打包后检查 `%USERPROFILE%\Documents\My Games\Terraria\tModLoader\Mods\DshTerrariaBridge.tmod`
+体积大于 50 KB、前四字节为 `TMOD`，再把同一个文件复制到 `artifacts\`。
 
 `build-bridge-roslyn.ps1` 只是快速编译检查（只产出 DLL，不打包 `.tmod`），且要求
 PowerShell 7+ / .NET 8：
