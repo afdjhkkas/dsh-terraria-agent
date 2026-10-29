@@ -36,6 +36,7 @@ namespace DshAiMini
             public string ApiKey;
             public int TimeoutMs;
             public long StartedTick;
+            public Action<bool, int, string, string> Callback;
         }
 
         private sealed class Result
@@ -45,6 +46,7 @@ namespace DshAiMini
             public string Text;
             public string Error;
             public long ElapsedMs;
+            public Action<bool, int, string, string> Callback;
         }
 
         private static readonly ConcurrentQueue<Job> Pending = new ConcurrentQueue<Job>();
@@ -52,10 +54,12 @@ namespace DshAiMini
         private static int _inFlight;
 
         /// <summary>主线程调用。把请求丢进队列，立刻返回，不等网络。</summary>
-        public static void Post(string url, string body, string apiKey, int timeoutMs = 30000)
+        public static void Post(string url, string body, string apiKey, int timeoutMs = 30000,
+                                Action<bool, int, string, string> callback = null)
         {
             if (string.IsNullOrWhiteSpace(url)) return;
-            Pending.Enqueue(new Job { Url = url.Trim(), Body = body, ApiKey = apiKey, TimeoutMs = timeoutMs, StartedTick = 0 });
+            Pending.Enqueue(new Job { Url = url.Trim(), Body = body, ApiKey = apiKey,
+                                      TimeoutMs = timeoutMs, Callback = callback });
             PumpIfIdle();
         }
 
@@ -64,7 +68,12 @@ namespace DshAiMini
         {
             // 顺手再启一个 worker：上一个处理完、队列里又攒了新的，这里把它接上。
             PumpIfIdle();
-            if (Done.TryDequeue(out var r)) return (r.Ok, r.Status, r.Text, r.Error, r.ElapsedMs);
+            if (Done.TryDequeue(out var r))
+            {
+                // 回调永远在主线程执行（TryTake 只在 PostUpdateEverything 里调）
+                r.Callback?.Invoke(r.Ok, r.Status, r.Text, r.Error);
+                return (r.Ok, r.Status, r.Text, r.Error, r.ElapsedMs);
+            }
             return null;
         }
 
@@ -109,6 +118,7 @@ namespace DshAiMini
                     }
                     sw.Stop();
                     res.ElapsedMs = sw.ElapsedMilliseconds;
+                    res.Callback = job.Callback;
                     Done.Enqueue(res);
                 }
             }
