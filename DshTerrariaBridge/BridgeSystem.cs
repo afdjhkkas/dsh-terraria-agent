@@ -661,9 +661,19 @@ namespace DshTerrariaBridge
         public override void ModifyInterfaceLayers(List<GameInterfaceLayer> layers)
         {
             if (Main.dedServ) return;
-            int mouseOver = layers.FindIndex(layer => layer.Name == "Vanilla: Mouse Over");
-            if (mouseOver < 0) return;
-            layers.Insert(mouseOver, new LegacyGameInterfaceLayer(
+            // 插在**对话按钮那一层之前**，不能插在 "Vanilla: Mouse Over" 之前。
+            // 原版 DrawInterface 的层序是
+            //   ... Vanilla: Chat -> Vanilla: Player Chat（对话按钮，读 Main.mouseX 判悬停）
+            //       -> Vanilla: Mouse Text -> Vanilla: Mouse Over -> ...
+            // 之前在 Mouse Over 之前插入，等于排在 Player Chat **之后**：这一帧按钮已经用
+            // 系统鼠标画完了，我们再把 Main.mouseX 挪到目标按钮上，要等到下一帧才被读到，
+            // 而下一帧 Main.Update 又把它还原成系统鼠标 —— 于是 npcChatFocus1..4 永远是 false，
+            // talkoption 扫 455 个点一个都命中不了。
+            // 正确位置：Player Chat 之前；找不到就退到 "Vanilla: Chat" 之前；再找不到就最前面。
+            int idx = layers.FindIndex(layer => layer.Name == "Vanilla: Player Chat");
+            if (idx < 0) idx = layers.FindIndex(layer => layer.Name == "Vanilla: Chat");
+            if (idx < 0) idx = 0;
+            layers.Insert(idx, new LegacyGameInterfaceLayer(
                 "DshTerrariaBridge: Talk Input",
                 ApplyTalkInputBeforeMouseOver,
                 InterfaceScaleType.Game));
