@@ -53,7 +53,7 @@
 | 战斗 | 召唤 | `minion {slot}` | ✅ |
 | 战斗 | 回血 | `heal` | ✅ 需带药水 |
 | 战斗 | 旧式点名攻击 | `attack {r,who,ms}` | ⚠️ 走伤害管线但无弹幕，优先用 `shoot`/`guard` |
-| NPC | 对话 | `talk {npc}` / `chat {text}` | ✅ |
+| NPC | 对话 | `talk {npc}` / `chat {text}` | ⚠️ 真实右键输入已接入；需用 `state.talkNPC` + `state.npcChatText` 回读确认 |
 | NPC | 商店 | `shop{npc}` / `shops{want}` / `buy` / `sell` | ✅ |
 | NPC | 入住房间 | `homeroom {who,x,y}` | ⚠️ 房间判定必须先通过 |
 | NPC | 跟随 / 待命 | `follow {player}` / `idle` | ✅ |
@@ -273,7 +273,7 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 
 | 命令 | 说明 |
 |---|---|
-| `talk {npc}` | 与 NPC 对话（**≤12 格**） |
+| `talk {npc}` | 瞄准附近 NPC 发送一次真实右键；原版 `HoverOverNPCs` 负责选中、台词和商店（**≤12 格**） |
 | `chat {text}` | 在世界聊天框说话 |
 | `shop {npc}` / `shops {want}` / `shopdebug` | 读商店货架、按名字找商品 |
 | `buy {slot}` / `sell {slot}` | 买卖（商人卖弱效治疗药水 300 铜、绳 10 铜） |
@@ -281,6 +281,9 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 | `follow {player,range,guard}` / `idle` | 跟随玩家 / 原地待命 |
 
 `homeroom` 前置条件：`housing {x,y}` 要 `roomFound:true`，且 `needs` 里门/椅/桌/火把/墙都齐。
+
+`talk` 只返回输入已排队，不把 `talkNPC`、商店索引或台词当作成功证据。命令完成后必须轮询
+`state.talkNPC`、`state.npcChatText`、`state.npcShopIndex`；其中 `npcChatText` 非空才算原版对话路径真正执行。
 
 ---
 

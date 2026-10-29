@@ -102,7 +102,7 @@
 | `startevent` | `event` |
 | `state` | — |
 | `stop` | — |
-| `talk` | `npc` |
+| `talk` | `npc` `ms` |
 | `tile` | `x` `y` |
 | `tiledata` | `type` `style` `alternate` |
 | `trash` | `slot` `count` |

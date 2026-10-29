@@ -1337,6 +1337,11 @@
         "screen",
         "mouseWorld",
         "mouseTile",
+        "talkNPC",
+        "npcChatText",
+        "npcShopIndex",
+        "npcChatRelease",
+        "talkInput",
         "world",
         "player",
         "ropeContact",
@@ -1405,17 +1410,23 @@
       "name": "talk",
       "kind": "act",
       "params": [
-        "npc"
+        "npc",
+        "ms"
       ],
       "returns": [
         "npc",
         "type",
         "distance",
+        "armed",
+        "alreadyTalking",
         "talkNPC",
         "npcShop",
         "hasShop",
+        "chatText",
         "cornerItem",
-        "isAngler"
+        "isAngler",
+        "untilTick",
+        "target"
       ],
       "summary": ""
     },

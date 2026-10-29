@@ -525,6 +525,21 @@ namespace DshTerrariaBridge
             if (inWorld)
             {
                 Player pl = P;
+                data["talkNPC"] = pl.talkNPC;
+                data["npcChatText"] = Main.npcChatText;
+                data["npcShopIndex"] = Main.npcShop;
+                data["npcChatRelease"] = Main.npcChatRelease;
+                data["talkInput"] = new
+                {
+                    active = BridgeSystem.TalkTargetNpc >= 0 && BridgeSystem.TalkUntil > BridgeSystem.Now,
+                    targetNpc = BridgeSystem.TalkTargetNpc,
+                    untilTick = BridgeSystem.TalkUntil,
+                    phase = BridgeSystem.TalkPhase,
+                    mouseRight = BridgeSystem.DbgTalkMouseRight,
+                    chatRelease = BridgeSystem.DbgTalkChatRelease,
+                    finalMouseX = BridgeSystem.DbgTalkFinalMouseX,
+                    finalMouseY = BridgeSystem.DbgTalkFinalMouseY,
+                };
                 data["world"] = new
                 {
                     name = Main.worldName,
@@ -570,6 +585,9 @@ namespace DshTerrariaBridge
                     selected = pl.selectedItem,
                     held = new { type = pl.HeldItem.type, name = pl.HeldItem.Name, stack = pl.HeldItem.stack },
                     buffs = Buffs(pl),
+                    talkNPC = pl.talkNPC,
+                    npcChatText = Main.npcChatText,
+                    npcShopIndex = Main.npcShop,
                     // Survival readings. Digging without watching these is how the agent drowned
                     // and kept swinging: breath runs out under water and lava kills in seconds.
                     breath = pl.breath,
@@ -1589,8 +1607,9 @@ namespace DshTerrariaBridge
         }
 
         /// <summary>
-        /// 走到 NPC 旁边并真实对话（Player.SetTalkNPC），商店界面由游戏自己打开。
-        /// 之后 shop / buy 只读已经打开的商店，不再自己 SetupShop——那样等于凭空开店。
+        /// Arm a real right-click at the NPC.  The vanilla HoverOverNPCs path performs
+        /// SetTalkNPC, shop selection, and GetChat; this command must not write those result
+        /// fields itself.  The caller confirms success later through state.chatText/talkNPC.
         /// </summary>
         private static string TalkTo(JsonElement p)
         {
@@ -1601,18 +1620,33 @@ namespace DshTerrariaBridge
             if (npc == null) return Json.Error("附近没有可以对话的城市 NPC");
             if (d > 12 * 16f) return Json.Error($"离 {npc.FullName} 太远（{d / 16f:F0} 格），先走过去");
             int idx = npc.whoAmI;
-            pl.SetTalkNPC(idx, true);
-            // 游戏自己打开商店的入口：SetNPCShopIndex 会填好 Main.instance.shop 并设 Main.npcShop
-            try { Main.SetNPCShopIndex(npc.type); } catch { }
+            if (pl.talkNPC == idx && !string.IsNullOrWhiteSpace(Main.npcChatText))
+            {
+                return Json.Ok(new
+                {
+                    npc = npc.FullName, type = npc.type, distance = (int)(d / 16f),
+                    armed = false, alreadyTalking = true,
+                    talkNPC = pl.talkNPC, npcShop = Main.npcShop,
+                    hasShop = Main.npcShop > 0,
+                    chatText = Main.npcChatText,
+                    cornerItem = Main.npcChatCornerItem,
+                    isAngler = npc.type == NPCID.Angler,
+                });
+            }
+
+            int ms = Math.Clamp(Json.Int(p, "ms", 500), 200, 2000);
+            BridgeSystem.TalkTargetNpc = idx;
+            BridgeSystem.TalkAimWorld = npc.Center;
+            BridgeSystem.TalkUntil = BridgeSystem.Now + BridgeSystem.Ticks(ms);
+            BridgeSystem.TalkPhase = 1;
             return Json.Ok(new
             {
                 npc = npc.FullName, type = npc.type, distance = (int)(d / 16f),
-                talkNPC = pl.talkNPC, npcShop = Main.npcShop,
-                hasShop = Main.npcShop > 0,
-                // 对话正文：SetTalkNPC 之后游戏自己把这一句填进 Main.npcChatText，
-                // 这是唯一能读到的"NPC 说了什么"（选项按钮的文案是绘制时算的，读不到）。
-                chatText = Main.npcChatText,
-                cornerItem = Main.npcChatCornerItem,
+                armed = true,
+                untilTick = BridgeSystem.TalkUntil,
+                target = new { x = MathF.Round(npc.Center.X, 1), y = MathF.Round(npc.Center.Y, 1) },
+                input = "mouseRight",
+                note = "已发送真实右键输入；等待 state.talkNPC 与 state.chatText 回读确认",
                 isAngler = npc.type == NPCID.Angler,
             });
         }

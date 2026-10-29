@@ -429,6 +429,36 @@ namespace DshTerrariaBridge
             Main.mouseY = rawY;
         }
 
+        /// <summary>
+        /// Feed a bridge-owned world point through the same raw-mouse cache that vanilla
+        /// uses before SetZoom_MouseInWorld.  This is shared by hook and NPC interaction:
+        /// writing world - screenPosition directly is only correct after zoom conversion.
+        /// </summary>
+        private static void ApplyWorldAimBeforeZoom(Vector2 world)
+        {
+            float zoom = Main.GameViewMatrix != null ? Main.GameViewMatrix.Zoom.X : 1f;
+            if (!float.IsFinite(zoom) || zoom <= 0f) zoom = 1f;
+
+            float finalX = world.X - Main.screenPosition.X;
+            float finalY = world.Y - Main.screenPosition.Y;
+            Player p = Main.LocalPlayer;
+            if (p != null && p.gravDir == -1f)
+                finalY = Main.screenHeight - finalY;
+
+            float halfX = Main.screenWidth / 2f;
+            float halfY = Main.screenHeight / 2f;
+            int rawX = (int)MathF.Round(halfX + (finalX - halfX) * zoom);
+            int rawY = (int)MathF.Round(halfY + (finalY - halfY) * zoom);
+            try
+            {
+                OriginalMouseXField?.SetValue(null, rawX);
+                OriginalMouseYField?.SetValue(null, rawY);
+            }
+            catch { }
+            Main.mouseX = rawX;
+            Main.mouseY = rawY;
+        }
+
         /// <summary>Write the already-zoomed screen coordinate immediately before QuickGrapple.</summary>
         private static void ApplyHookAimAfterZoom()
         {
@@ -443,6 +473,80 @@ namespace DshTerrariaBridge
             DbgHookFinalMouseY = Main.mouseY;
             DbgHookScreenX = Main.screenPosition.X;
             DbgHookScreenY = Main.screenPosition.Y;
+        }
+
+        /// <summary>NPC interaction uses the final, already zoom-converted screen point.</summary>
+        private static void ApplyTalkAimAfterZoom()
+        {
+            if (TalkTargetNpc < 0 || TalkUntil <= Main.GameUpdateCount) return;
+            float finalX = TalkAimWorld.X - Main.screenPosition.X;
+            float finalY = TalkAimWorld.Y - Main.screenPosition.Y;
+            Player p = Main.LocalPlayer;
+            if (p != null && p.gravDir == -1f)
+                finalY = Main.screenHeight - finalY;
+            Main.mouseX = (int)MathF.Round(finalX);
+            Main.mouseY = (int)MathF.Round(finalY);
+            DbgTalkFinalMouseX = Main.mouseX;
+            DbgTalkFinalMouseY = Main.mouseY;
+        }
+
+        private static void ApplyTalkAimBeforeZoom()
+        {
+            if (TalkTargetNpc < 0 || TalkUntil <= Main.GameUpdateCount) return;
+            ApplyWorldAimBeforeZoom(TalkAimWorld);
+        }
+
+        /// <summary>
+        /// Keep one released frame before the synthetic right click.  Vanilla updates
+        /// npcChatRelease from Main.mouseRight in the interface pass; this gives the
+        /// original HoverOverNPCs path the same press edge as a real mouse click.
+        /// </summary>
+        private static void ApplyTalkInputAfterZoom()
+        {
+            ulong now = Main.GameUpdateCount;
+            if (TalkTargetNpc < 0) return;
+
+            Player p = Main.LocalPlayer;
+            if (p != null && p.talkNPC == TalkTargetNpc && !string.IsNullOrWhiteSpace(Main.npcChatText))
+            {
+                TalkTargetNpc = -1;
+                TalkUntil = 0;
+                TalkPhase = 0;
+                DbgTalkMouseRight = false;
+                DbgTalkChatRelease = false;
+                Main.mouseRight = false;
+                Main.mouseRightRelease = true;
+                return;
+            }
+
+            if (TalkUntil <= now)
+            {
+                TalkTargetNpc = -1;
+                TalkUntil = 0;
+                TalkPhase = 0;
+                DbgTalkMouseRight = false;
+                DbgTalkChatRelease = false;
+                Main.mouseRight = false;
+                Main.mouseRightRelease = true;
+                return;
+            }
+
+            ApplyTalkAimAfterZoom();
+            if (TalkPhase == 1)
+            {
+                // Release/arming frame.  DrawInterface_41 will publish npcChatRelease=true.
+                Main.mouseRight = false;
+                Main.mouseRightRelease = true;
+                TalkPhase = 2;
+                return;
+            }
+
+            // Press frame(s). HoverOverNPCs consumes mouseRight && npcChatRelease and
+            // performs the complete vanilla conversation setup.
+            Main.mouseRight = true;
+            Main.mouseRightRelease = true;
+            DbgTalkMouseRight = true;
+            DbgTalkChatRelease = Main.npcChatRelease;
         }
 
         /// <summary>
@@ -627,6 +731,7 @@ namespace DshTerrariaBridge
             // the inverse coordinate now; ApplySyntheticInput writes the final screen
             // coordinate again in the player update phase before QuickGrapple consumes it.
             ApplyHookAimBeforeZoom();
+            ApplyTalkAimBeforeZoom();
             // ApplyMovement is intentionally not called here.  It must run from
             // DshControlPlayer.PreUpdate, after these triggers are present, so vanilla does
             // not rebuild controlLeft/controlRight/controlJump over the bridge's input.
@@ -647,6 +752,7 @@ namespace DshTerrariaBridge
             InstallChatHook();
             TickTravel();
             DrainPending();
+            ApplyTalkInputAfterZoom();
         }
 
 
@@ -2088,8 +2194,14 @@ namespace DshTerrariaBridge
             // Main.MouseWorld is read-only in 1.4.4 (derived from the mouse position), so the
             // cursor is driven through the raw coordinates; tile interactions read
             // Player.tileTargetX/Y, which are static and are what placement/mine actually use.
-            Main.mouseX = (int)screenX;
-            Main.mouseY = (int)screenY;
+            // ApplyAim can run both before and after PlayerInput.SetZoom_MouseInWorld.  Seed
+            // the private raw cache for the former case and write the final screen point for
+            // the latter; either phase therefore resolves to the requested world tile.
+            ApplyWorldAimBeforeZoom(new Vector2(worldX, worldY));
+            Main.mouseX = (int)MathF.Round(screenX);
+            if (Main.LocalPlayer != null && Main.LocalPlayer.gravDir == -1f)
+                screenY = Main.screenHeight - screenY;
+            Main.mouseY = (int)MathF.Round(screenY);
             // 这一版 tModLoader 没有可写的智能光标开关（Main 只有只读的 SmartCursorWanted /
             // SmartCursorIsUsed），所以不去碰设置；准星落点靠 mouseX/Y + tileTargetX/Y 直接压住，
             // 实测 mine/place 回读的格子就是传入的那一格。
@@ -2891,6 +3003,13 @@ namespace DshTerrariaBridge
         // 脱钩要走原版的 releaseHook 一帧标志（和 mouseLeftRelease 同类的机制）。
         // 只清 controlHook 不够：实测 grapCount 一直停在 1，角色被钉在原地。
         internal static volatile bool HookReleasePending, HookJustStarted;
+        // NPC 对话：只保存目标与右键输入时间窗，NPC 选中、商店和台词全部由原版 HoverOverNPCs 结算。
+        internal static volatile int TalkTargetNpc = -1;
+        internal static Vector2 TalkAimWorld;
+        internal static ulong TalkUntil;
+        internal static volatile int TalkPhase; // 0=idle, 1=release/arm, 2=press
+        internal static volatile bool DbgTalkMouseRight, DbgTalkChatRelease;
+        internal static volatile int DbgTalkFinalMouseX, DbgTalkFinalMouseY;
         internal static ulong AttackUntil, AttackNextTick;
         internal static volatile int AttackTarget = -1, AttackRadius = 40, AttackIntervalTicks = 10;
         internal static volatile bool AttackAutoTarget, AttackFinished, AttackFinishedCleanly, AttackKilled, AttackBlockedByTerrain, JumpIssued;
@@ -2990,6 +3109,8 @@ namespace DshTerrariaBridge
         RopeDeferredTiles = RopeDeferredTargetX = 0f;
         // 抓钩也算"会自己动"的状态：不清的话松手后角色还被挂在钩上。
         HookHeld = false; HookUntil = 0; HookReleasePending = true;
+        TalkTargetNpc = -1; TalkUntil = 0; TalkPhase = 0;
+        DbgTalkMouseRight = false; DbgTalkChatRelease = false;
         ClearAttack();
     }
 
