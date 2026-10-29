@@ -247,3 +247,19 @@ test('CO_LOAD 只引用真实存在的库', () => {
     for (const e of extras) assert.ok(LIBRARIES[e], `${base} 引用了未知库 ${e}`)
   }
 })
+
+// 「打boss」是最常见的提问方式，但在补关键词之前一个词都没覆盖到
+// （route.mjs "打boss" 只命中 game_rule，progression_boss / combat_math 全漏）。
+test('问打 boss 必须命中进度与战斗数值库', () => {
+  for (const q of ['打boss', '打BOSS', '杀boss', 'boss怎么打', '该打哪个boss', '先打哪个boss']) {
+    const r = route(q)
+    assert.ok(r.tags.includes('progression_boss'), `${q} 应命中 progression_boss，实际 ${r.tags}`)
+  }
+})
+
+test('说 boss 打不动属于战斗数值问题，不是进度问题', () => {
+  for (const q of ['boss打不动', '打boss打不动', 'boss血太厚']) {
+    const r = route(q)
+    assert.ok(r.tags.includes('combat_math'), `${q} 应命中 combat_math，实际 ${r.tags}`)
+  }
+})
