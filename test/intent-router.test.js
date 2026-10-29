@@ -121,6 +121,18 @@ test('离线兜底：每句话至少命中它的一个核心标签，且永远�
     ['装备之后数值变了怎么办', 'abilities'],
     ['这个饰品有什么用', 'abilities'],
     ['换个装备走路会变快吗', 'abilities'],
+    // 用户 m40094：新对话里的 AI 根本不知道坐骑怎么召唤，六种说法全漏判，补完锁住
+    ['召唤坐骑', 'abilities'],
+    ['怎么骑坐骑', 'abilities'],
+    ['下坐骑', 'abilities'],
+    ['骑不上', 'abilities'],
+    // m40444：用户在新对话里发现 AI 连两条硬规矩都不知道 —— 假操作零容忍、失焦也要能用。
+    // 规则写在 AGENTS.md，但路由命中不到就等于没写，所以这两个说法必须落到 atomic_action。
+    ['假操作', 'atomic_action'],
+    ['怎么保证不是假操作', 'atomic_action'],
+    ['失焦能用吗', 'atomic_action'],
+    ['不点亮窗口能操作吗', 'atomic_action'],
+    ['后台跑的时候还能动吗', 'atomic_action'],
   ]
   for (const [text, want] of core) {
     const { tags } = route(text)

@@ -149,15 +149,37 @@ grep -n "Main\.tile\[[^]]*\]\.\(type\|wall\|active\) *=" DshTerrariaBridge/*.cs
    `Triggers.Current/JustPressed` 写的值全部丢弃，一个字节都到不了 `Player.control*`。
    证据：`mount quick` 失焦时 `inputDiag.postUpdateInput.mount:true` 而
    `postControlMount:false`、`mounted:false`。
-2. **真正有效的通路是 `ApplyNativeControlFlags`（`ModPlayer.SetControls` 里）直写
-   `Player.controlLeft/Right/Up/Down/Jump/Mount`。** 这一条已经有实测背书：
-   `fly`、`climb`、`platform down` 修好都是靠直写，不是靠 Triggers。
-3. **直写边沿类输入要自己造边沿。** `controlMount` 在原版是"刚按下"的复制，不是"按住"；
-   一直为真会让角色每帧上/下坐骑。用一次性闸门（`MountFired`）在窗口首帧发一次 true。
+2. **两条通路各管一半，按"这个动作是不是纯按住"分流，不能一刀切。**
+
+   | 动作性质 | 走哪条 | 已验证的例子 |
+   |---|---|---|
+   | 纯按住（这一帧为真就生效） | `ApplyNativeControlFlags`（`ModPlayer.SetControls`）**直写** `Player.control*` | `fly`、`climb`、`platform down`、左右走、`jump` |
+   | 边沿 / 状态机（要"刚按下"，或引擎内部有个 bool 必须先被摆到位） | **必须走 `PlayerInput.Triggers.Current`，并配预开闸** | `mount` / `dismount`（见下） |
+
+3. **`mount` 是本项目最有价值的反例，别再照抄"直写就行"的旧结论。**
+   原版 `Player.cs:23778`：
+   ```csharp
+   if (controlMount) { if (releaseMount) { QuickMount(); } releaseMount = false; }
+   else { releaseMount = true; }
+   ```
+   `releaseMount` 字段默认 `false`（`Player.cs:2071`），**唯一能把它置真的是 `else` 那行**，
+   而那行整段挂在 `if (Main.hasFocus)` 里（`Player.cs:23674`）。`ResetControls()` 只重置
+   `controlMount`，不动 `releaseMount`。
+   → 失焦时 `releaseMount` 永远 false，`QuickMount()` 永不进入。
+   只直写 `controlMount` 的结果是：**能骑上（走 `controlUseItem` 另一条路），永远下不来。**
+
+   **正解 `OpenMountInputGate()` + `MountPreOpenUntil`**：命令发出时先预开 6 帧闸
+   （闸内 `MountUntil > now || MountPreOpenUntil > now` 就把 `Main.hasFocus` 临时置真），
+   **这 6 帧刻意不按键**，让引擎自己跑 `else { releaseMount = true; }`；之后再在 `MountUntil`
+   窗口内往 `Triggers.Current.QuickMount` 写 true。`ApplyBridgeTrigger` 的 active 条件必须写成
+   `MountUntil > now && MountPreOpenUntil <= now`，否则预开那几帧会被自己按键废掉。
+   真机三连（失焦下）：`骑上 true → 下骑 false → 再骑上 true`，回包带 `preOpenTicks: 6`。
+   `Main.hasFocus` 是 public static，每帧在 `Main.Update` 用 `IsActive` 重算，临时置真不会残留。
+
 4. **验证时不许先把窗口点亮。** 测 `hasFocus:false`，并且把 `hasFocus` 的值一起记进证据——
    有焦点的成功不算通过。曾经因为测试时窗口恰好有焦点，把一条死路当成可用通路写了三周。
-5. **`Triggers` 只剩两个合法用途**：给真人键盘做事件采集（`keyevents`）、做诊断快照。
-   任何"让角色动起来"的需求都不许挂在这上面。
+5. **`Triggers` 的合法用途**：真人键盘事件采集（`keyevents`）、诊断快照，以及
+   **第 2/3 条所说的边沿类动作（必须配预开闸）**。除此之外的"让角色动起来"仍走直写。
 
 ## 0.6 解决完必须回灌（用户 m18346 定的规矩）
 

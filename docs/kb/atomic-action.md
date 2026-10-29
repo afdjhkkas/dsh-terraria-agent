@@ -6,6 +6,57 @@
 
 ---
 
+## 先分清真操作与假操作（这条比本文其它所有内容都优先）
+
+**真操作 = 只把"手指动作"交给引擎，结果由原版物理与 `ItemCheck` 算出来。**
+能写的只有输入标志：`controlLeft/Right/Up/Down/Jump/UseItem/UseTile/Hook/Mount`，
+以及鼠标的 `mouseLeft/mouseRight` 和它们的**释放边沿**。
+
+**假操作 = 直接改引擎算出来的结果。** 一律禁止（读取不算）：
+
+| 禁止写 | 为什么它是假的 |
+|---|---|
+| `player.velocity.X/Y` | 速度是物理算出来的。手写相当于给自己装了个比游戏快的电梯（曾一路升 21 格） |
+| `player.position` / `player.Center` | 直接摆放角色 = 瞬移 |
+| `player.pulley` | 挂绳状态由引擎判定，主动清掉会让人永远抱不住绳 |
+| `player.wet` / `statLife` / `statMana` | 状态与数值由游戏给 |
+| `npc.life` / `npc.velocity` | 伤害必须走真实命中管线 |
+| `Main.tile[x,y].type = ...` | 改世界只能走"选槽 → 瞄准 → 使用 → 等 `ItemCheck` → 回读" |
+
+**为什么这条排第一**：假操作最坑的地方是**它看起来是成功的**。
+人被电梯送上去了、方块换成想要的了、血量回满了——但那是代码干的，不是角色干的。
+用户的原话是"写硬性规则只能有真操作，然后完完全全检测并剔除所有假操作"。
+判据不能只看"人动没动"，要同时看三样：
+
+1. 输入标志当帧真的置上了（`state.flag*`，不是 `Player.Update` 之后的晚读值）；
+2. 状态读数里没有自己代码里那个常数（`velocity` 的数值不该等于你写死的那个）；
+3. **行为能被环境改变**：绳不够长就该掉、墙挡住就该停在墙前。
+   如果"什么地形都照样匀速前进"，那一定是假的。
+
+自检命令（出现任何赋值行就是回归）：
+
+```bash
+grep -n "velocity\.\(X\|Y\) *=[^=]\|player\.position *=\|player\.Center *=\|pulley *=" DshTerrariaBridge/*.cs
+grep -n "Main\.tile\[[^]]*\]\.\(type\|wall\|active\) *=" DshTerrariaBridge/*.cs   # 期望 0 行
+```
+
+## 失焦不是失败原因，别拿它当借口
+
+窗口没有焦点（`hasFocus:false`）时，**按住类输入照常生效**：
+真机实测失焦下 `jump{ms:400}` 跳 6.12 格、左右走 7.64/6.78 格，与该窗口在前台时一致。
+
+"后台就不动"这个说法曾经写在库里，是**错的**——当时看的是 `Player.Update` 之后的晚读
+`control*`，那一刻早被 `ResetControls` 清回 false 了，不是当帧真值。
+
+只有**边沿 / 状态机类**动作真会栽在失焦上：引擎内部有个 bool（如坐骑的 `releaseMount`）
+只在 `if (Main.hasFocus)` 里被置位，失焦时永远不到位。这类要"预开闸几帧 + 走
+`Triggers.Current`"，具体做法见 `AGENTS.md` §0.56。
+
+**所以输入层动作失败时的排查顺序是：先看当帧 `state.flag*` → 再看地形/距离/物品 →
+最后才怀疑焦点。**
+
+---
+
 ## 左键既是挖掘也是放置
 
 游戏里**放置方块用的也是左键**，不是右键：手持方块对着目标格点左键就放下去了。
@@ -209,13 +260,21 @@
    **>6 格** 才是造台阶/落脚点/钩爪，长按解决不了。
 3. 长按期间持续回读纵坐标，出现以下任一情况立刻松开：到达目标高度、已落地、血量归零/环境致命。
 4. 落地判据是 `grounded == true` 且纵坐标不再变；只看"跳了一下"会把被天花板挡住的半跳当成功。
-5. **脚本下发的跳跃必须走输入层，而且窗口必须在前台**：`ModSystem.PostUpdateInput`
+5. **脚本下发的跳跃走输入层，且失焦也能用**：`ModSystem.PostUpdateInput`
    保留 `PlayerInput.Triggers.Current.Jump` 的边沿/诊断；实际桥接输出在
    `ModPlayer.SetControls` 里写入 `Player.controlJump`，再交给原版 `Player.Update` 消费。
    本环境实测 Triggers 单独为真不会驱动 `controlJump`，所以不能只看 `humaninput.control.jump`
    或只写触发器；当帧是否真的置上要看 `state.flagJump`（`ApplyNativeControlFlags()` 返回前的快照）。
-   游戏窗口失去焦点时，输入层整条可能被引擎忽略——同一份代码在前台能跳到上限、在后台一格都跳不起来。
-   **推论**：任何输入层动作失败时，先查 `focus` 和 `state.flag*`，别把更新后的晚读 control 当证据。
+
+   **曾经写过「窗口失去焦点时输入层整条被忽略、后台一格都跳不起来」——那是错的，已用真机推翻。**
+   `hasFocus:false` 真失焦下实测：`jump{ms:400}` 跳 **6.12 / 6.09 格**、左右走 **−6.78 / +4.79 / +7.64 格**，
+   与前台一致。当时误判的原因是**读错了证据**：看的是 `Player.Update` 之后的晚读 `control*`
+   （那一刻早已被 `ResetControls` 清回 false），不是当帧真正生效的值。
+   **推论**：任何输入层动作失败时，先看当帧快照 `state.flag*`（不是 `focus`，也不是晚读 control）。
+
+   **唯一真正怕失焦的是"边沿/状态机"类动作**（如 `mount`，见 `AGENTS.md` §0.56 第 3 条）：
+   引擎内部有个 bool 只在 `if (Main.hasFocus)` 里被置位，失焦时它永远不到位。
+   修法是预开闸几帧 + 走 `Triggers.Current`，不是"改成直写"。
 6. 脚本侧不要手调时长：`jump{tiles:N}` 直接说"要跳几格"，桥按标定曲线反查按住时长
    （曲线是机器参数，见 `docs/terraria-mechanics.md`）；`N` 超过上限时必须改走台阶/钩爪。
 

@@ -204,6 +204,14 @@ const KEYWORDS = {
     'flagLeft', 'flagRight', 'flagUp', 'flagDown', 'flagJump', '脚底绳', '真实绳格', '脱绳', '挂绳',
     'GameViewMatrix', 'MouseWorld', '鼠标世界坐标', '瞄准坐标', '缩放逆变换', '抓钩坐标',
     '方向键输入', '按键输入', '上方向键', '向上按键', 'controlUp', '爬绳',
+    // 假操作零容忍（AGENTS.md §0.55）—— 用户原话就这么说，必须能命中
+    '假操作', '不是真操作', '作弊', '绕过工具', '凭空', '直接改世界', '写速度', '写坐标',
+    'velocity', 'position 赋值', 'ItemCheck 结算', '真实物品流', '没掏镐', '没掏方块',
+    // 失焦可用（AGENTS.md §0.56）—— 用户原话"失焦""后台""不点窗口"都要命中
+    '失焦', '没有焦点', '无焦点', '失去焦点', 'hasFocus', '后台跑', '后台运行',
+    '不切窗口', '不点亮窗口', '失焦也能', '窗口在后台', '别的窗口打字',
+    '预开闸', '开闸', 'MountPreOpenUntil', 'preOpenTicks', 'releaseMount',
+    '边沿输入', '刚按下', '按住不放', 'Triggers.Current', 'QuickMount',
   ],
   task_correct: [
     '不是', '别', '不要', '错了', '又', '听不懂', '我说过', '上次', '纠正', '重新',
