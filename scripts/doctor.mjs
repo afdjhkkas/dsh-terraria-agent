@@ -172,6 +172,51 @@ for (const [label, cmd] of [
   }
 }
 
+/* ── 7. 落盘纪律：改过的文件是不是还在工作区里躺着没提交 ────────── */
+// 规矩见 AGENTS.md §0.65：验证通过就当场落盘，不许攒。
+// 攒批的代价是真实的——mount 下骑验证通过 53 分钟后，文档还写着「诚实拒绝」。
+{
+  let porcelain = ''
+  try {
+    porcelain = execSync('git status --porcelain', { cwd: repoRoot, encoding: 'utf8' })
+  } catch {
+    record('warn', '工作区状态', '读不到 git status', '确认这是 git 仓库')
+    porcelain = null
+  }
+  if (porcelain !== null) {
+    const lines = porcelain.split('\n').map(l => l.trim()).filter(Boolean)
+    const code = lines.filter(l => /^[^\s]*\s+\S+\.(cs|csproj|js|mjs|json)$/.test(l))
+    const docs = lines.filter(l => /^[^\s]*\s+.*\.md$/.test(l))
+    if (lines.length === 0) {
+      record('pass', '工作区', '干净，没有待落盘的改动')
+    } else {
+      const parts = []
+      if (code.length) parts.push(`${code.length} 个代码文件`)
+      if (docs.length) parts.push(`${docs.length} 个文档`)
+      const other = lines.length - code.length - docs.length
+      if (other > 0) parts.push(`${other} 个其他`)
+      record('warn', '工作区有未提交的改动', parts.join(' + '),
+        '按 AGENTS.md §0.65：验证通过就当场提交，代码/文档/用例/路由四条一起走。攒着最容易攒出「文档说不行、其实早行了」')
+    }
+  }
+  // 本地领先/落后远端
+  let ahead = ''
+  try {
+    ahead = execSync('git rev-list --left-right --count origin/main...HEAD',
+      { cwd: repoRoot, encoding: 'utf8' }).trim()
+  } catch { ahead = '' }
+  if (ahead) {
+    const [behind, lead] = ahead.split(/\s+/).map(Number)
+    if (lead > 0) {
+      record('warn', '本地领先远端', `${lead} 个 commit 没推`, 'GIT_TERMINAL_PROMPT=0 git push origin main')
+    } else if (behind > 0) {
+      record('warn', '本地落后远端', `${behind} 个 commit`, 'git pull --rebase')
+    } else {
+      record('pass', '与 origin/main 一致')
+    }
+  }
+}
+
 /* ── 输出 ─────────────────────────────────────────────────────── */
 if (asJson) {
   console.log(JSON.stringify(results, null, 2))
