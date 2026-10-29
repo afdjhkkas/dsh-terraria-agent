@@ -1626,6 +1626,15 @@ namespace DshTerrariaBridge
             if (npc == null) return Json.Error("附近没有可以对话的城市 NPC");
             if (d > 12 * 16f) return Json.Error($"离 {npc.FullName} 太远（{d / 16f:F0} 格），先走过去");
             int idx = npc.whoAmI;
+            // 实测：12 格处 armed:true、鼠标定位完全正确，但引擎不开对话（talkNPC 仍 -1）。
+            // 原版自己的 NPC 交互距离比 12 格严得多，约 5 格，而且要求中间没有实心方块。
+            // 门槛跟着引擎走，否则 talk 会在"根本谈不起来"的距离上返回 armed 让人误判。
+            if (d > 5 * 16f) return Json.Error($"离 {npc.FullName} 太远（{d / 16f:F1} 格），原版对话判定约 5 格内，先走过去");
+            if (!HasLineOfSightTo(pl, npc))
+            {
+                return Json.Error($"看不到 {npc.FullName}：中间隔着方块（你在 y={(int)(pl.Center.Y / 16f)}，他在 y={(int)(npc.Center.Y / 16f)}），"
+                    + "得走到同一层再谈");
+            }
             if (pl.talkNPC == idx && !string.IsNullOrWhiteSpace(Main.npcChatText))
             {
                 return Json.Ok(new
@@ -1655,6 +1664,26 @@ namespace DshTerrariaBridge
                 note = "已发送真实右键输入；等待 state.talkNPC 与 state.chatText 回读确认",
                 isAngler = npc.type == NPCID.Angler,
             });
+        }
+
+        /// <summary>玩家中心到 NPC 中心连线上有没有实心方块（原版对话要求有视线）。</summary>
+        private static bool HasLineOfSightTo(Player pl, NPC npc)
+        {
+            Vector2 a = pl.Center;
+            Vector2 b = npc.Center;
+            float dist = Vector2.Distance(a, b);
+            int steps = Math.Max(2, (int)(dist / 8f));
+            for (int i = 1; i < steps; i++)
+            {
+                Vector2 pt = Vector2.Lerp(a, b, i / (float)steps);
+                int tx = (int)(pt.X / 16f);
+                int ty = (int)(pt.Y / 16f);
+                if (tx < 0 || ty < 0 || tx >= Main.maxTilesX || ty >= Main.maxTilesY) continue;
+                Tile tile = Main.tile[tx, ty];
+                // solidTop（平台）不挡视线：人站在平台上照样能跟下一层说话。
+                if (tile != null && tile.HasTile && Main.tileSolid[tile.TileType] && !Main.tileSolidTop[tile.TileType]) return false;
+            }
+            return true;
         }
 
         private static int ShopPrice(Item it) => it.shopCustomPrice.HasValue ? it.shopCustomPrice.Value : it.value;
