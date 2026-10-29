@@ -16,8 +16,11 @@ namespace DshAiMini
     /// </summary>
     internal sealed class AiConfig
     {
-        /// <summary>官方 / 第三方。只是给界面分组用，实际请求只看 BaseUrl 和 Model。</summary>
+        /// <summary>official = 用下面的 Vendor 预设；thirdparty = 手填 BaseUrl 和 Model。</summary>
         public string Provider { get; set; } = "official";
+
+        /// <summary>官方厂商 key，见 AiPanel.Providers.Official。切到第三方时保留，方便切回来。</summary>
+        public string Vendor { get; set; } = "deepseek";
 
         /// <summary>OpenAI 兼容的 chat/completions 完整地址。</summary>
         public string BaseUrl { get; set; } = "https://api.deepseek.com/v1/chat/completions";

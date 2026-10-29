@@ -80,7 +80,7 @@
 
 | 位置 | 作用 |
 |---|---|
-| `BridgeSystem.cs:540` `StepTalkOption()` | **核心，扫描态机**（NPC 对话按钮）。扫上半屏 `y0=80..h/2`、`step=40`、`x=100..w-100`；命中判据 `Main.npcChatFocus1..4`；命中后 phase 2 发 `mouseLeft=false / mouseLeftRelease=true`，phase 3 发 `mouseLeft=true / mouseLeftRelease=true` |
+| `BridgeSystem.cs:540` `StepTalkOption()` | **核心，扫描态机**（NPC 对话按钮）。扫上半屏 `y0=80..h/2`、`step=8`、`x=100..w-100`；命中判据 `Main.npcChatFocus1..4`；命中后 phase 2 发 `mouseLeft=false / mouseLeftRelease=true`，phase 3 发 `mouseLeft=true / mouseLeftRelease=true` |
 | `BridgeSystem.cs:618` `ApplyTalkInputBeforeMouseOver()` | 每帧（绘制阶段）写 `ProbeMouseX/Y` → `Main.mouseX/Y`，然后驱动 `StepTalkOption()` 与 `talk` 的右键帧 |
 | `BridgeSystem.cs:661` `ModifyInterfaceLayers()` | **插入位置**，下面第四节就是这里 |
 | `Commands.cs:1791` `TalkOption(JsonElement p)` | 入口：`index` 必填（1..4）才启动扫描；`index<=0` 只读状态；`stop:true` 中止 |
@@ -92,8 +92,12 @@
 ## 四、代码核对结论与修复
 
 反编译当前 tModLoader 的 `Terraria.Main` 后确认：桥的输入层位于
-`Vanilla: Player Chat` 之前，因此鼠标坐标会在原版绘制并处理对话按钮前写入；层序不是这次
-点击失败的已知根因。
+`Vanilla: Player Chat` 之前，因此鼠标坐标会在原版绘制并处理对话按钮前写入。这里还必须
+使用 `InterfaceScaleType.UI`，因为 `DrawInterface` 在进入这两层时使用的是同一套 UI 坐标；
+使用 `Game` 会把 `Main.mouseX/Y` 切到游戏缩放坐标，导致扫描点偏离按钮。
+
+扫描步长也不能用固定 40px。按钮宽度由本地化文本测量决定，窗口缩放后短文本按钮可能比
+40px 窄；当前改为 8px，只发送鼠标输入，命中后立即停止。
 
 原版 `GUIChatDrawInner()` 的点击分支要求 `mouseLeft && mouseLeftRelease` 同时为真，成功后
 会把 `mouseLeftRelease` 清为 false。桥原先在点击帧写 `mouseLeft=true`、

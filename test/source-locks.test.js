@@ -110,6 +110,16 @@ test('talkoption：索引语义必须明确为原版 focus1=关闭、focus2=第�
     'talkoption 的错误提示必须明确 focus1/focus2 的真实语义，避免把商店误叫成 index 1')
 })
 
+test('talkoption：输入层必须和 Vanilla Player Chat 使用同一套 UI 坐标', async () => {
+  const src = await read(BRIDGE)
+  const layer = src.match(/layers\.Insert\(idx,[\s\S]{0,500}?InterfaceScaleType\.(UI|Game)\)\);/)
+  assert.ok(layer, '找不到 talk 输入层的缩放声明')
+  assert.equal(layer[1], 'UI',
+    'talkoption 输入层必须与 Vanilla: Player Chat 一样声明为 UI 缩放层')
+  assert.match(src, /const int step = 8;/,
+    '按钮宽度由本地化文本决定，扫描步长不能再用 40px 跳过短按钮')
+})
+
 test('爬绳：climb 必须先判定脚底是不是绳，没绳就直接拒', async () => {
   const src = await read(CMDS)
   const fn = src.match(/private static string Climb\s*\(JsonElement p\)\s*\{([\s\S]*?)\n\s{8}\}/)

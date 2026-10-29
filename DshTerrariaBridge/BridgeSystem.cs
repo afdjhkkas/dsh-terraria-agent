@@ -585,11 +585,11 @@ namespace DshTerrariaBridge
                 // 对话按钮画在**台词的下方**，不是屏幕底部。
                 // 实测（爆破专家，screen 1673×1046）：台词在 y≈119，按钮行在 y≈160，
                 // 「商店 / 关闭 / 幸福度」三个按钮横排在中央偏左。
-                // 所以扫上半屏（80 .. h/2）就够；一帧只结算一个点，
-                // step 取 40（按钮宽约 100 像素，够命中），
-                // 407 个点 ≈ 7 秒，玩家不会被怪推走把对话关掉。
+                // 所以扫上半屏（80 .. h/2）就够。按钮宽度来自本地化文本测量，
+                // 不能用 40px 的大步长，否则短文本或缩放后的按钮会被跨过去。
+                // 8px 步长仍然只写鼠标输入，代价是扫描时间变长；命中后立即停止。
                 int y0 = 80, y1 = Math.Max(y0 + 10, h / 2);
-                const int step = 40;
+                const int step = 8;
                 TalkOptX += step;
                 if (TalkOptX > x1) { TalkOptX = x0; TalkOptY += step; }
                 if (TalkOptY > y1)
@@ -696,7 +696,10 @@ namespace DshTerrariaBridge
             layers.Insert(idx, new LegacyGameInterfaceLayer(
                 "DshTerrariaBridge: Talk Input",
                 ApplyTalkInputBeforeMouseOver,
-                InterfaceScaleType.Game));
+                // DrawInterface starts in UI zoom and Vanilla: Player Chat is a UI layer.
+                // Using Game here changes Main.mouseX/Y to world-space zoom before the
+                // probe runs, so a logical UI point is interpreted in the wrong place.
+                InterfaceScaleType.UI));
         }
 
         /// <summary>

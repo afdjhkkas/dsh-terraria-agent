@@ -1820,10 +1820,7 @@ namespace DshTerrariaBridge
             BridgeSystem.TalkOptX = 100;
             BridgeSystem.TalkOptY = yStart;
             BridgeSystem.TalkOptStart = Main.GameUpdateCount;
-            int yEnd = Math.Max(yStart + 10, Main.screenHeight / 2);
-            int cols = Math.Max(1, (Main.screenWidth - 200) / 40);
-            int rows = Math.Max(1, (yEnd - yStart) / 40);
-            BridgeSystem.TalkOptMsg = $"开始扫描按钮 {index}：约 {cols}×{rows} 个点，一帧一个点";
+            BridgeSystem.TalkOptMsg = $"开始扫描按钮 {index}：使用 UI 坐标逐点扫描（每帧一个 8px 网格点）";
             return Json.Ok(TalkOptionStatus());
         }
 

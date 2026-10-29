@@ -63,6 +63,18 @@ namespace DshAiMini
                 {
                     if (Text.Length > 0) Text = Text.Substring(0, Text.Length - 1);
                 }
+                else if (k == Microsoft.Xna.Framework.Input.Keys.V
+                         && (ks.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.LeftControl)
+                          || ks.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.RightControl)))
+                {
+                    string clip = AiClipboard.GetText();
+                    if (!string.IsNullOrEmpty(clip))
+                    {
+                        clip = clip.Replace("\r", "").Replace("\n", "").Trim();
+                        int room = MaxLength - Text.Length;
+                        if (room > 0) Text += clip.Length <= room ? clip : clip.Substring(0, room);
+                    }
+                }
                 else if (k == Microsoft.Xna.Framework.Input.Keys.Enter || k == Microsoft.Xna.Framework.Input.Keys.Escape)
                 {
                     _focused = false;
@@ -143,91 +155,257 @@ namespace DshAiMini
         }
     }
 
-    /// <summary>面板本体。左列是配置项，右列是说明与操作。</summary>
+
+    /// <summary>
+    /// 官方与第三方的预设。列表本身没有魔法，只是把常见地址和模型名摊开，
+    /// 免得每次都要背 URL。第三方那一档故意留空，交给用户自己填。
+    /// </summary>
+    internal static class Providers
+    {
+        internal sealed class Preset
+        {
+            public string Key, Label, BaseUrl;
+            public string[] Models;
+        }
+
+        public static readonly Preset[] Official =
+        {
+            new Preset { Key = "deepseek", Label = "DeepSeek 官方",
+                BaseUrl = "https://api.deepseek.com/v1/chat/completions",
+                Models = new[] { "deepseek-chat", "deepseek-reasoner" } },
+            new Preset { Key = "openai", Label = "OpenAI 官方",
+                BaseUrl = "https://api.openai.com/v1/chat/completions",
+                Models = new[] { "gpt-4o-mini", "gpt-4o", "o3-mini" } },
+            new Preset { Key = "dashscope", Label = "阿里通义（兼容模式）",
+                BaseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                Models = new[] { "qwen-plus", "qwen-max", "qwen-turbo" } },
+            new Preset { Key = "moonshot", Label = "月之暗面 Kimi",
+                BaseUrl = "https://api.moonshot.cn/v1/chat/completions",
+                Models = new[] { "moonshot-v1-8k", "moonshot-v1-32k" } },
+        };
+
+        public static Preset Find(string key)
+        {
+            foreach (var p in Official) if (p.Key == key) return p;
+            return null;
+        }
+
+        public static Preset Guess(string baseUrl)
+        {
+            if (string.IsNullOrWhiteSpace(baseUrl)) return null;
+            foreach (var p in Official)
+                if (baseUrl.IndexOf(p.Key, System.StringComparison.OrdinalIgnoreCase) >= 0) return p;
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 面板本体。按「官方 / 第三方」两档组织，和 DSH 自己的模型配置一个思路：
+    /// 预设能覆盖的就不让人手打，覆盖不到的才留输入框。
+    /// </summary>
     internal sealed class AiPanel : UIState
     {
         public static AiPanel Current;
         private readonly List<AiInput> _inputs = new();
 
-        private AiInput _url, _model, _key;
+        private AiConfig _cfg;
+        private string _mode;            // official | thirdparty
+        private string _vendor;
+        private int _modelIndex;
+
         private UIText _status;
+        private UIPanel _body;           // 模式相关的那一块，切换时整体重建
+        private AiInput _url, _model, _key;
 
         public override void OnActivate()
         {
             base.OnActivate();
             Current = this;
+            _cfg = AiConfig.Load();
+            _mode = _cfg.Provider == "thirdparty" ? "thirdparty" : "official";
+            _vendor = string.IsNullOrEmpty(_cfg.Vendor) ? "deepseek" : _cfg.Vendor;
+            _modelIndex = 0;
+
+            var preset = Providers.Find(_vendor);
+            if (preset != null)
+                for (int i = 0; i < preset.Models.Length; i++)
+                    if (preset.Models[i] == _cfg.Model) _modelIndex = i;
+
+            Rebuild();
+        }
+
+        private void Rebuild()
+        {
             _inputs.Clear();
             RemoveAllChildren();
 
             var bg = new UIPanel();
-            bg.Width.Set(720, 0f);
-            bg.Height.Set(430, 0f);
+            bg.Width.Set(760, 0f);
+            bg.Height.Set(470, 0f);
             bg.HAlign = 0.5f;
             bg.VAlign = 0.5f;
-            bg.BackgroundColor = new Color(24, 28, 40) * 0.96f;
+            bg.BackgroundColor = new Color(22, 26, 38) * 0.97f;
             bg.BorderColor = new Color(90, 110, 160);
             Append(bg);
 
-            var title = new UIText("DSH AI Mini — 模型配置", 1.05f, true);
+            var title = new UIText("DSH AI Mini — 模型配置", 1.02f, true);
             title.Left.Set(18, 0f); title.Top.Set(12, 0f);
             bg.Append(title);
 
-            var cfg = AiConfig.Load();
+            // 第一排：官方 / 第三方
+            float y = 52f;
+            var lab = new UIText("来源", 0.85f);
+            lab.Left.Set(18, 0f); lab.Top.Set(y + 7, 0f);
+            bg.Append(lab);
 
-            float y = 56f;
-            y = Row(bg, "接口地址", cfg.BaseUrl, "https://…/v1/chat/completions", y, out _url);
-            y = Row(bg, "模型名", cfg.Model, "deepseek-chat / gpt-4o-mini …", y, out _model);
-            y = Row(bg, "API 密钥", cfg.ApiKey, "粘贴 key（Ctrl+V 可用）", y, out _key);
+            MakeTab(bg, "官方", _mode == "official", 120, y, () => { _mode = "official"; Rebuild(); });
+            MakeTab(bg, "第三方", _mode == "thirdparty", 230, y, () => { _mode = "thirdparty"; Rebuild(); });
+
+            y += 46f;
+
+            // 模式相关区
+            _body = new UIPanel();
+            _body.Width.Set(724, 0f);
+            _body.Height.Set(250, 0f);
+            _body.Left.Set(18, 0f); _body.Top.Set(y, 0f);
+            _body.BackgroundColor = new Color(18, 22, 32) * 0.6f;
+            _body.BorderColor = new Color(60, 70, 100);
+            bg.Append(_body);
+
+            if (_mode == "official") BuildOfficial();
+            else BuildThirdParty();
+
+            y += 258f;
+
+            // 密钥（两种模式共用）
+            var klab = new UIText("API 密钥", 0.85f);
+            klab.Left.Set(18, 0f); klab.Top.Set(y + 7, 0f);
+            bg.Append(klab);
+
+            _key = new AiInput("粘贴或输入 key（Ctrl+V）");
             _key.Password = true;
+            _key.MaxLength = 400;
+            _key.Text = _cfg.ApiKey ?? "";
+            _key.Width.Set(560, 0f);
+            _key.Left.Set(120, 0f); _key.Top.Set(y, 0f);
+            bg.Append(_key);
+            _inputs.Add(_key);
 
-            _status = new UIText("", 0.82f);
-            _status.Left.Set(18, 0f); _status.Top.Set(y + 6, 0f);
+            y += 42f;
+
+            _status = new UIText("", 0.8f);
+            _status.Left.Set(18, 0f); _status.Top.Set(y, 0f);
             _status.TextColor = new Color(160, 200, 255);
             bg.Append(_status);
 
-            var save = new UITextPanel<string>("保存", 0.9f) { BackgroundColor = new Color(50, 90, 60) };
-            save.Width.Set(110, 0f); save.Height.Set(34, 0f);
-            save.Left.Set(18, 0f); save.Top.Set(y + 40, 0f);
-            save.OnLeftClick += (_, __) => Save();
-            bg.Append(save);
+            y += 26f;
 
-            var test = new UITextPanel<string>("测试连接", 0.9f) { BackgroundColor = new Color(50, 70, 110) };
-            test.Width.Set(130, 0f); test.Height.Set(34, 0f);
-            test.Left.Set(140, 0f); test.Top.Set(y + 40, 0f);
-            test.OnLeftClick += (_, __) => TestConn();
-            bg.Append(test);
-
-            var close = new UITextPanel<string>("关闭 (F7)", 0.9f) { BackgroundColor = new Color(90, 50, 50) };
-            close.Width.Set(130, 0f); close.Height.Set(34, 0f);
-            close.Left.Set(282, 0f); close.Top.Set(y + 40, 0f);
-            close.OnLeftClick += (_, __) => AiSystem.TogglePanel(false);
-            bg.Append(close);
+            MakeButton(bg, "保存", 18, y, 110, new Color(50, 90, 60), () => Save());
+            MakeButton(bg, "测试连接", 140, y, 130, new Color(50, 70, 110), () => TestConn());
+            MakeButton(bg, "关闭 (F7)", 282, y, 130, new Color(90, 50, 50), () => AiSystem.TogglePanel(false));
 
             var note = new UIText(
-                "配置存在 ModConfigs/DshAiMini.json，可直接改文件。\n" +
-                "密钥只在本机请求头里用，不写进日志。\n" +
-                "输入框点一下才能打字；Esc 或回车结束输入。", 0.78f);
-            note.Left.Set(18, 0f); note.Top.Set(y + 88, 0f);
-            note.TextColor = new Color(150, 155, 170);
+                "官方档：先选厂商，再点模型名。第三方档：填完整的 chat/completions 地址。\n" +
+                "配置存在 ModConfigs/DshAiMini.json，可直接改文件。密钥只在本机请求头里用。",
+                0.76f);
+            note.Left.Set(18, 0f); note.Top.Set(y + 46, 0f);
+            note.TextColor = new Color(140, 148, 165);
             bg.Append(note);
-
-            Say("填好地址和密钥后点「测试连接」", new Color(150, 200, 255));
         }
 
-        private float Row(UIElement parent, string label, string value, string hint, float y, out AiInput input)
+        private void BuildOfficial()
         {
-            var t = new UIText(label, 0.85f);
-            t.Left.Set(18, 0f); t.Top.Set(y + 7, 0f);
-            parent.Append(t);
+            var p0 = new UIText("厂商", 0.82f);
+            p0.Left.Set(12, 0f); p0.Top.Set(12, 0f);
+            _body.Append(p0);
 
-            input = new AiInput(hint);
-            input.Text = value ?? "";
-            input.Width.Set(520, 0f);
-            input.Left.Set(120, 0f);
-            input.Top.Set(y, 0f);
-            parent.Append(input);
-            _inputs.Add(input);
-            return y + 42f;
+            float yy = 34f;
+            foreach (var preset in Providers.Official)
+            {
+                var key = preset.Key;
+                MakeButton(_body, preset.Label, 12, yy, 200, 
+                    _vendor == key ? new Color(60, 100, 150) : new Color(40, 46, 60),
+                    () => { _vendor = key; _modelIndex = 0; Rebuild(); });
+                yy += 34f;
+            }
+
+            var p1 = new UIText("模型", 0.82f);
+            p1.Left.Set(240, 0f); p1.Top.Set(12, 0f);
+            _body.Append(p1);
+
+            var cur = Providers.Find(_vendor);
+            if (cur != null)
+            {
+                float my = 34f;
+                for (int i = 0; i < cur.Models.Length; i++)
+                {
+                    int idx = i;
+                    MakeButton(_body, cur.Models[i], 240, my, 200,
+                        _modelIndex == idx ? new Color(60, 100, 150) : new Color(40, 46, 60),
+                        () => { _modelIndex = idx; Rebuild(); });
+                    my += 34f;
+                }
+
+                var addr = new UIText("地址：" + cur.BaseUrl, 0.72f);
+                addr.Left.Set(12, 0f); addr.Top.Set(my + 8, 0f);
+                addr.TextColor = new Color(140, 150, 170);
+                _body.Append(addr);
+            }
+        }
+
+        private void BuildThirdParty()
+        {
+            float y = 12f;
+
+            var p0 = new UIText("接口地址（完整 chat/completions）", 0.82f);
+            p0.Left.Set(12, 0f); p0.Top.Set(y, 0f);
+            _body.Append(p0);
+
+            _url = new AiInput("https://…/v1/chat/completions");
+            _url.Text = _cfg.BaseUrl ?? "";
+            _url.Width.Set(660, 0f);
+            _url.Left.Set(12, 0f); _url.Top.Set(y + 24, 0f);
+            _body.Append(_url);
+            _inputs.Add(_url);
+
+            y += 72f;
+
+            var p1 = new UIText("模型名", 0.82f);
+            p1.Left.Set(12, 0f); p1.Top.Set(y, 0f);
+            _body.Append(p1);
+
+            _model = new AiInput("中转那边要求的模型 id");
+            _model.Text = _cfg.Model ?? "";
+            _model.Width.Set(660, 0f);
+            _model.Left.Set(12, 0f); _model.Top.Set(y + 24, 0f);
+            _body.Append(_model);
+            _inputs.Add(_model);
+
+            y += 72f;
+
+            var tip = new UIText("大多数中转都兼容 OpenAI 的 /v1/chat/completions，地址填到 completions 为止。", 0.74f);
+            tip.Left.Set(12, 0f); tip.Top.Set(y, 0f);
+            tip.TextColor = new Color(140, 148, 165);
+            _body.Append(tip);
+        }
+
+        private void MakeTab(UIElement parent, string text, bool active, float x, float y, Action onClick)
+        {
+            var t = new UITextPanel<string>(text, 0.86f)
+            { BackgroundColor = active ? new Color(60, 100, 150) : new Color(38, 44, 58) };
+            t.Width.Set(100, 0f); t.Height.Set(32, 0f);
+            t.Left.Set(x, 0f); t.Top.Set(y, 0f);
+            t.OnLeftClick += (_, __) => onClick();
+            parent.Append(t);
+        }
+
+        private void MakeButton(UIElement parent, string text, float x, float y, float w, Color bgc, Action onClick)
+        {
+            var b = new UITextPanel<string>(text, 0.8f) { BackgroundColor = bgc };
+            b.Width.Set(w, 0f); b.Height.Set(28, 0f);
+            b.Left.Set(x, 0f); b.Top.Set(y, 0f);
+            b.OnLeftClick += (_, __) => onClick();
+            parent.Append(b);
         }
 
         public void BlurAll()
@@ -244,18 +422,32 @@ namespace DshAiMini
 
         private AiConfig Collect()
         {
-            var cfg = AiConfig.Load();
-            cfg.BaseUrl = _url.Text.Trim();
-            cfg.Model = _model.Text.Trim();
-            cfg.ApiKey = _key.Text.Trim();
-            return cfg;
+            _cfg.Provider = _mode;
+            _cfg.Vendor = _vendor;
+            _cfg.ApiKey = (_key?.Text ?? "").Trim();
+
+            if (_mode == "official")
+            {
+                var p = Providers.Find(_vendor);
+                if (p != null)
+                {
+                    _cfg.BaseUrl = p.BaseUrl;
+                    _cfg.Model = p.Models[Math.Clamp(_modelIndex, 0, p.Models.Length - 1)];
+                }
+            }
+            else
+            {
+                _cfg.BaseUrl = (_url?.Text ?? "").Trim();
+                _cfg.Model = (_model?.Text ?? "").Trim();
+            }
+            return _cfg;
         }
 
         private void Save()
         {
             var cfg = Collect();
             cfg.Save();
-            Say("已保存到 " + AiConfig.FilePath, new Color(150, 255, 170));
+            Say("已保存：" + cfg.Model + " @ " + ShortUrl(cfg.BaseUrl), new Color(150, 255, 170));
         }
 
         private void TestConn()
@@ -263,13 +455,21 @@ namespace DshAiMini
             var cfg = Collect();
             cfg.Save();
             if (string.IsNullOrWhiteSpace(cfg.BaseUrl)) { Say("先把接口地址填上", new Color(255, 170, 150)); return; }
+            if (string.IsNullOrWhiteSpace(cfg.Model)) { Say("先选/填模型名", new Color(255, 170, 150)); return; }
             if (string.IsNullOrWhiteSpace(cfg.ApiKey)) { Say("先把 API 密钥填上", new Color(255, 170, 150)); return; }
 
-            Say("正在连接…", new Color(180, 220, 255));
+            Say("正在连接 " + cfg.Model + " …", new Color(180, 220, 255));
             AiChat.TestAsync(cfg, (ok, msg) =>
             {
-                Say(ok ? "连接正常：" + msg : "失败：" + msg, ok ? new Color(150, 255, 170) : new Color(255, 150, 150));
+                Say(ok ? "连接正常：" + msg : "失败：" + msg,
+                    ok ? new Color(150, 255, 170) : new Color(255, 150, 150));
             });
+        }
+
+        private static string ShortUrl(string u)
+        {
+            if (string.IsNullOrEmpty(u)) return "";
+            try { var uri = new Uri(u); return uri.Host; } catch { return u; }
         }
     }
 }
