@@ -297,7 +297,9 @@ namespace DshAiMini
 
         private AiLog _log;              // 对话页的消息流
         private AiInput _ask;            // 对话页的输入框
+        const double BusyTimeout = 120;  // 秒。超过就当这次请求死了
         private bool _busy;              // 正在等回复（防重复发）
+        private double _busySince;       // 开始等的时刻（秒）。超时自动放开，否则一次没回调就能把面板锁死
 
         public override void OnActivate()
         {
@@ -441,6 +443,13 @@ namespace DshAiMini
 
         private void Ask(string q, bool fromGameChat)
         {
+            // 卡住自愈：只要回调没来（网络断、key 失效、异常被吞），_busy 就会一直是 true，
+            // 之后面板里发什么都没反应，看上去像"界面坏了"。超过 BusyTimeout 直接放开。
+            if (_busy && Main.gameTimeCache.TotalGameTime.TotalSeconds - _busySince > BusyTimeout)
+            {
+                _busy = false;
+                AddLog(AiLog.Kind.Error, "上一次请求超过 " + (int)BusyTimeout + " 秒没回来，已强制放弃");
+            }
             if (_busy) { Say("上一句还在等回复…", new Color(255, 200, 150)); return; }
             if (q.Length == 0) return;
 
@@ -450,6 +459,7 @@ namespace DshAiMini
 
             if (_ask != null) _ask.Text = "";
             _busy = true;
+            _busySince = Main.gameTimeCache.TotalGameTime.TotalSeconds;
 
             AddLog(AiLog.Kind.User, q);
             ChatStore.Append("user", q);

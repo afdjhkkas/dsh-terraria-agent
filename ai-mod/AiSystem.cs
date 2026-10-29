@@ -92,6 +92,11 @@ namespace DshAiMini
             string prev = _prevChat;
             string cur = Main.chatText ?? "";
 
+            // 只在"这一轮确实是打开聊天框在打字"时才认：
+            // Main.drawingPlayerChat 为真说明聊天输入框正被使用。
+            // 不加这层，别的界面（告示牌、箱子改名）按回车也会被当成对 AI 的提问。
+            bool inChat = Main.drawingPlayerChat || Main.editSign || Main.editChest;
+
             // 面板开着的时候聊天框被输入法桥占用（AiInput.ImeBridge），这段必须让开，
             // 否则玩家在面板输入框里打的字会被当成"对 AI 的提问"再发一次。
             if (!IsOpen && enterEdge)
@@ -99,7 +104,7 @@ namespace DshAiMini
                 string q = (prev ?? "").Trim();
                 long now = (long)Main.GameUpdateCount;
                 bool dup = q.Length > 0 && q == _lastSent && now - _lastSentTick <= 4;
-                if (q.Length > 0 && !dup)
+                if (q.Length > 0 && !dup && inChat)
                 {
                     _lastSent = q;
                     _lastSentTick = now;
