@@ -115,7 +115,9 @@ namespace DshTerrariaBridge
                 case "follow": return FollowCmd(p);
                 case "idle": return IdleCmd(p);
                 case "chatpoll":
-                return Json.Ok(BridgeSystem.ChatPoll(Json.Int(p, "since", 0), Math.Clamp(Json.Int(p, "max", 20), 1, 100)));
+                // max 上限放到 500：一次只能取 100 条时，积压 700 条得分 8 轮才读完，
+                // 中间任何一轮出错都很难看出是哪一段。上限调到与缓冲区同量级。
+                return Json.Ok(BridgeSystem.ChatPoll(Json.Int(p, "since", 0), Math.Clamp(Json.Int(p, "max", 20), 1, 500)));
 
             case "chatpost":
             {

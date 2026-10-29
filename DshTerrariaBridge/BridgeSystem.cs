@@ -913,6 +913,15 @@ namespace DshTerrariaBridge
         private static readonly object ChatLock = new object();
         private static readonly List<string> ChatInbox = new List<string>();
         private static readonly List<string> ChatSent = new List<string>();
+        // 输入框每变一次就会被看到一次，所以不能"看到就记"。
+        // ChatPending 保存"当前这一版最长的输入"，等输入框变空时把它当成一条消息收下。
+        private static string ChatPending = "";
+        private static string ChatLastText = "";
+        private static ulong ChatLastTextTick;
+        // 上限与"丢了多少"：ChatPoll 的 since 是绝对序号，丢了旧的就要把序号补回去，
+        // 否则调用方手里的 since 会指向错位的内容。
+        private const int ChatInboxCap = 500;
+        private static int ChatDropped;
         internal static bool ChatHookInstalled;
         internal static string ChatHookError = "";
         private static bool ChatHookTried;
@@ -926,15 +935,42 @@ namespace DshTerrariaBridge
                 var mi = typeof(Main).GetMethod("DoUpdate_HandleChat",
                     System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
                 if (mi == null) { ChatHookError = "找不到 Main.DoUpdate_HandleChat"; return; }
-                // 发消息那一下：Main.chatRelease 为真且输入框有内容
+                // 发消息那一下：用"输入框变空"当发送信号，不用 chatRelease。
+                // 两次踩坑记在这里：
+                //  ① 按电平取 Main.chatText —— 中文输入法一个字一个字敲，每个中间态都入队（一句话攒 700 条）。
+                //  ② 改用 chatRelease 的上升沿 —— 一条都收不到。它常态就是真，
+                //     真→真没有上升沿，等于永远不触发。
+                // 现在：每帧记住"当前最长的输入"，等输入框变空那一刻把最后那份入队。
+                // 中间态被覆盖掉，只有真正发出去（或取消）的那一版会留下。
                 Terraria.ModLoader.MonoModHooks.Add(mi, (Action<Action>)(orig =>
                 {
                     try
                     {
-                        if (Main.chatRelease && !string.IsNullOrWhiteSpace(Main.chatText))
+                        string cur = (Main.chatText ?? "").Trim();
+                        if (cur.Length > 0)
                         {
-                            string text = Main.chatText.Trim();
-                            lock (ChatLock) ChatInbox.Add(text);
+                            ChatPending = cur;
+                        }
+                        else if (ChatPending.Length > 0)
+                        {
+                            string text = ChatPending;
+                            ChatPending = "";
+                            ulong now = Main.GameUpdateCount;
+                            bool sameAgain = text == ChatLastText && now - ChatLastTextTick < 30;
+                            if (!sameAgain)
+                            {
+                                lock (ChatLock)
+                                {
+                                    ChatInbox.Add(text);
+                                    while (ChatInbox.Count > ChatInboxCap)
+                                    {
+                                        ChatInbox.RemoveAt(0);
+                                        ChatDropped++;
+                                    }
+                                }
+                                ChatLastText = text;
+                                ChatLastTextTick = now;
+                            }
                         }
                     }
                     catch { }
@@ -950,15 +986,24 @@ namespace DshTerrariaBridge
             lock (ChatLock)
             {
                 if (since < 0) since = 0;
-                if (since > ChatInbox.Count) since = ChatInbox.Count;
-                int take = Math.Min(max, ChatInbox.Count - since);
-                var lines = ChatInbox.GetRange(since, take);
+                // since 是绝对序号；缓冲里丢过 ChatDropped 条旧的，先换算成下标。
+                // 丢了又不补，调用方手里的 since 会指到别的消息上（读出来的内容悄悄错位）。
+                int rel = since - ChatDropped;
+                if (rel < 0) rel = 0;
+                if (rel > ChatInbox.Count) rel = ChatInbox.Count;
+                int take = Math.Min(max, ChatInbox.Count - rel);
+                var lines = ChatInbox.GetRange(rel, take);
+                int next = ChatDropped + rel + take;
                 return new
                 {
                     hooked = ChatHookInstalled,
                     hookError = ChatHookError.Length > 0 ? ChatHookError : null,
-                    next = since + take,
-                    pending = ChatInbox.Count - (since + take),
+                    next = next,
+                    pending = ChatDropped + ChatInbox.Count - next,
+                    dropped = ChatDropped,
+                    // 诊断：pendingText 非空说明玩家正在输入框里打字（还没发），
+                    // 一旦变空就会被当成一条消息收下。排障先看这两个。
+                    pendingText = ChatPending,
                     lines = lines.ToArray(),
                 };
             }

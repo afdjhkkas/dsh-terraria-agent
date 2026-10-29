@@ -36,7 +36,8 @@
 | 移动 | 定向掘进 | `travel {dir,distance,dig}` | ⚠️ 仅水平方向 |
 | 移动 | 回城 | `mirror` | ✅ |
 | 移动 | 抓钩 | `hook {x,y,ms}` / `unhook` | ✅ |
-| 移动 | 飞行 / 坐骑 | `fly {ms}` / `mount {action}` | 🚧 无翅膀/坐骑时诚实拒绝 |
+| 移动 | 坐骑 | `mount {action}` | ✅ 骑上／下骑都成，失焦下也有效（靠 `preOpenTicks` 预开闸） |
+| 移动 | 飞行 | `fly {ms}` | ❌ **不升空**：有翅膀也 `velY` 恒 0；上升必须用 `jump {ms}` 按住 |
 | 挖掘 | 真实挥镐挖一格 | `mine {x,y,ms}` | ✅ |
 | 挖掘 | 挥锤拆方块 | `removeblock {x,y,ms}` | ✅ |
 | 建造 | 放一格方块 | `place {x,y,type,ms}` | ✅ |
@@ -53,7 +54,7 @@
 | 战斗 | 召唤 | `minion {slot}` | ✅ |
 | 战斗 | 回血 | `heal` | ✅ 需带药水 |
 | 战斗 | 旧式点名攻击 | `attack {r,who,ms}` | ⚠️ 走伤害管线但无弹幕，优先用 `shoot`/`guard` |
-| NPC | 对话 | `talk {npc}` / `chat {text}` | ⚠️ 真实右键输入已接入；需用 `state.talkNPC` + `state.npcChatText` 回读确认 |
+| NPC | 对话 | `talk {npc}` / `chat {text}` | ✅ 走真实右键；≤5 格且有视线才 `armed:true`。`use {right:true}` 是它的等价底层 |
 | NPC | 商店 | `shop{npc}` / `shops{want}` / `buy` / `sell` | ✅ |
 | NPC | 入住房间 | `homeroom {who,x,y}` | ⚠️ 房间判定必须先通过 |
 | NPC | 跟随 / 待命 | `follow {player}` / `idle` | ✅ |
@@ -162,8 +163,15 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 读取到同一帧的输入；`PlayerInput.Triggers.Current` 负责边沿与诊断，鼠标动作走 `Main.mouseLeft` /
 `Main.mouseRight` 及释放边沿，物品结果由 `ItemCheck` 和原版物理结算。桥不写 `velocity`、`position`、
 `pulley`、`grapCount` 或弹幕结果。每个改变世界或角色状态的动作都必须在命令返回后回读确认。
-| `fly {ms}` | 飞行/跳跃 | 无翅膀时回 `hasWings:false` + 明确提示，不假装飞起来 |
-| `mount {action}` | 坐骑 | `info` 返回可用坐骑物品；无坐骑时 `{active:false,items:[]}` |
+| `fly {ms}` | 飞行 | **已废弃，别用**：有翅膀也 `velY` 恒 0、一帧都不升。要飞就 `jump {ms:1600}` 按住跳键（升约 60 格） |
+| `mount {action:"ride"}` | 坐骑（手动） | 掏出坐骑物品按左键。**只查背包**，而坐骑在 `miscEquips[3]`，所以会错过装备栏里那把钥匙 |
+| `mount {action:"quick"}` | 坐骑（快捷） | 走 `PlayerInput.Triggers.Current.QuickMount` + 预开闸 `preOpenTicks`；骑上/下骑同一个命令来回切 |
+| `mount {action:"info"}` | 坐骑 | 读 `miscEquips[3]` 的 `mountType`；无坐骑时 `{active:false}` |
+
+**坐骑为什么必须"预开闸"**：原版 `Player.Update` 的 `if (controlMount) { if (releaseMount) QuickMount(); releaseMount = false; } else { releaseMount = true; }`
+整段挂在 `if (Main.hasFocus)` 内，而 `releaseMount` 字段默认 `false`。**失焦时 `releaseMount` 永远是 false → `QuickMount()` 永不进入
+→ 能骑上（走 `controlUseItem` 那条路）但永远下不来**。解法：命令发出时先让 `Main.hasFocus` 真 6 帧、这段时间不按键，把
+`else releaseMount = true` 跑完；第 7 帧起才按 `controlMount`。回包里那个 `preOpenTicks: 6` 就是它。
 
 `Player.miscEquips` 是五格固定布局：`[0] pet`、`[1] lightPet`、`[2] minecart`、`[3] mount`、`[4] hook`。
 矿车和普通坐骑都带 `mountType`，判断是否为矿车必须再查 `MountID.Sets.Cart[mountType]`，不能只看
@@ -273,7 +281,7 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 
 | 命令 | 说明 |
 |---|---|
-| `talk {npc}` | 瞄准附近 NPC 发送一次真实右键；原版 `HoverOverNPCs` 负责选中、台词和商店（**≤12 格**） |
+| `talk {npc}` | 瞄准附近 NPC 发送一次真实右键；原版 `HoverOverNPCs` 负责选中、台词和商店。**先查距离：≤5 格且有视线**才 `armed:true`，否则直接报错并说明差多少 |
 | `chat {text}` | 在世界聊天框说话 |
 | `shop {npc}` / `shops {want}` / `shopdebug` | 读商店货架、按名字找商品 |
 | `buy {slot}` / `sell {slot}` | 买卖（商人卖弱效治疗药水 300 铜、绳 10 铜） |
@@ -284,6 +292,9 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 
 `talk` 只返回输入已排队，不把 `talkNPC`、商店索引或台词当作成功证据。命令完成后必须轮询
 `state.talkNPC`、`state.npcChatText`、`state.npcShopIndex`；其中 `npcChatText` 非空才算原版对话路径真正执行。
+实测一通到底的判据（旅商为例）：`use {right:true,x,y}` → `talkfocus.talk={npc:35,chatLen:19}` +
+`chatText` 变成真实台词 → 再 `shop {}` 就能读出 `shopId`/`npcType`/货架 → `buy`/`sell` 结算。
+**`talk` 与 `use {right:true}` 走同一条链路**，前者多了距离/视线预检，后者要自己给坐标。
 
 ---
 
