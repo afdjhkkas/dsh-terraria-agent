@@ -39,6 +39,7 @@
 | 移动 | 抓钩 | `hook {x,y,ms}` / `unhook` | ✅ |
 | 移动 | 坐骑 | `mount {action}` | ✅ 骑上／下骑都成，失焦下也有效（靠 `preOpenTicks` 预开闸） |
 | 移动 | 飞行 | `fly {ms}` | ✅ 自动选键：翅膀/普通飞行坐骑走跳键、悬停坐骑走上键（回包 `key`/`hovering` 可核对） |
+| 移动 | 飞行·悬停坐骑 | `fly {ms}` | ✅ UFO 类悬停坐骑走**上键**：真机 `key:"up"`、`hovering:true`，地面升 37.71 格、空中再按又升 25.73 格，全程 `wingTime` 不消耗 |
 | 挖掘 | 真实挥镐挖一格 | `mine {x,y,ms}` | ✅ |
 | 挖掘 | 挥锤拆方块 | `removeblock {x,y,ms}` | ✅ |
 | 建造 | 放一格方块 | `place {x,y,type,ms}` | ✅ |
@@ -200,6 +201,7 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 `Main.mouseRight` 及释放边沿，物品结果由 `ItemCheck` 和原版物理结算。桥不写 `velocity`、`position`、
 `pulley`、`grapCount` 或弹幕结果。每个改变世界或角色状态的动作都必须在命令返回后回读确认。
 | `fly {ms}` | 飞行 | 按坐骑类型自动选键。回包 `key:"jump"` 表示走了跳键（翅膀/普通飞行坐骑），`key:"up"` 表示走上键（悬停坐骑）；`hovering` 直接告诉你判成了哪种 |
+| `fly {ms}`（骑悬停坐骑） | 飞行 | 同一条命令自动走上键。真机：`宇宙车钥匙 mountType:7` 骑乘中 `key:"up"`，地面升 37.71 格、空中再按升 25.73 格，`wingTime` 全程 0（悬停不耗飞行时间） |
 | `mount {action:"ride"}` | 坐骑（手动） | 掏出坐骑物品按左键。**只查背包**，而坐骑在 `miscEquips[3]`，所以会错过装备栏里那把钥匙 |
 | `mount {action:"quick"}` | 坐骑（快捷） | 走 `PlayerInput.Triggers.Current.QuickMount` + 预开闸 `preOpenTicks`；骑上/下骑同一个命令来回切 |
 | `mount {action:"info"}` | 坐骑 | 读 `miscEquips[3]` 的 `mountType`；无坐骑时 `{active:false}` |
