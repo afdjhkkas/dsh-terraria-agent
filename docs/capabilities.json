@@ -1449,6 +1449,13 @@
       "summary": ""
     },
     {
+      "name": "talkoption",
+      "kind": "read",
+      "params": [],
+      "returns": [],
+      "summary": ""
+    },
+    {
       "name": "tile",
       "kind": "read",
       "params": [

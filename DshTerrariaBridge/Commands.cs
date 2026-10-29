@@ -67,6 +67,7 @@ namespace DshTerrariaBridge
                 case "idmap": return IdMap(p);
                 case "talk": return TalkTo(p);
                 case "talkclose": return TalkClose(p);
+                case "talkoption": return TalkOption(p);
                 case "shop": return ShopList(p);
                 case "shopdebug": return ShopDebug(p);
                 case "shops": return ShopFind(p);
@@ -1744,6 +1745,80 @@ namespace DshTerrariaBridge
                 closed = pl.talkNPC < 0,
                 note = pl.talkNPC < 0 ? null : "talkNPC 还没清掉：再调一次；多人下可能由服务端下一 tick 结算",
             });
+        }
+
+        /// <summary>
+        /// 点 NPC 对话框里的按钮（护士治疗、渔夫交任务那一类）。
+        ///
+        /// 原版把按钮画在屏幕底部，悬停判定靠鼠标位置写进 Main.npcChatFocus1..4，而按钮文案
+        /// 桥读不到、矩形也没暴露出来。所以这里的做法是：让 BridgeSystem 的跨帧状态机把
+        /// 鼠标一帧挪一个点扫过整块区域，看哪个点让目标焦点位变真，再在那个点上发一次真实左键。
+        ///
+        /// 命令本身是**异步**的：调用后立刻返回扫描状态，用 `talkoption`（不传 index）或
+        /// `talkoption {stop:true}` 轮询/中止。
+        /// </summary>
+        private static string TalkOption(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+
+            if (Json.Bool(p, "stop", false))
+            {
+                BridgeSystem.TalkOptPhase = 0;
+                BridgeSystem.TalkOptIndex = 0;
+                BridgeSystem.TalkOptHitX = -1;
+                BridgeSystem.TalkOptHitY = -1;
+                BridgeSystem.TalkOptMsg = "已停止";
+                return Json.Ok(TalkOptionStatus());
+            }
+
+            int index = Json.Int(p, "index", 0);
+            if (index <= 0) return Json.Ok(TalkOptionStatus());   // 只读状态
+
+            if (pl.talkNPC < 0) return Json.Error("还没有和 NPC 对话：先用 talk 建立对话，再 talkoption");
+            if (index > 4) return Json.Error("index 只能是 1..4（原版一次最多两个按钮：1=左，2=右）");
+
+            BridgeSystem.TalkOptIndex = index;
+            BridgeSystem.TalkOptPhase = 1;
+            BridgeSystem.TalkOptScanned = 0;
+            BridgeSystem.TalkOptHitX = -1;
+            BridgeSystem.TalkOptHitY = -1;
+            int yStart = Math.Max(80, Main.screenHeight - 240);
+            BridgeSystem.TalkOptX = 120;
+            BridgeSystem.TalkOptY = yStart;
+            BridgeSystem.TalkOptStart = Main.GameUpdateCount;
+            int cols = Math.Max(1, (Main.screenWidth - 240) / 10);
+            int rows = Math.Max(1, (Main.screenHeight - 24 - yStart) / 10);
+            BridgeSystem.TalkOptMsg = $"开始扫描按钮 {index}：约 {cols}×{rows} 个点，一帧一个点";
+            return Json.Ok(TalkOptionStatus());
+        }
+
+        private static object TalkOptionStatus()
+        {
+            int phase = BridgeSystem.TalkOptPhase;
+            string phaseName = phase == 0 ? "idle"
+                : phase == 1 ? "scanning"
+                : phase == 2 ? "releasing"
+                : phase == 3 ? "pressing"
+                : phase == 4 ? "done" : "failed";
+            Player pl = P;
+            return new
+            {
+                active = phase != 0,
+                phase,
+                phaseName,
+                index = BridgeSystem.TalkOptIndex,
+                scanned = BridgeSystem.TalkOptScanned,
+                cursorX = BridgeSystem.TalkOptX,
+                cursorY = BridgeSystem.TalkOptY,
+                hitX = BridgeSystem.TalkOptHitX,
+                hitY = BridgeSystem.TalkOptHitY,
+                talkNPC = pl != null ? pl.talkNPC : -1,
+                chatText = Main.npcChatText ?? "",
+                npcShop = Main.npcShop,
+                msg = BridgeSystem.TalkOptMsg,
+            };
         }
 
         /// <summary>

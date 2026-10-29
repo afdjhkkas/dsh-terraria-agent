@@ -536,8 +536,83 @@ namespace DshTerrariaBridge
         /// conversion use the current camera position, rather than the camera from
         /// PostUpdateInput earlier in the tick.
         /// </summary>
+        /// <summary>
+        /// talkoption 的跨帧状态机。每帧只做一件事：
+        ///   扫描阶段：把 Main.mouseX/mouseY 挪到下一个候选点，同时检查上一帧那个点有没有让
+        ///   npcChatFocusN 变真（原版每帧绘制对话按钮时读鼠标位置判悬停，一帧只结算一个点）；
+        ///   命中之后：把鼠标钉在按钮上，走一次「释放 → 按下」的真实左键边沿。
+        /// 只写鼠标输入，不碰任何游戏状态（§0.55）。
+        /// </summary>
+        private static void StepTalkOption()
+        {
+            if (TalkOptPhase == 0) return;
+            Player pl = Main.LocalPlayer;
+            if (pl == null || pl.talkNPC < 0)
+            {
+                TalkOptPhase = 5;
+                TalkOptMsg = "对话已经结束，没法点按钮";
+                return;
+            }
+
+            bool hit = false;
+            if (TalkOptIndex == 1) hit = Main.npcChatFocus1;
+            else if (TalkOptIndex == 2) hit = Main.npcChatFocus2;
+            else if (TalkOptIndex == 3) hit = Main.npcChatFocus3;
+            else hit = Main.npcChatFocus4;
+
+            if (TalkOptPhase == 1)
+            {
+                if (hit && TalkOptHitX < 0)
+                {
+                    TalkOptHitX = TalkOptX;
+                    TalkOptHitY = TalkOptY;
+                    TalkOptPhase = 2;
+                    TalkOptMsg = $"找到按钮 {TalkOptIndex} 在 ({TalkOptHitX},{TalkOptHitY})";
+                    return;
+                }
+
+                int w = Main.screenWidth, h = Main.screenHeight;
+                int x0 = 120, x1 = Math.Max(x0 + 10, w - 120);
+                int y0 = Math.Max(80, h - 240), y1 = h - 24;
+                const int step = 10;
+                TalkOptX += step;
+                if (TalkOptX > x1) { TalkOptX = x0; TalkOptY += step; }
+                if (TalkOptY > y1)
+                {
+                    TalkOptPhase = 5;
+                    TalkOptMsg = $"扫完 {TalkOptScanned} 个点都没有按钮 {TalkOptIndex}";
+                    return;
+                }
+                Main.mouseX = TalkOptX;
+                Main.mouseY = TalkOptY;
+                TalkOptScanned++;
+                return;
+            }
+
+            // 命中之后：鼠标钉在按钮上，走一次真实的左键边沿。
+            Main.mouseX = TalkOptHitX;
+            Main.mouseY = TalkOptHitY;
+            if (TalkOptPhase == 2)
+            {
+                Main.mouseLeft = false;
+                Main.mouseLeftRelease = true;
+                TalkOptPhase = 3;
+                return;
+            }
+            if (TalkOptPhase == 3)
+            {
+                Main.mouseLeft = true;
+                Main.mouseLeftRelease = false;
+                TalkOptPhase = 4;
+                TalkOptMsg = $"已点击按钮 {TalkOptIndex} @ ({TalkOptHitX},{TalkOptHitY})";
+                return;
+            }
+        }
+
         private static bool ApplyTalkInputBeforeMouseOver()
         {
+            // talkoption 与 talk 互斥：它自己管鼠标，别让 talk 的右键帧把它顶掉。
+            if (TalkOptPhase != 0) { StepTalkOption(); return true; }
             if (TalkTargetNpc < 0) return true;
             ulong now = Main.GameUpdateCount;
             if (TalkUntil <= now) return true;
@@ -3041,6 +3116,16 @@ namespace DshTerrariaBridge
         internal static volatile int DbgTalkFinalMouseX, DbgTalkFinalMouseY;
         internal static volatile int DbgTalkRawMouseX, DbgTalkRawMouseY;
         internal static volatile float DbgTalkScreenX, DbgTalkScreenY, DbgTalkZoom;
+        // ── talkoption：靠 npcChatFocus1..4 反推对话按钮矩形，再发一次真实左键 ──
+        // 原版每帧绘制对话按钮时读 Main.mouseX/mouseY 判断悬停，把结果写进 npcChatFocusN。
+        // 所以「设一个点 → 下一帧读焦点位」是唯一可行的探测方式：一帧只能测一个点。
+        internal static volatile int TalkOptIndex;      // 0=idle, 1..4=目标按钮序号
+        internal static volatile int TalkOptPhase;      // 1=扫描 2=释放 3=按下 4=完成 5=失败
+        internal static volatile int TalkOptX, TalkOptY;
+        internal static volatile int TalkOptHitX = -1, TalkOptHitY = -1;
+        internal static ulong TalkOptStart;
+        internal static volatile string TalkOptMsg = "";
+        internal static volatile int TalkOptScanned;
         internal static ulong AttackUntil, AttackNextTick;
         internal static volatile int AttackTarget = -1, AttackRadius = 40, AttackIntervalTicks = 10;
         internal static volatile bool AttackAutoTarget, AttackFinished, AttackFinishedCleanly, AttackKilled, AttackBlockedByTerrain, JumpIssued;

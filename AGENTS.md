@@ -451,7 +451,7 @@ node scripts/testcases.mjs --dry --baseline docs/testcases/baseline.json   # 回
 
 <!-- caps:begin 本节由 scripts/kb-caps.mjs 生成，不要手改 -->
 
-**只读（50）**：api blood bloodmoon bobber boss chatpoll eclipse event fields find follow frost frostmoon help hook hookdebug housediag housing humaninput idmap inventory items keyevents map methods navrules needs nodig npc path ping players pumpkin pumpkinmoon quest recipes research roomcheck scan shop shopdebug shops snowmoon state talkclose tile tiledata travelstatus walkdiff walkmode
+**只读（51）**：api blood bloodmoon bobber boss chatpoll eclipse event fields find follow frost frostmoon help hook hookdebug housediag housing humaninput idmap inventory items keyevents map methods navrules needs nodig npc path ping players pumpkin pumpkinmoon quest recipes research roomcheck scan shop shopdebug shops snowmoon state talkclose talkoption tile tiledata travelstatus walkdiff walkmode
 
 **动作（56）**：accessory attack buy capture castline chat chatpost climb craft down drop duplicate equip fill fly goblin grab grapple gravity heal homeroom idle interact jump left left liquidop martian mine minion mirror move moveto pirate place reel removeblock right right save select sell shoot snowman splitstack startevent stop talk trash travel unhook up up use walkto wall
 
