@@ -4194,7 +4194,14 @@ namespace DshTerrariaBridge
 
                 // 下坐骑也只发送原版快捷键；QuickMount() 会根据当前 mounted 状态
                 // 自己执行 Dismount。不要直接调用 mount.Dismount，这会绕过输入层。
-                ulong until = BridgeSystem.NowTick() + (ulong)Math.Max(2, Json.Int(p, "ticks", 12));
+                //
+                // 前置：原版 releaseMount 只在 controlMount == false 的那几帧被置真，
+                // 而那几帧挂在 if (Main.hasFocus) 里；失焦环境下它永远是默认值 false，
+                // QuickMount() 就不会进。所以先预开 6 帧闸但不按键，把前置条件备好。
+                const ulong preOpen = 6;
+                ulong now0 = BridgeSystem.NowTick();
+                BridgeSystem.MountPreOpenUntil = now0 + preOpen;
+                ulong until = now0 + preOpen + (ulong)Math.Max(2, Json.Int(p, "ticks", 12));
                 BridgeSystem.MountUntil = until;
                 BridgeSystem.MountFired = false;
                 return Json.Ok(new
@@ -4204,7 +4211,8 @@ namespace DshTerrariaBridge
                     typeBefore,
                     queued = true,
                     untilTick = until,
-                    note = "已发送原版坐骑键下坐；等 untilTick 后回读 state.player.mounted / mountType",
+                    preOpenTicks = preOpen,
+                    note = "已发送原版坐骑键下坐（前 6 帧预开闸让 releaseMount 置真）；等 untilTick 后回读 state.player.mounted / mountType",
                 });
             }
             // 快捷召唤：走原版坐骑键（controlMount），不是"掏出钥匙按左键"。
@@ -4216,7 +4224,12 @@ namespace DshTerrariaBridge
                 bool hasMountItem = IsRegularMount(mit);
                 if (!hasMountItem)
                     return Json.Error("坐骑装备格（miscEquips[" + mslot + "]）里没有坐骑召唤物品");
-                ulong until = BridgeSystem.NowTick() + (ulong)Math.Max(2, Json.Int(p, "ticks", 12));
+                // 与 dismount 同理：先预开 6 帧闸但不按键，让引擎执行
+                // else { releaseMount = true; }，否则骑乘中再按也只会重设 false。
+                const ulong preOpen = 6;
+                ulong now0 = BridgeSystem.NowTick();
+                BridgeSystem.MountPreOpenUntil = now0 + preOpen;
+                ulong until = now0 + preOpen + (ulong)Math.Max(2, Json.Int(p, "ticks", 12));
                 BridgeSystem.MountUntil = until;
                 BridgeSystem.MountFired = false;
                 return Json.Ok(new
@@ -4225,9 +4238,10 @@ namespace DshTerrariaBridge
                     mountSlot = mslot,
                     mountItem = new { type = mit.type, name = mit.Name, mountType = mit.mountType },
                     untilTick = until,
+                    preOpenTicks = preOpen,
                     activeBefore,
                     typeBefore,
-                    note = "已发送原版坐骑键（controlMount）；等 untilTick 后回读 state.player.mounted / mountType",
+                    note = "已发送原版坐骑键（controlMount，前 6 帧预开闸）；等 untilTick 后回读 state.player.mounted / mountType",
                 });
             }
             if (action == "ride")

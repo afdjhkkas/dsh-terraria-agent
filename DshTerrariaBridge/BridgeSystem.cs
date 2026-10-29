@@ -681,6 +681,21 @@ namespace DshTerrariaBridge
         /// <summary>当前游戏 tick，命令线程取时间窗时用（与 ApplyNativeControlFlags 同源）。</summary>
         internal static ulong NowTick() => Main.GameUpdateCount;
 
+        /// <summary>
+        /// 坐骑键的输入闸门：<see cref="Main.hasFocus"/> 为假时，原版会跳过
+        /// <c>TriggersSet.CopyInto</c>，我们写进 <c>Triggers.Current.QuickMount</c> 的值全部丢弃。
+        /// 本方法只在坐骑时间窗内把闸门临时置真，窗口结束就交还给引擎（<c>Main.Update</c>
+        /// 每帧都会用 <c>IsActive</c> 重新赋值，所以不会残留）。
+        /// </summary>
+        internal static void OpenMountInputGate()
+        {
+            if (Main.dedServ || Main.gameMenu) return;
+            ulong now = Main.GameUpdateCount;
+            // 预开闸窗口也要开：那几帧不按坐骑键（controlMount 保持 false），
+            // 引擎才有机会执行 else { releaseMount = true; }，把下骑的前置条件备好。
+            if ((MountUntil > now || MountPreOpenUntil > now) && !Main.hasFocus) Main.hasFocus = true;
+        }
+
         internal static void ApplyNativeControlFlags(Player player)
         {
             if (player == null || player.whoAmI != Main.myPlayer) return;
@@ -823,11 +838,13 @@ namespace DshTerrariaBridge
             // 由 ApplyNativeControlFlags 写入 controlLeft/controlRight。
             ApplyBridgeTrigger(IntentLeft || LeftUntil > now, ref BridgeLeftHeld, t => t.Left = true, t => t.Left = true, t => t.Left = true);
             ApplyBridgeTrigger(IntentRight || RightUntil > now, ref BridgeRightHeld, t => t.Right = true, t => t.Right = true, t => t.Right = true);
-            // 坐骑不在这里喂 Triggers。TriggersSet.CopyInto 只在 Main.hasFocus 时运行，
-            // 而本项目的一切操作都必须能在失焦下执行（硬规则 §0.56）。实测失焦时把
-            // QuickMount 写进 Triggers.Current，postUpdateInput.mount:true 但
-            // postControlMount 恒 false。真正的输出在 ApplyNativeControlFlags 里
-            // 直写 controlMount，并且只在窗口首帧发一次边沿。
+            // QuickMount 由原版 TriggersSet.CopyInto 复制进 Player.controlMount，
+            // 时机就在 Player.Update 处理 controlMount/releaseMount 边沿之前。
+            // 不要在更晚的阶段自己合成 controlMount —— 它的读点(23783)早于所有晚阶段钩子。
+            // （2026-10-29 曾被改成直写 controlMount 而失效，此处按 0c93b55 恢复）
+            // 预开闸期内（MountPreOpenUntil > now）刻意不按键：那几帧要留给引擎执行
+            // else { releaseMount = true; }，否则 releaseMount 一直是 false，QuickMount 不进。
+            ApplyBridgeTrigger(MountUntil > now && MountPreOpenUntil <= now, ref BridgeMountHeld, t => t.QuickMount = true, t => t.QuickMount = true, t => t.QuickMount = true);
             var triggers = PlayerInput.Triggers.Current;
             DbgInputTriggerTick = (long)now;
             DbgInputTriggerPlayer = player.whoAmI;
@@ -2401,19 +2418,7 @@ namespace DshTerrariaBridge
             if (p == null || !p.active) return;
 
             ApplyGuard(p, now);
-            // 坐骑：必须在这个晚阶段写。SetControls 里写完会被原版重建掉
-            // （实测 mountFired=true 但 prePhysicsMount=false）。原版 QuickMount 的判据是
-            // "controlMount 为真 + releaseMount 决定上/下"，所以这里一次不成对地都写。
-            // 只发一次边沿：controlMount 持续为真会让每帧反复上下坐骑。
-            if (MountUntil > now)
-            {
-                if (!MountFired)
-                {
-                    p.controlMount = true;
-                    p.releaseMount = false;
-                    MountFired = true;
-                }
-            }
+            // 坐骑输出不在这里：见 PostUpdateInput 的 ApplyBridgeTrigger(QuickMount)。
             if (UseUntil > now)
             {
                 Main.mouseLeft = true;
@@ -3091,6 +3096,14 @@ namespace DshTerrariaBridge
         // 不用 Triggers：TriggersSet.CopyInto 只在 Main.hasFocus 时运行，失焦下写
         // Triggers.Current.QuickMount 是空转（实测 mount:true / controlMount:false）。
         internal static ulong MountUntil;
+        // 预开闸窗口：原版 Player.Update 里 releaseMount 唯一的置真处是
+        //     else { releaseMount = true; }        // 条件是 controlMount == false
+        // 而那一整段挂在 if (Main.hasFocus) 里。本环境常态失焦，releaseMount 就永远
+        // 停在字段默认值 false → QuickMount() 永不进入 → 能骑上（骑上走 ItemCheck
+        // 那条路）却下不来（反编译 Player.cs:2071 / 23778-23790 证实）。
+        // 解法：真正按下之前先开几帧闸但不按，让引擎自己把 releaseMount 置真。
+        // 窗口过后引擎每帧会用 IsActive 重新赋值 hasFocus，不残留。
+        internal static ulong MountPreOpenUntil;
         // 边沿闸门：原版 controlMount 是"刚按下"的复制，持续为真会每帧反复上下坐骑，
         // 所以一个时间窗只允许发一次 true。
         internal static bool MountFired;
@@ -3426,6 +3439,13 @@ namespace DshTerrariaBridge
     {
         public override void PreUpdate()
         {
+            // 坐骑快捷召唤的输入闸门。原版 Player.Update 的顺序是
+            //   ResetControls → if (Main.hasFocus) { TriggersSet.CopyInto(this) } → 处理 controlMount
+            // 失焦时第二段整段跳过，往 Triggers 写 QuickMount 一个字节都到不了 controlMount；
+            // 而晚阶段直写 controlMount 又晚于它的读点。唯一能穿过去的窗口就在这两行之间：
+            // 本钩子（PreUpdate）在 ResetControls 之前跑，所以在这里把闸门临时置真，
+            // 让原版自己的 CopyInto 干活。只改"输入闸门开不开"，不碰任何物理量。
+            BridgeSystem.OpenMountInputGate();
             BridgeSystem.ApplyAim();
             BridgeSystem.ApplyControls(Player);
             // Keep the proven PreUpdate path as well as the SetControls path.  In this

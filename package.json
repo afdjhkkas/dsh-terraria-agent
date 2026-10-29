@@ -59,7 +59,8 @@
     "observe:report": "node scripts/observe.mjs report",
     "build:mod": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\build-mod.ps1",
     "build:check": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\build-mod.ps1 -SkipInstall -NoSyncArtifact",
-    "doctor": "node scripts/doctor.mjs"
+    "doctor": "node scripts/doctor.mjs",
+    "bridge": "node scripts/bridge.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": "*"

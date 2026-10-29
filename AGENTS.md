@@ -349,6 +349,24 @@ const { docs } = await buildContext('把家完善一下', { tags })
 const fallback = await buildContext('把家完善一下')
 ```
 
+## 7.45 桥有两个独立入口，插件的坏了不等于桥坏了
+
+`terraria_*` 工具是**编辑器插件**注册的（`index.js`）；`npm run bridge` 是**仓库自带的直连 CLI**
+（`scripts/bridge.mjs`）。两者打的是同一个桥（默认 `127.0.0.1:47777`），互不依赖。
+
+已经踩过的坑：插件因为自身连接状态异常而所有命令都超时（表现为 `桥命令超时：state`），
+而同一时刻 `npm run bridge state` 13 ms 就回。当时我的判断是"桥坏了/游戏卡了"，
+差点去改桥、去重启游戏 —— 全是错的方向。
+
+**判据：** 任何工具超时，先跑 `npm run bridge state`。
+
+- 它正常 → 桥好、游戏好，问题在插件那一侧，**继续用 `npm run bridge` 干活**，别动桥、别重启。
+- 它也超时 → 才轮到查环境（`npm run doctor`：游戏在不在跑、有没有 `-server` 进程独占、
+  端口是否监听、有没有进世界）。
+
+`scripts/bridge.mjs` 每条命令新开一条 TCP 连接并即用即关，所以不存在"连接陈旧"这一层；
+它也是"新环境能不能跑起来"的第一道自检（见 `README.md` 开头三步）。
+
 ## 7.5 桥协议是两级结构（发错格式会静默走默认值）
 
 ```

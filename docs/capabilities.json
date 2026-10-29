@@ -734,6 +734,7 @@
         "activeAfter",
         "queued",
         "untilTick",
+        "preOpenTicks",
         "note",
         "mountSlot",
         "mountItem",

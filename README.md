@@ -25,6 +25,31 @@
 Terraria 及其素材版权归 Re-Logic 所有；模拟器/工具链（tModLoader、.NET）遵循各自许可。
 引用外部资料时只写结论并标注来源，不搬运原文。
 
+## 新环境三步自检（刚 clone 下来、或换了一个新对话，先跑这个）
+
+不要先读文档，先确认"能不能动"。三步都过了再看知识库。
+
+```bash
+npm run doctor          # 环境九项：Node/数据目录/包是否落后源码/enabled.json/端口占用
+npm run bridge state    # 桥直连：应打印 inWorld/paused/hasFocus/位置
+npm test                # 离线 331 项：协议、路径规划、规则闸门、知识库一致性
+```
+
+**`npm run bridge` 是不依赖编辑器插件的直连通道**（每条命令新开一条 TCP，不存在连接陈旧）：
+
+```bash
+npm run bridge state
+npm run bridge tile --params '{"x":2100,"y":300}'
+npm run bridge help     # 桥支持的全部命令
+```
+
+**如果 `terraria_*` 工具（插件注册的那套）超时、而 `npm run bridge state` 正常**，
+说明桥是好的、插件连接层有问题 —— 这时**继续用 `npm run bridge`**，不要反复重试插件，
+也不要因此去改桥或重启游戏。
+
+`npm run doctor` 里那两条最常踩：包落后源码（`artifacts/` 与 `Mods/` 里的 `.tmod`
+不是同一次构建），以及后台残留 `-server` 进程独占世界文件。
+
 ## 工作前提
 
 - 桥接监听 `127.0.0.1:47777`（`cordis.patch.yml` 里的 `config` 可改 host/port/timeoutMs，

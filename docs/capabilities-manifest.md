@@ -55,7 +55,7 @@
 | `walkmode` | `useNew` `reactive` `dual` |
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
 | `guard` | `off` `note` `untilTick` `radius` `hostileInRange` `weaponSlot` `weapon` |
-| `mount` | `activeAfter` `queued` `untilTick` `note` `mountSlot` `mountItem` `held` `action` `active` `type` `flight` `items` |
+| `mount` | `activeAfter` `queued` `untilTick` `preOpenTicks` `note` `mountSlot` `mountItem` `held` `action` `active` `type` `flight` `items` |
 
 ## 二、动作能力（49 个命令）
 
