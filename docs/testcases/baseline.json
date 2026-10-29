@@ -1,11 +1,11 @@
 {
   "schema": "terraria-testcases/1",
-  "ranAt": "2026-10-25T19:17:18.666Z",
+  "ranAt": "2026-10-29T05:10:48.405Z",
   "phase": null,
   "category": null,
-  "total": 54,
-  "pass": 45,
-  "gap": 9,
+  "total": 58,
+  "pass": 56,
+  "gap": 2,
   "results": [
     {
       "id": "M01",
@@ -14,9 +14,7 @@
       "task": "向右连续走 10 秒，路上有 1 格台阶和 2 格坑，不能卡住",
       "status": "PASS",
       "gaps": [],
-      "warnings": [
-        "库里没直接出现：坑（确认是不是换了说法）"
-      ]
+      "warnings": []
     },
     {
       "id": "M02",
@@ -25,9 +23,7 @@
       "task": "原地起跳、连续跳、从 3 格高处落下，确认重力与落地判定",
       "status": "PASS",
       "gaps": [],
-      "warnings": [
-        "库里没直接出现：跳跃（确认是不是换了说法）"
-      ]
+      "warnings": []
     },
     {
       "id": "M03",
@@ -36,9 +32,7 @@
       "task": "在离家 150 格的地方向下挖一条竖井进洞穴，边挖边看地形",
       "status": "PASS",
       "gaps": [],
-      "warnings": [
-        "库里没直接出现：竖井（确认是不是换了说法）"
-      ]
+      "warnings": []
     },
     {
       "id": "M04",
@@ -63,13 +57,8 @@
       "phase": 3,
       "category": "move",
       "task": "找到发光蘑菇地和微光池，记录形状与位置特征",
-      "status": "GAP",
-      "gaps": [
-        {
-          "dimension": "知识缺口",
-          "detail": "world_biome 没有微光池的分布规律（在哪一层、什么地形附近会出现）"
-        }
-      ],
+      "status": "PASS",
+      "gaps": [],
       "warnings": []
     },
     {
@@ -77,13 +66,8 @@
       "phase": 3,
       "category": "move",
       "task": "打开大地图，读出已探索区域范围并定位自己在地图上的位置",
-      "status": "GAP",
-      "gaps": [
-        {
-          "dimension": "知识缺口",
-          "detail": "没有大地图：读不到已探索区域范围，也读不到自己在地图上被标在哪"
-        }
-      ],
+      "status": "PASS",
+      "gaps": [],
       "warnings": [
         "库里没直接出现：地图、已探索（确认是不是换了说法）"
       ]
@@ -169,7 +153,7 @@
       "status": "PASS",
       "gaps": [],
       "warnings": [
-        "库里没直接出现：桶、蜂蜜（确认是不是换了说法）"
+        "库里没直接出现：蜂蜜（确认是不是换了说法）"
       ]
     },
     {
@@ -237,9 +221,7 @@
       "task": "把门、椅子、桌子摆到位置上，让房屋判定通过",
       "status": "PASS",
       "gaps": [],
-      "warnings": [
-        "库里没直接出现：椅子、桌子（确认是不是换了说法）"
-      ]
+      "warnings": []
     },
     {
       "id": "K01",
@@ -280,7 +262,7 @@
       "status": "PASS",
       "gaps": [],
       "warnings": [
-        "库里没直接出现：虫网、蛛网（确认是不是换了说法）"
+        "库里没直接出现：蛛网（确认是不是换了说法）"
       ]
     },
     {
@@ -299,16 +281,9 @@
       "phase": 2,
       "category": "craft",
       "task": "把一组 99 个的方块拆成两半，丢掉不要的垃圾",
-      "status": "GAP",
-      "gaps": [
-        {
-          "dimension": "知识缺口",
-          "detail": "item_operation 没有堆叠拆分规则"
-        }
-      ],
-      "warnings": [
-        "库里没直接出现：拆分、丢弃（确认是不是换了说法）"
-      ]
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
     },
     {
       "id": "K07",
@@ -360,16 +335,8 @@
       "status": "GAP",
       "gaps": [
         {
-          "dimension": "动作原语缺口",
-          "detail": "没有 quest"
-        },
-        {
           "dimension": "能力缺口",
-          "detail": "明确做不到：NPC 对话文本"
-        },
-        {
-          "dimension": "知识缺口",
-          "detail": "npc_town 只写了渔夫怎么出现，没有任务系统：任务进度、任务鱼种类、交付规则"
+          "detail": "明确做不到：NPC 对话选项与任务进度"
         }
       ],
       "warnings": [
@@ -401,40 +368,18 @@
       "phase": 2,
       "category": "fish",
       "task": "装备钓竿，在水边抛竿，等浮标沉下去再收线",
-      "status": "GAP",
-      "gaps": [
-        {
-          "dimension": "能力缺口",
-          "detail": "明确做不到：随机事件与时机窗口"
-        },
-        {
-          "dimension": "知识缺口",
-          "detail": "loot_source 只写了\"需要钓竿+鱼饵、产物由群系深度决定\"，缺动作流程与判定：怎么抛竿、咬钩的时机信号、收线、鱼饵每次消耗"
-        }
-      ],
-      "warnings": [
-        "库里没直接出现：咬钩（确认是不是换了说法）"
-      ]
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
     },
     {
       "id": "F02",
       "phase": 2,
       "category": "fish",
       "task": "用虫网抓一只蝴蝶、一条蠕虫、一只青蛙",
-      "status": "GAP",
-      "gaps": [
-        {
-          "dimension": "能力缺口",
-          "detail": "明确做不到：生物 AI 内部状态"
-        },
-        {
-          "dimension": "知识缺口",
-          "detail": "loot_source 只提到松露虫，缺捕捉机制：虫网怎么用、哪些生物可捕、成功率"
-        }
-      ],
-      "warnings": [
-        "库里没直接出现：虫网、小动物（确认是不是换了说法）"
-      ]
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
     },
     {
       "id": "F03",
@@ -455,16 +400,8 @@
       "status": "GAP",
       "gaps": [
         {
-          "dimension": "动作原语缺口",
-          "detail": "没有 quest"
-        },
-        {
           "dimension": "能力缺口",
-          "detail": "明确做不到：NPC 对话文本"
-        },
-        {
-          "dimension": "知识缺口",
-          "detail": "任务鱼与交付规则同上，未入库"
+          "detail": "明确做不到：NPC 对话选项与任务进度"
         }
       ],
       "warnings": [
@@ -540,13 +477,8 @@
       "phase": 3,
       "category": "event",
       "task": "血月来了，在家门口顶住整夜刷怪",
-      "status": "GAP",
-      "gaps": [
-        {
-          "dimension": "能力缺口",
-          "detail": "明确做不到：随机事件与时机窗口"
-        }
-      ],
+      "status": "PASS",
+      "gaps": [],
       "warnings": [
         "库里没直接出现：血月、刷怪（确认是不是换了说法）"
       ]
@@ -587,13 +519,8 @@
       "phase": 3,
       "category": "event",
       "task": "哥布林入侵或海盗入侵时守住基地",
-      "status": "GAP",
-      "gaps": [
-        {
-          "dimension": "能力缺口",
-          "detail": "明确做不到：随机事件与时机窗口"
-        }
-      ],
+      "status": "PASS",
+      "gaps": [],
       "warnings": [
         "库里没直接出现：入侵、哥布林、海盗（确认是不是换了说法）"
       ]
@@ -641,94 +568,57 @@
       "warnings": [
         "库里没直接出现：抓钩（确认是不是换了说法）"
       ]
+    },
+    {
+      "id": "M08",
+      "phase": 3,
+      "category": "move",
+      "task": "在地面上向右走 0.6 秒，必须真的产生位移",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
+    },
+    {
+      "id": "M09",
+      "phase": 3,
+      "category": "move",
+      "task": "站在实心地面、头顶三格全空，jump ms=400 必须起跳",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
+    },
+    {
+      "id": "M10",
+      "phase": 3,
+      "category": "move",
+      "task": "站到脚底格真的是绳的位置（ropeContact.tileFeetType===213），move down 必须下爬",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": [
+        "库里没直接出现：下降（确认是不是换了说法）"
+      ]
+    },
+    {
+      "id": "M11",
+      "phase": 3,
+      "category": "move",
+      "task": "在绳上 move up，绳没到顶时必须上爬；已到绳顶时不动是正确行为",
+      "status": "PASS",
+      "gaps": [],
+      "warnings": []
     }
   ],
   "aggregate": {
-    "commands": [
-      {
-        "what": "没有 quest",
-        "cases": [
-          "N04",
-          "F04"
-        ],
-        "count": 2
-      }
-    ],
-    "knowledge": [
-      {
-        "what": "world_biome 没有微光池的分布规律（在哪一层、什么地形附近会出现）",
-        "cases": [
-          "M06"
-        ],
-        "count": 1
-      },
-      {
-        "what": "没有大地图：读不到已探索区域范围，也读不到自己在地图上被标在哪",
-        "cases": [
-          "M07"
-        ],
-        "count": 1
-      },
-      {
-        "what": "item_operation 没有堆叠拆分规则",
-        "cases": [
-          "K06"
-        ],
-        "count": 1
-      },
-      {
-        "what": "npc_town 只写了渔夫怎么出现，没有任务系统：任务进度、任务鱼种类、交付规则",
-        "cases": [
-          "N04"
-        ],
-        "count": 1
-      },
-      {
-        "what": "loot_source 只写了\"需要钓竿+鱼饵、产物由群系深度决定\"，缺动作流程与判定：怎么抛竿、咬钩的时机信号、收线、鱼饵每次消耗",
-        "cases": [
-          "F01"
-        ],
-        "count": 1
-      },
-      {
-        "what": "loot_source 只提到松露虫，缺捕捉机制：虫网怎么用、哪些生物可捕、成功率",
-        "cases": [
-          "F02"
-        ],
-        "count": 1
-      },
-      {
-        "what": "任务鱼与交付规则同上，未入库",
-        "cases": [
-          "F04"
-        ],
-        "count": 1
-      }
-    ],
+    "commands": [],
+    "knowledge": [],
     "unsupported": [
       {
-        "what": "明确做不到：随机事件与时机窗口",
-        "cases": [
-          "F01",
-          "E01",
-          "E05"
-        ],
-        "count": 3
-      },
-      {
-        "what": "明确做不到：NPC 对话文本",
+        "what": "明确做不到：NPC 对话选项与任务进度",
         "cases": [
           "N04",
           "F04"
         ],
         "count": 2
-      },
-      {
-        "what": "明确做不到：生物 AI 内部状态",
-        "cases": [
-          "F02"
-        ],
-        "count": 1
       }
     ]
   }

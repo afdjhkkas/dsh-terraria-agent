@@ -49,6 +49,11 @@
 - `needs.missingCommands` 是我已知现在**没有**的命令。补上之后 `--validate` 会报「已经实现了，把声明删掉」——
   这是故意的：不回来改用例，用例库就会开始骗人。
 - `needs.kb` 是必须先读的库；`kbMissing` 是我**读过之后确认**缺的条目。
+- `needs.kbMissingProbes` 是给每条 `kbMissing` 装的**反查探针**：`[{ "text": "和 kbMissing 逐字相同的原文", "keywords": ["入库后必然出现的词"] }]`。
+    - `text` 必须在 `kbMissing` 里出现，否则 `--validate` 报「两边不同步」；
+    - `keywords` 全部出现在 `needs.kb` 对应库的全文里时，`--validate` 报「知识已入库（… 都在），把 kbMissing 里的「…」删掉」。
+    - 和 `missingCommands` 的反向检查同一个道理：知识补上之后不回来删声明，用例库就开始骗人。
+      每条 `kbMissing` 都必须配探针（测试会查），别指望下次还靠人肉核对。
 - `needs.unsupported` 只能填能力清单 `notSupported` 里真有的那几条，不许自己编理由。
 
 ## 怎么跑

@@ -152,10 +152,9 @@
           "发光蘑菇",
           "微光"
         ],
-        "kbMissing": [
-          "world_biome 没有微光池的分布规律（在哪一层、什么地形附近会出现）"
-        ]
-      }
+        "kbMissing": []
+      },
+      "note": "分布规律已入库：世界外侧五分之一、地下或洞穴层、永远与丛林同侧；本局在哪一侧靠 state.zones 判"
     },
     {
       "id": "M07",
@@ -172,11 +171,9 @@
           "地图",
           "已探索"
         ],
-        "kbMissing": [
-          "没有大地图：读不到已探索区域范围，也读不到自己在地图上被标在哪"
-        ]
+        "kbMissing": []
       },
-      "note": "完全没有大地图读取能力"
+      "note": "map 读总尺寸 / 已揭示比例 / 已探索包围盒（world_biome §地图与我到过哪）；真机回读待验证"
     },
     {
       "id": "G01",
@@ -655,11 +652,9 @@
           "拆分",
           "丢弃"
         ],
-        "kbMissing": [
-          "item_operation 没有堆叠拆分规则"
-        ]
+        "kbMissing": []
       },
-      "note": "原版是按住右键拆分，没有对应命令"
+      "note": "拆分规则已入 item_operation §堆叠拆分与合并：拆出量夹在 1..总数-1，进第一个空格，背包满必失败"
     },
     {
       "id": "K07",
@@ -767,11 +762,9 @@
           "渔夫",
           "任务"
         ],
-        "kbMissing": [
-          "npc_town 只写了渔夫怎么出现，没有任务系统：任务进度、任务鱼种类、交付规则"
-        ]
+        "kbMissing": []
       },
-      "note": "quest 能读到要哪条鱼、今天交没交；交付要靠对话选项，读不到也点不了"
+      "note": "任务系统已入 npc_town §渔夫任务；quest 读得到要哪条鱼，交付仍要对话选项（做不到）"
     },
     {
       "id": "N05",
@@ -840,19 +833,15 @@
           "loot_source"
         ],
         "missingCommands": [],
-        "unsupported": [
-          "随机事件与时机窗口"
-        ],
+        "unsupported": [],
         "kbAnchors": [
           "钓竿",
           "鱼饵",
           "咬钩"
         ],
-        "kbMissing": [
-          "loot_source 只写了\"需要钓竿+鱼饵、产物由群系深度决定\"，缺动作流程与判定：怎么抛竿、咬钩的时机信号、收线、鱼饵每次消耗"
-        ]
+        "kbMissing": []
       },
-      "note": "抛竿/等待/收线是时序原语，use 只能点一下，也读不到浮标状态"
+      "note": "动作流程已入 loot_source；castline/bobber/reel 三条原语都在，咬钩靠连续采样 bobber 看下坠"
     },
     {
       "id": "F02",
@@ -870,18 +859,14 @@
         "kb": [
           "loot_source"
         ],
-        "unsupported": [
-          "生物 AI 内部状态"
-        ],
+        "unsupported": [],
         "kbAnchors": [
           "虫网",
           "小动物"
         ],
-        "kbMissing": [
-          "loot_source 只提到松露虫，缺捕捉机制：虫网怎么用、哪些生物可捕、成功率"
-        ]
+        "kbMissing": []
       },
-      "note": "能列出周围 NPC，但没有\"等它进范围再挥网\"的原语"
+      "note": "虫网机制已入 loot_source；capture 支持 who 或坐标，先 npc 列出小动物再挪到范围内挥网"
     },
     {
       "id": "F03",
@@ -926,10 +911,9 @@
           "任务鱼",
           "渔夫"
         ],
-        "kbMissing": [
-          "任务鱼与交付规则同上，未入库"
-        ]
-      }
+        "kbMissing": []
+      },
+      "note": "任务鱼与交付规则已入 npc_town；钓得到，交付仍卡在对话选项"
     },
     {
       "id": "W01",
@@ -1085,15 +1069,14 @@
         ],
         "kb": [],
         "missingCommands": [],
-        "unsupported": [
-          "随机事件与时机窗口"
-        ],
+        "unsupported": [],
         "kbAnchors": [
           "血月",
           "刷怪"
         ],
         "kbMissing": []
-      }
+      },
+      "note": "靠 startevent 触发（仅测试用入口）+ event 读状态 + guard/attack/heal 守夜；正常游玩只能等随机"
     },
     {
       "id": "E02",
@@ -1181,16 +1164,15 @@
         ],
         "kb": [],
         "missingCommands": [],
-        "unsupported": [
-          "随机事件与时机窗口"
-        ],
+        "unsupported": [],
         "kbAnchors": [
           "入侵",
           "哥布林",
           "海盗"
         ],
         "kbMissing": []
-      }
+      },
+      "note": "同上：startevent 触发入侵 + guard 守基地；正常游玩只能等随机"
     },
     {
       "id": "Q01",

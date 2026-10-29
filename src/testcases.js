@@ -113,6 +113,33 @@ export async function validate(data) {
     for (const what of n.unsupported ?? []) {
       if (!unsupportedNames.has(what)) errors.push(`${where}: unsupported 里的 "${what}" 不在能力清单的 notSupported 里（别自己编理由）`)
     }
+
+    // 知识已经入库、声明没删 —— 和 missingCommands 的反向检查同一个道理。
+    // 没有这一条，用例库会把"其实能做"的条目一直报成缺口：这一轮就是靠人工核对
+    // 才发现五条（微光池分布 / 堆叠拆分 / 钓鱼流程 / 捕捉机制 / 渔夫任务）早已写进库、
+    // 声明却还留着。把判据写进用例，下次它会自己提醒。
+    const probes = n.kbMissingProbes
+    if (probes !== undefined && !Array.isArray(probes)) {
+      errors.push(`${where}: needs.kbMissingProbes 必须是数组`)
+    }
+    for (const probe of Array.isArray(probes) ? probes : []) {
+      const text = probe?.text
+      const keywords = probe?.keywords
+      if (!text || !Array.isArray(keywords) || keywords.length === 0) {
+        errors.push(`${where}: kbMissingProbes 每项要有 text 和至少一个 keywords`)
+        continue
+      }
+      if (!(n.kbMissing ?? []).includes(text)) {
+        errors.push(`${where}: kbMissingProbes 的「${text}」不在 kbMissing 里（两边不同步）`)
+        continue
+      }
+      const texts = []
+      for (const tag of n.kb ?? []) texts.push(await kbText(tag))
+      const blob = texts.join('\n')
+      if (keywords.every((k) => blob.includes(k))) {
+        warnings.push(`${where}: 知识已入库（${keywords.join(' / ')} 都在），把 kbMissing 里的「${text}」删掉`)
+      }
+    }
   }
 
   return { ok: errors.length === 0, errors, warnings, total: cases.length }
