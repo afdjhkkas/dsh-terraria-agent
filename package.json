@@ -56,7 +56,9 @@
     "tc:dry": "node scripts/testcases.mjs --dry --allow-gap",
     "tc:sim": "node scripts/testcases.mjs --sim --md docs/testcases/sim-packets.md",
     "observe": "node scripts/observe.mjs",
-    "observe:report": "node scripts/observe.mjs report"
+    "observe:report": "node scripts/observe.mjs report",
+    "build:mod": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\build-mod.ps1",
+    "build:check": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\build-mod.ps1 -SkipInstall -NoSyncArtifact"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": "*"

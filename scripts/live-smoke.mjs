@@ -117,8 +117,11 @@ check('tile type matches the -1 convention', here.data?.type === tileCode(here.d
 console.log('\n[4] refusals are actionable')
 await expectRefusal('tile', {}, /需要 x,y/, 'tile without coordinates is refused')
 await expectRefusal('tile', { x: -1, y: -1 }, /out of world bounds/, 'tile outside the world is refused')
-await expectRefusal('teleport', { x: 999999, y: 999999 }, /out of world bounds/, 'teleport outside the world is refused')
-await expectRefusal('give', { type: 999999 }, /invalid item type/, 'give with an invalid id is refused')
+// 作弊入口必须「不存在」。这两条以前写的是「命令能跑但拒绝越界参数」，
+// 但 teleport / give 早已从 Commands.cs 删除（AGENTS.md 第 1 条：世界只能
+// 通过真实操作改变）。所以改成正向断言：命令根本不在命令表里。
+await expectRefusal('teleport', { x: 999999, y: 999999 }, /unknown command/, 'teleport is not exposed (no cheat entry)')
+await expectRefusal('give', { type: 999999 }, /unknown command/, 'give is not exposed (no cheat entry)')
 await expectRefusal('place', { x: px, y: py, type: 999999 }, /invalid tile type/, 'place with an invalid id is refused')
 
 const refusal = await call('tile', { x: -1, y: -1 })

@@ -366,7 +366,33 @@ terraria_observe({})
 
 ## 安装与构建
 
-### 安装游戏侧 Mod
+### 从源码构建并安装（推荐，一条命令）
+
+改过 `DshTerrariaBridge/*.cs` 之后**不要**手工复制再用图形界面打包 —— 这条路有五个
+能让人卡半天的坑（下面「环境坑」一节逐条列出）。直接跑：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-mod.ps1
+```
+
+它按固定顺序做完全部六步，任何一步失败立刻停下并给可执行的修复建议：
+
+1. 检查 tModLoader / Terraria 是否还在跑（在跑就拒绝继续）
+2. 定位 `tModLoader.dll` 与 .NET 8 `dotnet.exe`
+3. 把 `DshTerrariaBridge\*.cs`、`.csproj`、`build.txt` 同步到 `ModSources\DshTerrariaBridge\`
+4. `dotnet build -c Release --no-incremental`
+5. `dotnet tModLoader.dll -server -build <dir> -eac <dll>` —— **`-eac` 不能漏**
+6. 校验魔数 `TMOD` 与体积（< 50 KB 判为空壳），装进 `Mods\`，同步 `artifacts\`
+
+只要源码可编译、不碰 Mods 目录：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-mod.ps1 -SkipInstall
+```
+
+**脚本本身不启动、不重启游戏。** 什么时候进游戏由你决定。
+
+### 安装现成的 .tmod（源码没改时）
 
 先**完全关闭 tModLoader 和 Terraria**（游戏运行时锁住 `.tmod`，复制会失败）：
 
@@ -378,6 +404,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install-mod.ps1
 `artifacts\DshTerrariaBridge.previous-installed.tmod`，然后复制到
 `文档/My Games/Terraria/tModLoader/Mods/` 并打印 SHA-256。
 之后在 tModLoader 的模组管理器启用 **DSH Terraria Bridge**，进入单人世界后桥才开始监听。
+
+> `artifacts\DshTerrariaBridge.tmod` 只是**某一次构建的快照**，不保证跟当前源码一致。
+> 想要跟源码一致就跑 `build-mod.ps1`，它会同时刷新这个文件。
+
+### 环境坑（每一条都真实踩过）
+
+| 坑 | 症状 | 怎么避 |
+| --- | --- | --- |
+| 打包少了 `-eac` | 打出来的 `.tmod` 只有几百字节；游戏启动时弹「该模组加载时发生错误 / 已被禁用」 | 用 `build-mod.ps1`，它会校验体积并拒绝空壳 |
+| `ModSources` 没同步 | 编译成功、装上了，但**行为还是旧的** | 同上，第 3 步会强制同步 |
+| 用了增量构建 | 新增类型/using 没进 dll，报 `CS0246` 或行为不一致 | `--no-incremental` 已写进脚本 |
+| `enabled.json` 里留着别的 mod | 桥的行为不再可复现（其它 mod 会改玩家逻辑） | 只启用 **DSH Terraria Bridge**；`tModLoader\Mods\enabled.json` 只保留本 mod |
+| 后台留着 `-autoshutdown` 的专用服务端 | 它**抢占世界文件**，客户端反复「世界被占用」/ 进不去世界 | 确认没有 `-server -autoshutdown` 的 tModLoader 进程在跑，再启动客户端 |
+| 游戏没关就打包 | 复制 `.tmod` 报共享冲突，或打包成空壳 | 脚本第 1 步直接拒绝 |
+| host&play 与专用服务端行为不同 | 专用服务端下重力/碰撞不推进，玩家原地不动 | 用**单人 host&play**（Host & Play 进同一世界），不要用独立服务端做动作测试 |
 
 ### 安装 DSH 插件
 
@@ -397,11 +438,23 @@ dsh plugin --profile <profile> add "<本仓库的绝对路径>"
 dsh plugin --profile <profile> remove dsh-terraria-agent
 ```
 
+### 装完先验一遍
+
+桥起来之后跑这两个，都是**只读**的（`live-smoke --write` 才会动世界）：
+
+```powershell
+node scripts/live-smoke.mjs     # 24 条断言，覆盖传输/读世界/拒绝/背包/移动
+node scripts/live-regress.mjs   # 阶段④ 回归，每条都靠回读世界判定
+```
+
+两个脚本都要求游戏已进世界、桥在监听。`live-smoke` 里有一条专门断言
+**`teleport` / `give` 不存在** —— 这是设计而不是缺陷：本仓库不允许绕过真实操作。
+
 ### 环境要求
 
 - Node.js **20 或更新**（`npm test` 用 `node --test`，不需要新版参数）。
 - 只有构建 C# Mod 才需要 .NET 8 SDK 和 tModLoader 安装（见 `README.zh-CN.md`）。
-- `install-mod.ps1` / `build-bridge-roslyn.ps1` 用 Windows PowerShell 5.1 即可运行；
+- `install-mod.ps1` / `scripts\build-mod.ps1` 用 Windows PowerShell 5.1 即可运行；
   `build-bridge-roslyn.ps1` 例外，它要求 PowerShell 7+（.NET 8），否则会直接给出可用替代方案。
 
 ### 进世界后的第一组调用
