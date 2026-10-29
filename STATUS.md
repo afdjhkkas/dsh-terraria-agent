@@ -1,4 +1,4 @@
-# 项目状态（截至第 193 轮）
+# 项目状态（截至第 194 轮）
 
 一个人工智能体玩泰拉瑞亚的工程记录。本文只写**有证据的结论**，
 没验证过的不写、测不准的标注"未验证"。
@@ -11,7 +11,42 @@
 
 ---
 
-## 零、这一轮（第 193 轮）：用例库不再虚报缺口
+## 零、这一轮（第 194 轮）：真机实测 87 条命令，修掉 4 个 bug
+
+这一轮是**阶段③（游戏内逐条实测）**，完整记录见 [`docs/live-test-round194.md`](docs/live-test-round194.md)。
+结论先摆：**多人模式（Host & Play）是这套桥的正确工作模式** —— 铁的事实是
+`paused:false` 与 `hasFocus:false` 能同时成立，服务端在跑、客户端只发输入，
+所以**不抢窗口也能让角色真的动**。单人模式一失焦就 `paused`，所有动作命令拿到 `moved:false`。
+
+实测通过 30 条命令（`move`/`jump`/`mine`/`hook`/`scan`/`needs`/`housing`/`splitstack`/`craft`/
+`map`/`heal`/`capture`/`select`/`predicted`… 全表在记录文件里），挖 PalmWood 一格 1 次挥动即掉、
+`hook` 把角色实打实拉近 1.4 格、`craft` 材料不足时明确报错不假成功。
+
+**修掉的 4 个 bug**：
+
+| bug | 现象 | 根因 | 修法 |
+|---|---|---|---|
+| `fly` 完全不动 | 连试 5 次 `velY:0`、翅膀 180/180、位置不动 | `Fly` 只写 `JumpUntil`/`JumpIssued`，漏 `IntentJump = true`；`BridgeSystem.cs:616` 的 `controlJump` 没有它就只剩真实按键 triggers，而这套环境没有物理按键 | 改调 `BridgeSystem.BeginJump(...)`；`unhook` 里的"跳一下"同病同修 |
+| `accessory` 不带参数就卸装备 | 一次卸掉冰冻护盾、一次卸掉烈火手套 | `Json.Bool(p,"off",true)` 默认 true | 默认改只读列清单，卸下必须显式 `off:true` |
+| `shop {npc}` 中文名解析不出 | `找不到 爆破专家Oten 对应的商店 id` | `GetShopName` 第三段是中文 NPC 名，`GetShopNameFromVanillaIndex` 第三段是英文键，整串前缀匹配永远失败 | 只比前两段（`ShopKeyOf`）；`SetupShop` 包 try/catch 报友好越界提示 |
+| 关不掉对话 | `interact` 点空地两次都无效 | 从没包过原生的关对话入口 | 新增只读命令 `talkclose`，内部就是 `Main.CloseNPCChatOrSign()` |
+
+**还留着的 4 条**（都已写进记录文件，不是"忘了"）：
+
+- `path`/`walkto` 站在木平台（type 19）或绳上时判 `standS=False` → 报"没有可行路径"。
+  基地是「每 5 格一层实心楼板 + 柱子」的结构，于是整栋楼走不了，只能 `move` 一格格挪。
+- `save` 在 Host & Play 下不落盘（`netMode:1`，要发给专用服务端 47778）；且它报的
+  `worldPath` 是 `孤立大坑.wld`，与 `state.world.name`("单人") 不一致，待查。
+- `api` 的 `filter` 参数不生效：`api {type:"Terraria.Main"}` 会一次吐 772 个成员（近 2MB）。
+  **文档红线：不要对 Terraria.Main 用 api**。
+- 上下层没有可靠移动手段：`jump` 单次能上 5.6 格但带横向位移时落不上去，`fly` 修好后待复测。
+
+**顺带挖到的 native 入口**（来自那次 `api` 全量清单，都是 public static）：
+`Main.OpenShop(Int32)`、`Main.CloseNPCChatOrSign()`、`Main.SetNPCShopIndex(Int32)`、
+`Main.DrawNPCChatButtons(Int32, Color, Int32, String, String)`、`Main.DrawNPCChatBubble(Int32)`。
+前两条已经用上；`DrawNPCChatButtons` 是下一步做「点对话选项」的抓手。
+
+## 零-1、上一轮（第 193 轮）：用例库不再虚报缺口
 
 这一轮没碰游戏代码，清的是自检工具的账：`npm run tc:dry` 报的 9 条缺口里，只有 2 条是真的。
 

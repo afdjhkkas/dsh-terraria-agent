@@ -3,11 +3,11 @@
 > 本文件由 `node scripts/kb-sync.mjs` 从 `DshTerrariaBridge/Commands.cs` 与
 > `index.js` 生成。**不要手改**；要改就改代码再重新生成。
 
-## mod 桥命令（109 个）
+## mod 桥命令（110 个）
 
 | 命令 | 参数 |
 |---|---|
-| `accessory` | `off` `slot` `from` |
+| `accessory` | `off` `from` `slot` |
 | `api` | `type` `member` |
 | `attack` | `who` `r` `ms` `interval` `slot` |
 | `blood` | — |
@@ -103,6 +103,7 @@
 | `state` | — |
 | `stop` | — |
 | `talk` | `npc` `ms` |
+| `talkclose` | — |
 | `tile` | `x` `y` |
 | `tiledata` | `type` `style` `alternate` |
 | `trash` | `slot` `count` |

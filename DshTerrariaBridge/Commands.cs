@@ -66,6 +66,7 @@ namespace DshTerrariaBridge
                 case "api": return ApiLookup(p);
                 case "idmap": return IdMap(p);
                 case "talk": return TalkTo(p);
+                case "talkclose": return TalkClose(p);
                 case "shop": return ShopList(p);
                 case "shopdebug": return ShopDebug(p);
                 case "shops": return ShopFind(p);
@@ -1659,6 +1660,34 @@ namespace DshTerrariaBridge
         private static int ShopPrice(Item it) => it.shopCustomPrice.HasValue ? it.shopCustomPrice.Value : it.value;
 
         /// <summary>
+        /// 关掉当前 NPC 对话/告示牌。原版就有 Main.CloseNPCChatOrSign()（public static，
+        /// 用 api 命令查 Terraria.Main 时看到的），这里只是把它包出来——之前只能用 interact
+        /// 点空地，实测点两次都关不掉。
+        /// </summary>
+        private static string TalkClose(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int before = pl.talkNPC;
+            bool hadChat = !string.IsNullOrWhiteSpace(Main.npcChatText);
+            bool hadShop = Main.npcShop > 0;
+            try { Main.CloseNPCChatOrSign(); }
+            catch (Exception ex) { return Json.Error($"CloseNPCChatOrSign 抛异常：{ex.GetType().Name}: {ex.Message}"); }
+            return Json.Ok(new
+            {
+                beforeTalkNPC = before,
+                talkNPC = pl.talkNPC,
+                hadChat,
+                hadShop,
+                chatText = Main.npcChatText,
+                npcShop = Main.npcShop,
+                closed = pl.talkNPC < 0,
+                note = pl.talkNPC < 0 ? null : "talkNPC 还没清掉：再调一次；多人下可能由服务端下一 tick 结算",
+            });
+        }
+
+        /// <summary>
         /// 遍历所有商店 id，找出包含指定物品名字的商店（例如"铁砧"），把 id、价格、库存一起报出来。
         /// 商店 id 与 NPC 类型的对应关系不直观（17 开出来是海盗商店），所以直接问游戏。
         /// </summary>
@@ -1748,18 +1777,37 @@ namespace DshTerrariaBridge
         /// 反查名字，和 GetShopName(npc) 前缀匹配。拿到 id 后用 Chest.SetupShop(id) 填容器
         /// （实测商人=1，能填出 13 件商品）。
         /// </summary>
+        /// <summary>把 "Terraria/Demolitionist/爆破专家Oten" 截成 "Terraria/Demolitionist"。</summary>
+        private static string ShopKeyOf(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            int a = s.IndexOf('/');
+            if (a < 0) return s;
+            int b = s.IndexOf('/', a + 1);
+            return b < 0 ? s : s.Substring(0, b);
+        }
+
         private static int ResolveVanillaShopIndex(NPC npc, out string npcShopName)
         {
             npcShopName = null;
             try { npcShopName = NPCShopDatabase.GetShopName(npc.type, npc.FullName); } catch { }
             if (string.IsNullOrEmpty(npcShopName)) return -1;
+            // GetShopName 返回的第三段是本地化 NPC 名（"爆破专家Oten"），而 GetShopNameFromVanillaIndex
+            // 返回的第三段是英文键，整串前缀匹配永远对不上。只比前两段（命名空间 + 商店名）才稳。
+            string want = ShopKeyOf(npcShopName);
             for (int id = 0; id < 400; id++)
             {
                 string name = null;
                 try { name = NPCShopDatabase.GetShopNameFromVanillaIndex(id); } catch { }
                 if (string.IsNullOrEmpty(name)) continue;
-                if (npcShopName.StartsWith(name, StringComparison.OrdinalIgnoreCase)) return id;
-                if (npcShopName.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0) return id;
+                if (string.Equals(want, ShopKeyOf(name), StringComparison.OrdinalIgnoreCase)) return id;
+            }
+            for (int id = 0; id < 400; id++)
+            {
+                string name = null;
+                try { name = NPCShopDatabase.GetShopNameFromVanillaIndex(id); } catch { }
+                if (string.IsNullOrEmpty(name)) continue;
+                if (name.IndexOf(want, StringComparison.OrdinalIgnoreCase) >= 0) return id;
             }
             return -1;
         }
@@ -1779,7 +1827,9 @@ namespace DshTerrariaBridge
             if (shopId < 0) shopId = ResolveVanillaShopIndex(npc, out shopName);
             if (shopId < 0) return Json.Error($"找不到 {npc?.FullName} 对应的商店 id（name={shopName}）");
 
-            Main.instance.shop[0].SetupShop(shopId);
+            // shopId ≠ NPC type：Main.instance.shop 的尺寸远小于 40，直接 SetupShop(39) 会越界。
+            try { Main.instance.shop[0].SetupShop(shopId); }
+            catch (Exception ex) { return Json.Error($"shopId={shopId} 超出本版本的商店表（{ex.GetType().Name}），先用 shops 命令查合法 id"); }
             Chest shop = Main.instance.shop[0];
             var items = new List<object>();
             for (int i = 0; i < shop.item.Length; i++)
@@ -1813,7 +1863,8 @@ namespace DshTerrariaBridge
             if (shopId < 0) shopId = ResolveVanillaShopIndex(npc, out shopName);
             if (shopId < 0) return Json.Error($"找不到 {npc.FullName} 对应的商店 id");
 
-            Main.instance.shop[0].SetupShop(shopId);
+            try { Main.instance.shop[0].SetupShop(shopId); }
+            catch (Exception ex) { return Json.Error($"shopId={shopId} 超出本版本的商店表（{ex.GetType().Name}），先用 shops 命令查合法 id"); }
             Chest shop = Main.instance.shop[0];
             if (slot < 0 || slot >= shop.item.Length) return Json.Error("slot 越界");
             Item stock = shop.item[slot];
@@ -2809,7 +2860,23 @@ namespace DshTerrariaBridge
             if (!InWorld(out string err)) return Json.Error(err);
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             Player pl = P;
-            bool off = Json.Bool(p, "off", true);
+            // 默认必须只读列清单。原来这里是 Json.Bool(p,"off",true) —— 默认 true，
+            // 于是任何不带 off:false 的调用都会立刻卸下一件饰品（实测两次把冰冻护盾/烈火手套卸进背包）。
+            bool hasOff = p.ValueKind == JsonValueKind.Object && p.TryGetProperty("off", out _);
+            bool off = Json.Bool(p, "off", false);
+
+            if (!hasOff && Json.Int(p, "from", -1) < 0)
+            {
+                var listed = new List<object>();
+                for (int a = 3; a <= 9; a++)
+                {
+                    Item it0 = pl.armor[a];
+                    if (it0 != null && it0.type > 0) listed.Add(new { slot = a, name = it0.Name });
+                }
+                return Json.Ok(new { action = "list", equipped = listed, note = listed.Count == 0
+                    ? "饰品栏是空的"
+                    : "只读清单。卸下要显式 off:true（可加 slot:3..9 指定格）；穿上用 from:<背包槽>" });
+            }
 
             if (off)
             {
@@ -3616,8 +3683,8 @@ namespace DshTerrariaBridge
             BridgeSystem.HookHeld = false;
             BridgeSystem.HookUntil = 0;
             BridgeSystem.HookReleasePending = true;
-            BridgeSystem.JumpUntil = BridgeSystem.Now + BridgeSystem.Ticks(160);
-            BridgeSystem.JumpIssued = false;
+            // 同上：跳一下也要 IntentJump，否则没有物理按键时 controlJump 恒 false。
+            BridgeSystem.BeginJump(BridgeSystem.Now + BridgeSystem.Ticks(160));
             return Json.Ok(new { grapCountBefore = before });
         }
 
@@ -3635,8 +3702,10 @@ namespace DshTerrariaBridge
             int ms = Math.Clamp(Json.Int(p, "ms", 900), 60, 8000);
             bool wings = pl.wingTimeMax > 0 || pl.equippedWings != null;
             bool mounted = pl.mount != null && pl.mount.Active;
-            BridgeSystem.JumpUntil = BridgeSystem.Now + BridgeSystem.Ticks(ms);
-            BridgeSystem.JumpIssued = false;
+            // 必须走 BeginJump：它除了写 JumpUntil 还会置 IntentJump=true。
+            // BridgeSystem.cs:616 的 controlJump 只在 IntentJump 或真实按键 triggers.Jump 为真时才成立，
+            // 这套环境没有物理按键，只写 JumpUntil 会让 controlJump 恒 false（翅膀永远不开，实测 velY 恒 0）。
+            BridgeSystem.BeginJump(BridgeSystem.Now + BridgeSystem.Ticks(ms));
             // 飞/脱钩都是"按住跳跃键"的语义：走原生输入。
             return Json.Ok(new
             {

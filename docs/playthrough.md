@@ -1423,3 +1423,70 @@ if (PathIdxStuck > 90) { StopPath("no-progress"); return; }
 
 教训写进这一条：**判据要能自己变红**。加诊断、加声明、加"缺什么"的清单，都要配一条会在
 现实变化后自动报警的检查，否则清单会静默腐化成假账。
+
+---
+
+## 第 194 轮：进游戏实测 87 条命令，修掉 4 个 bug
+
+**现象**：上一轮的 NPC 社交改动（`bf2996c`/`e8b8f5b`）只做过单机验证，`fly`、`path`、
+`shop`、关对话这些命令从来没在真机上逐条走过。用户要求"先把刚改的 npc 社交测了，
+成功保留接着测、失败也接着测，剩下的都测一遍，失败就跳过"。
+
+**第一个发现比任何命令都重要**：单人模式一失焦 `paused` 就是 true，`applyInput` 被跳过，
+所有动作命令都拿到 `moved:false`。改用**多人模式（Host & Play）**后
+`paused:false` 与 `hasFocus:false` 能同时成立——服务端在跑、客户端只发输入，
+于是**不抢窗口也能让角色真的动**。这条改变了整个测试的可行性（此前只能在用户坐在
+电脑前盯着时说"现在往右走两步"）。
+
+**做法**：按命令表逐条下发，每条都回读。通过的 30 条记录在
+`docs/live-test-round194.md`，包括 `move` dx 30.6/1600ms、`jump` 一次上 5.6 格、
+`mine` 一格 1 次挥动挖掉 PalmWood、`hook` 把角色拉近 1.4 格、`craft` 材料不足时
+明确报错、`heal` 满血时 `healed:0` 不假喝药。
+
+### 修掉的 4 个 bug
+
+1. **`fly` 完全不动**。连试 5 次全部 `velY:0`、翅膀 180/180、位置一格不移。
+   根因是 `Fly` 只写了 `JumpUntil`/`JumpIssued`，**漏了 `IntentJump = true`**；
+   而 `BridgeSystem.cs:616` 是
+   `player.controlJump |= IntentJump || (triggers.Jump && JumpUntil > now);`
+   ——没有 `IntentJump` 就只剩真实物理按键，这套环境没有按键，`controlJump` 恒 false。
+   同文件 `BridgeSystem.cs:614-615` 给 up/down 写的时候已经注释过"不能躲在 triggers 后面"，
+   jump 这行没跟上。改成调 `BridgeSystem.BeginJump(...)`（它本来就有三行）。
+   `unhook` 里那句"松手后跳一下"同病同修。
+2. **`accessory` 不带参数就卸装备**。`Json.Bool(p,"off",true)` 默认 true，
+   实测里一次 `accessory {}` 卸掉冰冻护盾、一次 `accessory {from:26}` 又卸掉烈火手套
+   （`from` 被忽略，因为先走 off 分支）。两次都已装回原位。
+   改成默认只读列清单，卸下必须显式 `off:true`。
+3. **`shop {npc}` 中文名解析不出商店**。`GetShopName` 返回的第三段是本地化 NPC 名
+   （`Terraria/Demolitionist/爆破专家Oten`），而 `GetShopNameFromVanillaIndex` 的第三段
+   是英文键，整串前缀匹配永远对不上。改成只比前两段（新增 `ShopKeyOf`）。
+   另外 `shop {shopId:38}` 会 `Index was outside the bounds of the array`——
+   商店 id ≠ NPC 类型，`SetupShop` 外面包了 try/catch 给友好提示。
+4. **关不掉对话**。`interact` 点空地两次都无效，桥里从来没有关对话的入口。
+   用 `api` 查到 `Main.CloseNPCChatOrSign()` 是 public static，包成只读命令 `talkclose`。
+
+### 还留着的 4 条（都写进记录文件了，不是漏了）
+
+- `path`/`walkto` 站木平台（type 19）或绳上时 `standS=False`，A* 报"没有可行路径"。
+  基地是「每 5 格一层实心楼板 + 柱子」的结构，于是整栋楼走不了，只能 `move` 一格格挪。
+- `save` 在 Host & Play 下不落盘（`netMode:1`，要发给专用服务端 47778）；
+  且它报的 `worldPath` 是 `孤立大坑.wld`，与 `state.world.name`("单人") 不一致，待查。
+- `api` 的 `filter` 参数不生效：`api {type:"Terraria.Main"}` 返回全部 772 个成员（近 2MB）。
+  **红线：不要对 Terraria.Main 用 api**。
+- 上下层没有可靠移动手段：`jump` 单次能上 5.6 格，但带横向位移时落点跟不上，落回原层；
+  挖开楼板两格也上不去。`fly` 修好后需要复测。
+
+### 顺手挖到的 native 入口（都来自那次全量清单）
+
+`Main.OpenShop(Int32)`、`Main.CloseNPCChatOrSign()`、`Main.SetNPCShopIndex(Int32)`、
+`Main.DrawNPCChatButtons(Int32, Color, Int32, String, String)`、`Main.DrawNPCChatBubble(Int32)`。
+
+前两条已经用上。`DrawNPCChatButtons` 是下一步做「点对话选项」的抓手——
+N04/F04 那两条用例卡的正是"渔夫任务交付要点按钮"，而 `npcChatFocus1..4` 是
+"鼠标压在哪个按钮上"的每帧布尔，挪鼠标读焦点位翻转就能反推按钮矩形。
+
+### 教训
+
+**"编译通过"和"引擎真的会动"之间隔着一整层输入合成。** `fly` 写错了三个月没人发现，
+是因为它总是返回 `ok:true`、字段齐全、`hasWings:true`——看起来一切正常，只有位置不动。
+判据要用**引擎算出来的东西**（位置、`grapCount`、背包数量），不能只看命令自己的回包。

@@ -5,16 +5,17 @@
       "kind": "act",
       "params": [
         "off",
-        "slot",
-        "from"
+        "from",
+        "slot"
       ],
       "returns": [
         "action",
+        "equipped",
+        "note",
         "from",
         "to",
         "item",
         "changed",
-        "note",
         "slot"
       ],
       "summary": ""
@@ -1427,6 +1428,20 @@
         "isAngler",
         "untilTick",
         "target"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "talkclose",
+      "kind": "read",
+      "params": [],
+      "returns": [
+        "beforeTalkNPC",
+        "talkNPC",
+        "chatText",
+        "npcShop",
+        "closed",
+        "note"
       ],
       "summary": ""
     },
