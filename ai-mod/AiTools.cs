@@ -128,7 +128,9 @@ namespace DshAiMini
                         foreach (var a in d.Args)
                         {
                             w.WriteStartObject(a.Name);
-                            w.WriteString("type", a.Type);
+                            // JSON Schema 的类型只有 string/number/integer/boolean/array/object。
+                            // 写 "int" 会被 DeepSeek 直接判成非法 schema，整条请求 400 —— 这里必须转一次。
+                            w.WriteString("type", a.Type == "int" ? "integer" : a.Type);
                             w.WriteString("description", a.Desc);
                             w.WriteEndObject();
                         }
