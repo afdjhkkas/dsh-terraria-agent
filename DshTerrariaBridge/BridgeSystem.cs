@@ -912,16 +912,18 @@ namespace DshTerrariaBridge
          */
         private static readonly object ChatLock = new object();
         private static readonly List<string> ChatInbox = new List<string>();
-        private static readonly List<string> ChatSent = new List<string>();
-        // 输入框每变一次就会被看到一次，所以不能"看到就记"。
-        // ChatPending 保存"当前这一版最长的输入"，等输入框变空时把它当成一条消息收下。
+        // ChatPending 只用于诊断当前输入框内容；它不再承担“变空即发送”的判定。
         private static string ChatPending = "";
-        private static string ChatLastText = "";
-        private static ulong ChatLastTextTick;
+        private static ulong ChatPendingTick;
         // 上限与"丢了多少"：ChatPoll 的 since 是绝对序号，丢了旧的就要把序号补回去，
         // 否则调用方手里的 since 会指向错位的内容。
         private const int ChatInboxCap = 500;
         private static int ChatDropped;
+        private static ulong ChatHookCalls;
+        private static ulong ChatLastSendTick;
+        private static ulong ChatLastCancelTick;
+        private static string ChatLastEvent = "";
+        private static string ChatLastCandidate = "";
         internal static bool ChatHookInstalled;
         internal static string ChatHookError = "";
         private static bool ChatHookTried;
@@ -935,46 +937,70 @@ namespace DshTerrariaBridge
                 var mi = typeof(Main).GetMethod("DoUpdate_HandleChat",
                     System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
                 if (mi == null) { ChatHookError = "找不到 Main.DoUpdate_HandleChat"; return; }
-                // 发消息那一下：用"输入框变空"当发送信号，不用 chatRelease。
-                // 两次踩坑记在这里：
-                //  ① 按电平取 Main.chatText —— 中文输入法一个字一个字敲，每个中间态都入队（一句话攒 700 条）。
-                //  ② 改用 chatRelease 的上升沿 —— 一条都收不到。它常态就是真，
-                //     真→真没有上升沿，等于永远不触发。
-                // 现在：每帧记住"当前最长的输入"，等输入框变空那一刻把最后那份入队。
-                // 中间态被覆盖掉，只有真正发出去（或取消）的那一版会留下。
+                // 镜像原版 DoUpdate_HandleChat 的发送分支：
+                //   inputTextEnter && chatRelease && chatText.Length > 0
+                // 但 inputTextEnter 是在 orig() 内部由 GetInputText() 计算的，
+                // 所以必须保存 orig 前的文本/释放状态，再在 orig 后用当前帧的
+                // inputTextEnter + chatText 清空结果确认“真的按回车发送”。
                 Terraria.ModLoader.MonoModHooks.Add(mi, (Action<Action>)(orig =>
                 {
+                    string beforeText = Main.chatText ?? "";
+                    string trimmed = beforeText.Trim();
+                    bool wasChatOpen = Main.drawingPlayerChat;
+                    bool releaseBefore = Main.chatRelease;
+                    lock (ChatLock)
+                    {
+                        ChatHookCalls++;
+                        if (wasChatOpen && trimmed.Length > 0)
+                        {
+                            ChatPending = trimmed;
+                            ChatPendingTick = Main.GameUpdateCount;
+                        }
+                    }
+
+                    // 绝不吞掉原版异常，也绝不跳过原版聊天处理。
+                    orig();
+
                     try
                     {
-                        string cur = (Main.chatText ?? "").Trim();
-                        if (cur.Length > 0)
+                        ulong now = Main.GameUpdateCount;
+                        bool sent = wasChatOpen && releaseBefore && Main.inputTextEnter &&
+                            trimmed.Length > 0 && (Main.chatText ?? "").Length == 0;
+                        bool cancelled = wasChatOpen && !sent && Main.inputTextEscape;
+                        if (sent)
                         {
-                            ChatPending = cur;
-                        }
-                        else if (ChatPending.Length > 0)
-                        {
-                            string text = ChatPending;
-                            ChatPending = "";
-                            ulong now = Main.GameUpdateCount;
-                            bool sameAgain = text == ChatLastText && now - ChatLastTextTick < 30;
-                            if (!sameAgain)
+                            bool command = trimmed.StartsWith("/", StringComparison.Ordinal);
+                            lock (ChatLock)
                             {
-                                lock (ChatLock)
+                                ChatLastCandidate = trimmed;
+                                ChatLastEvent = command ? "command" : "sent";
+                                if (!command)
                                 {
-                                    ChatInbox.Add(text);
+                                    ChatInbox.Add(trimmed);
                                     while (ChatInbox.Count > ChatInboxCap)
                                     {
                                         ChatInbox.RemoveAt(0);
                                         ChatDropped++;
                                     }
+                                    ChatLastSendTick = now;
                                 }
-                                ChatLastText = text;
-                                ChatLastTextTick = now;
+                                ChatPending = "";
+                                ChatPendingTick = 0;
+                            }
+                        }
+                        else if (cancelled)
+                        {
+                            lock (ChatLock)
+                            {
+                                ChatLastCandidate = trimmed;
+                                ChatLastEvent = "cancel";
+                                ChatLastCancelTick = now;
+                                ChatPending = "";
+                                ChatPendingTick = 0;
                             }
                         }
                     }
                     catch { }
-                    orig();
                 }));
                 ChatHookInstalled = true;
             }
@@ -1001,8 +1027,13 @@ namespace DshTerrariaBridge
                     next = next,
                     pending = ChatDropped + ChatInbox.Count - next,
                     dropped = ChatDropped,
-                    // 诊断：pendingText 非空说明玩家正在输入框里打字（还没发），
-                    // 一旦变空就会被当成一条消息收下。排障先看这两个。
+                    hookCalls = ChatHookCalls,
+                    lastSendTick = ChatLastSendTick,
+                    lastCancelTick = ChatLastCancelTick,
+                    lastEvent = ChatLastEvent,
+                    lastCandidate = ChatLastCandidate,
+                    pendingSinceTick = ChatPendingTick,
+                    // 诊断：pendingText 非空说明玩家仍在输入框里打字，还没有按回车发送。
                     pendingText = ChatPending,
                     lines = lines.ToArray(),
                 };
@@ -1011,7 +1042,6 @@ namespace DshTerrariaBridge
 
         internal static object ChatPost(string text)
         {
-            lock (ChatLock) ChatSent.Add(text);
             Main.NewText(text, new Microsoft.Xna.Framework.Color(120, 220, 255));
             return new { posted = text, hooked = ChatHookInstalled };
         }

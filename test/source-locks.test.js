@@ -75,6 +75,45 @@ test('世界改写：不许出现直接写 tile 的赋值', async () => {
   }
 })
 
+test('抓钩：releaseHook 必须置 true，否则 QuickGrapple 一次都不会被调用', async () => {
+  const src = await read(BRIDGE)
+  // 原版 Player.cs:26293：if (controlHook) { if (releaseHook) QuickGrapple(); releaseHook = false; }
+  //                      else releaseHook = true;
+  // 曾经写成 releaseHook = false（误以为 QuickGrapple 开头有 if (releaseHook) return），
+  // 结果发射路径整条死掉：controlHook true、鼠标 true、grapCount 恒 0。
+  assert.match(src, /p\.releaseHook\s*=\s*true\s*;/,
+    '必须出现 p.releaseHook = true；它和 controlHook 同时为真才发射')
+  assert.doesNotMatch(src.replace(/\/\/.*$/gm, ''), /p\.releaseHook\s*=\s*false\s*;/,
+    '不许写 p.releaseHook = false：那会让 QuickGrapple 永远进不去（grapCount 恒 0）')
+  // 瞄准必须走 zoom 前后两段，缺一段就会偏移整个屏幕
+  assert.match(src, /ApplyHookAimBeforeZoom\s*\(/,
+    '必须有 ApplyHookAimBeforeZoom：zoom 变换前写目标')
+  assert.match(src, /ApplyHookAimAfterZoom\s*\(/,
+    '必须有 ApplyHookAimAfterZoom：zoom 变换后写最终屏幕坐标')
+})
+
+test('爬绳：climb 必须先判定脚底是不是绳，没绳就直接拒', async () => {
+  const src = await read(CMDS)
+  const fn = src.match(/private static string Climb\s*\(JsonElement p\)\s*\{([\s\S]*?)\n\s{8}\}/)
+  assert.ok(fn, '找不到 Climb 函数体')
+  const body = fn[1]
+  assert.match(body, /OnRopeNow\s*\(/,
+    'Climb 必须调 OnRopeNow 判前置；站平台上按上下不爬是引擎不认（脚底那格不是绳）')
+  // 没绳时必须把爬行窗口清零，否则命令返回 ok 但人一帧都不动
+  const guard = body.match(/if\s*\(\s*!\s*onRope\s*\)\s*\{([\s\S]{0,300}?)\}/)
+  assert.ok(guard, 'Climb 必须有 if (!onRope) 分支')
+  assert.match(guard[1], /ClimbUpUntil\s*=\s*0/,
+    '没绳时必须把 ClimbUpUntil 清零，不能留着窗口让上层以为正在爬')
+})
+
+test('预开闸回包：mount 的 quick 与 dismount 都必须带 preOpenTicks', async () => {
+  const src = await read(CMDS)
+  const hits = [...src.matchAll(/preOpenTicks\s*=\s*preOpen/g)]
+  assert.ok(hits.length >= 2,
+    `preOpenTicks 至少要在 quick 与 dismount 两处回包里出现（实际 ${hits.length} 处）；` +
+    '少了它就没法从回包判断预开闸真的生效了')
+})
+
 test('假操作：不许出现直接写 velocity / position / pulley 的赋值', async () => {
   for (const p of [BRIDGE, CMDS]) {
     const name = p.split(/[\\/]/).pop()
