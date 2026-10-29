@@ -1,28 +1,29 @@
-DshTerrariaBridge.tmod is built from the checked-in C# source in
-../DshTerrariaBridge/ with the local tModLoader 2026.8.3.0 build tool.
+打包产物
+========
 
-Protocol version: this artifact and the tools in ../index.js speak bridge protocol
-v0.2.0 (see ../PROTOCOL.md). A build made before 0.2.0 is not compatible: it reports
-an empty tile as type 0 instead of -1, has no scan `format`, no attack result
-reporting, no `paused`/`hasFocus` fields, and no id validation on
-give/place/spawn_npc. Rebuild (see ../README.zh-CN.md "构建 Mod") instead of mixing
-an old .tmod with the new plugin.
+这里放的是"别人 clone 下来直接能装"的 .tmod，不是开发中间产物。
 
-Rebuild it with the target tModLoader installation before distributing a release
-build for another game version.
+DshTerrariaBridge.tmod   桥。装上之后 AI 才能用 110 个命令操作游戏。
+DshAiMini.tmod           单 mod 版 AI。装上、填一个 API key 就能对话+动手，
+                         不需要 DSH、不需要 node、不需要桥。
 
-Local install: close tModLoader and Terraria first (the game keeps this file open,
-and the copy fails with a sharing violation while it runs). Then run the
-repository's install-mod.ps1. It:
+两个怎么配合
+------------
+只想试试聊天和工具调用          → 只装 DshAiMini
+想让 AI 真的长时间替你玩         → 两个都装（DshAiMini 通过桥调命令）
 
-  - rejects a truncated or renamed artifact (checks the "TMOD" magic),
-  - prints which tModLoader build packed the file,
-  - keeps the build that is currently installed as
-    DshTerrariaBridge.previous-installed.tmod next to this file (git-ignored),
-  - copies the artifact into
-    %USERPROFILE%\Documents\My Games\Terraria\tModLoader\Mods\
-    and prints the SHA-256 of what it installed.
+怎么装
+------
+把 .tmod 复制到
+  <我的文档>/My Games/Terraria/tModLoader/Mods/
+然后启动 tModLoader 启用即可。
 
-Roll a bad build back with:
+这两个包是怎么来的
+------------------
+DshTerrariaBridge：见仓库根目录 README「从源码构建并安装」
+DshAiMini         ：见 ai-mod/README.md（同一套流程，工程名换成 DshAiMini）
 
-  ./install-mod.ps1 -Artifact artifacts\DshTerrariaBridge.previous-installed.tmod -NoBackup
+注意：包和源码不同步是这里最容易犯的错。
+     改了 .cs 一定要重新打包并把新包复制到这里，
+     否则别人装到的是旧行为（历史上就因此丢过一次坐骑修复）。
+     跑 npm run doctor 会检查"包是否落后于源码"。
