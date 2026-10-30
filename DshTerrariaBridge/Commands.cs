@@ -3655,7 +3655,7 @@ namespace DshTerrariaBridge
                     from = MathF.Round(fromRope, 2), target = x,
                     delta = MathF.Round(x - fromRope, 2), ms,
                     deferred = true, ropeRelease = true,
-                    note = "脚底在绳上：先按下脱绳，离开真实绳格后再执行 moveto",
+                    note = "脚底在绳上：直接执行（原版在绳子上的横向/竖直输入本就有效，不再按 Down 脱绳）",
                 });
             }
             BridgeSystem.ExactActive = true;
@@ -3698,7 +3698,7 @@ namespace DshTerrariaBridge
                 {
                     dir, ms, tiles, from, untilTick = BridgeSystem.RopeReleaseUntil,
                     tick = BridgeSystem.Now, deferred = true, ropeRelease = true,
-                    note = "脚底在绳上：先按下脱绳，离开真实绳格后再执行水平移动",
+                    note = "脚底在绳上：直接执行（原版在绳子上的横向/竖直输入本就有效，不再按 Down 脱绳）",
                 });
             }
             switch (dir)
@@ -3786,7 +3786,7 @@ namespace DshTerrariaBridge
                     grounded = pl.velocity.Y == 0f && pl.oldVelocity.Y == 0f,
                     untilTick = BridgeSystem.RopeReleaseUntil,
                     tick = BridgeSystem.Now, deferred = true, ropeRelease = true,
-                    note = "脚底在绳上：先按下脱绳，离开真实绳格后再执行跳跃",
+                    note = "脚底在绳上：直接按跳（原版会先解除 pulley 再起跳），不再按 Down 脱绳",
                 });
             }
             BridgeSystem.BeginJump(BridgeSystem.Now + BridgeSystem.Ticks(ms));
