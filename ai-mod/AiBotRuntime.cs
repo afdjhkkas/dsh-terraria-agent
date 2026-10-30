@@ -114,9 +114,11 @@ namespace DshAiMini
                     var psi = new ProcessStartInfo(launcher, args.ToString())
                     {
                         WorkingDirectory = working,
-                        // Bot 是真实客户端，但默认不额外显示一个窗口；它仍然会创建
-                        // 图形设备并执行原版联网流程，桥只在真实进世界后报成功。
-                        UseShellExecute = true,
+                        // 不经过 shell 启动，避免 Explorer/Steam 在进程创建瞬间激活 Bot 窗口。
+                        // 仍然是真实 tModLoader 客户端；这里只关闭启动时的 shell 激活，
+                        // 不调用 SetForegroundWindow/ShowWindow/SendInput 等桌面控制 API。
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
                         WindowStyle = ProcessWindowStyle.Hidden,
                     };
                     r.Process = Process.Start(psi);

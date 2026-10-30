@@ -19,7 +19,7 @@ namespace DshAiMini
         {
             public string Name;
             public string Desc;
-            /// <summary>参数名 → (类型, 说明)。类型只支持 string/int/number/bool。</summary>
+            /// <summary>参数名 → (类型, 说明)。类型支持 JSON Schema 的基础类型。</summary>
             public (string Name, string Type, string Desc, bool Required)[] Args;
         }
 
@@ -112,6 +112,14 @@ namespace DshAiMini
                 Desc = "扫描玩家周围一圈格子，返回哪些格子是实心的。想挖矿或找落脚点前先扫。",
                 Args = new (string, string, string, bool)[] {
                     ("radius", "int", "半径（格），1-20，默认 8", false),
+                },
+            },
+            new Def {
+                Name = "bridge",
+                Desc = "完整主桥能力入口。本机和 Bot 都可调用 DshTerrariaBridge 的全部命令（state、tile、inventory、move/moveto/walkto/path、jump/climb/fly、mine/place/use/interact、select/shoot/hook/mount、attack/guard/minion、talk/shop/buy/sell、chest、craft、equip、chatpoll/chatpost、players/follow、map/props/idmap 等）。命令名放 command，参数必须放在嵌套 params 对象；必须读取回包和后续 state/tile/inventory 回读，命令返回 ok 不等于动作已完成。命令清单和参数以 docs/kb/_generated-commands.md 为准。",
+                Args = new (string, string, string, bool)[] {
+                    ("command", "string", "主桥命令名，例如 state、moveto、mount、hook、talk、shop、inventory", true),
+                    ("params", "object", "主桥命令参数对象；没有参数时传 {}。不要把参数平铺到 bridge 顶层", false),
                 },
             },
         };

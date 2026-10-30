@@ -60,6 +60,19 @@ namespace DshAiMini
                         case "summon_mount": response = await AiBotRuntime.RequestAsync(actor, "mount", new { action = "quick" }); break;
                         case "dismount": response = await AiBotRuntime.RequestAsync(actor, "mount", new { action = "down" }); break;
                         case "use_item": response = await AiBotRuntime.RequestAsync(actor, "use", new { ms = 250 }); break;
+                        case "bridge":
+                        {
+                            string command = Str(a, "command", "");
+                            if (string.IsNullOrWhiteSpace(command))
+                            {
+                                response = "bridge 缺少 command";
+                                break;
+                            }
+                            JsonElement parameters = a.TryGetProperty("params", out var pe)
+                                ? pe.Clone() : JsonDocument.Parse("{}").RootElement.Clone();
+                            response = await AiBotRuntime.RequestAsync(actor, command, parameters);
+                            break;
+                        }
                         default: response = "Bot 执行器暂不支持工具: " + name; break;
                     }
                     if (done != null) MainThread.Enqueue(() => done(response));
@@ -92,6 +105,7 @@ namespace DshAiMini
             return e.ValueKind == JsonValueKind.Object && e.TryGetProperty(key, out var v)
                 && (v.ValueKind == JsonValueKind.True || v.ValueKind == JsonValueKind.False) ? v.GetBoolean() : fallback;
         }
+
         static double StateX(string json)
         {
             using var doc = JsonDocument.Parse(json);

@@ -681,7 +681,8 @@ namespace DshTerrariaBridge
             //   站在 type 19 木平台上 fly/jump 全部 velY:0、jumped:false，
             //   因为 ApplyMovement 开头（2069）已经把 IntentJump 清掉，只剩被 triggers 短路的那一半。
             player.controlJump |= IntentJump || JumpUntil > now;
-            player.controlInv |= InventoryUntil > now && InventoryPreOpenUntil <= now;
+            if (InventoryPreOpenUntil <= now)
+                player.controlInv |= InventoryUntil > now;
             // 坐骑不在这里写。实测：在 SetControls 里写 controlMount=true（mountFired 已是 true），
             // 到 PostUpdateMiscEffects 读回来仍是 false —— 原版在 SetControls 之后会用输入层结果
             // 重建 controlMount，写在早阶段的 true 当场被覆盖。这和 controlHook 是同一个病
@@ -807,8 +808,16 @@ namespace DshTerrariaBridge
             // into controlInv for this loader build's Player.Update consumer.
             // 预开闸期内（InventoryPreOpenUntil > now）刻意不按键：那几帧要留给引擎把
             // releaseInventory 置回 true，否则 ToggleInv 永远看不到"刚按下"这个边沿。
-            ApplyBridgeTrigger(InventoryUntil > now && InventoryPreOpenUntil <= now, ref BridgeInventoryHeld,
-                t => t.Inventory = true, t => t.Inventory = true, t => t.Inventory = true);
+            if (InventoryPreOpenUntil > now)
+            {
+                ApplyBridgeTrigger(false, ref BridgeInventoryHeld,
+                    t => t.Inventory = true, t => t.Inventory = true, t => t.Inventory = true);
+            }
+            else
+            {
+                ApplyBridgeTrigger(InventoryUntil > now, ref BridgeInventoryHeld,
+                    t => t.Inventory = true, t => t.Inventory = true, t => t.Inventory = true);
+            }
             var triggers = PlayerInput.Triggers.Current;
             DbgInputTriggerTick = (long)now;
             DbgInputTriggerPlayer = player.whoAmI;
@@ -2188,12 +2197,24 @@ namespace DshTerrariaBridge
         internal static volatile int FollowTargetIdx = -1;
         internal static volatile float FollowStopTiles = 4.5f;
         internal static ulong FollowNextThink;
+        // 跟随不能把“目标在高处”当成每帧跳。只在感知到墙/坑/高台，或确实卡住时
+        // 发一次有冷却的真实跳跃输入；其余帧只发左右键，让原版自动跨一格台阶。
+        private static ulong FollowNextJump;
+        private static int FollowStuckTicks;
+        private static float FollowLastX, FollowLastY;
+        private static bool FollowHaveProgress;
+        private static int FollowProgressTarget = -1;
 
         internal static void ClearFollow()
         {
             FollowActive = false;
             FollowGuard = false;
             FollowTargetIdx = -1;
+            FollowNextThink = 0;
+            FollowNextJump = 0;
+            FollowStuckTicks = 0;
+            FollowHaveProgress = false;
+            FollowProgressTarget = -1;
             ClearAttack();
         }
 
@@ -2244,6 +2265,32 @@ namespace DshTerrariaBridge
             float dy = (mate.Center.Y - me.Center.Y) / 16f;
             float adx = Math.Abs(dx);
 
+            // 进度看真实位置，不看“我已经发了跳键”。连续卡住才允许一次自救跳，
+            // 这样不会在平地上变成边走边跳，也不会把目标在高处误判成跳跃命令。
+            float nowX = me.position.X, nowY = me.position.Y;
+            if (FollowProgressTarget != mate.whoAmI)
+            {
+                FollowProgressTarget = mate.whoAmI;
+                FollowHaveProgress = false;
+                FollowStuckTicks = 0;
+                FollowNextJump = 0;
+            }
+            if (!FollowHaveProgress)
+            {
+                FollowHaveProgress = true;
+                FollowLastX = nowX;
+                FollowLastY = nowY;
+                FollowStuckTicks = 0;
+            }
+            else if (Math.Abs(nowX - FollowLastX) < 0.12f && Math.Abs(nowY - FollowLastY) < 0.12f && adx > FollowStopTiles)
+                FollowStuckTicks++;
+            else
+            {
+                FollowStuckTicks = 0;
+                FollowLastX = nowX;
+                FollowLastY = nowY;
+            }
+
             // 护卫：血低于 30% 先别打，喝了药再上；否则优先打玩家正在打的目标。
             bool lowHp = me.statLife < me.statLifeMax * 0.3f;
             if (FollowGuard)
@@ -2261,18 +2308,103 @@ namespace DshTerrariaBridge
                 }
             }
 
-            // 位移：远了追，够近就站住（护卫时允许原地输出）
+            // 位移：远了追，够近就站住（护卫时允许原地输出）。
+            // 地形感知只读：墙高、门、缺口都交给和 walkto 相同的判定；动作仍然
+            // 只有原生方向键/跳键，绝不写 position、velocity 或 pulley。
             if (adx > FollowStopTiles)
             {
-                float dir = dx > 0 ? 1f : -1f;
-                if (dir > 0) RequestRight(); else RequestLeft();
-                // 被墙挡住就跳一下（高度交给原版，不再写初速）
-                if (me.velocity.Y == 0f && Math.Abs(me.oldVelocity.X) < 0.3f) RequestJump();
+                int sign = dx > 0 ? 1 : -1;
+                if (sign > 0) RequestRight(); else RequestLeft();
+                me.direction = sign;
+                FollowTerrainAction(me, sign, dy);
             }
-            // 队友在高处：爬/跳
-            if (dy < -3.5f && me.velocity.Y == 0f) RequestJump();
+            else if (dy < -1.5f && adx <= FollowStopTiles + 3f)
+            {
+                // 目标已经进入保持距离，但人在目标下方；继续感知当前一侧的台阶，
+                // 否则“跟到了脚边”会永远停在台阶下。
+                int sign = dx == 0 ? (me.direction == 0 ? 1 : me.direction) : (dx > 0 ? 1 : -1);
+                FollowTerrainAction(me, sign, dy);
+            }
             // 队友在下面且离得不远：允许往下跟
             if (dy > 6f && adx < 2.5f) RequestDown();
+        }
+
+        /// <summary>
+        /// 跟随专用地形感知。它复用 walkto 的只读扫描，但不启动 A*、不挖方块，
+        /// 避免跟随时每帧跳或擅自破坏玩家建筑。
+        /// </summary>
+        private static void FollowTerrainAction(Player me, int sign, float targetDy)
+        {
+            if (me.velocity.Y != 0f || me.oldVelocity.Y != 0f) return;
+
+            int px = (int)(me.Center.X / 16f);
+            // 与 walkto/SenseWorld 使用同一坐标基准：中心格用于前方扫描，
+            // 脚底格只用于绳/门等接触判定。这样头顶平台不会被误当成前方地面。
+            int py = (int)(me.Center.Y / 16f);
+            int feetY = (int)((me.position.Y + me.height) / 16f);
+            bool doorAhead = false;
+            for (int k = -1; k <= 2; k++)
+            {
+                int x = px + sign;
+                int y = feetY + k;
+                if (x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY) continue;
+                Tile t = Main.tile[x, y];
+                if (t != null && t.HasTile && (t.TileType == TileID.ClosedDoor || t.TileType == TileID.OpenDoor))
+                {
+                    doorAhead = true;
+                    if (t.TileType == TileID.ClosedDoor && Now > FollowNextThink)
+                    {
+                        BeginTileInteraction(x, y);
+                        FollowNextThink = Now + 20;
+                    }
+                    break;
+                }
+            }
+
+            int wallH = 0;
+            for (int k = 1; k <= 8; k++)
+                if (IsBlockingSolid(px + sign, py - k)) wallH = k;
+                else break;
+
+            var scan = ScanGround(px, py, sign, 8);
+            int floorDepth = scan[1] == int.MinValue ? 99 : Math.Max(0, scan[1] - py);
+            int landAfter = int.MinValue;
+            for (int i = 2; i <= 4; i++)
+                if (scan[i] != int.MinValue) { landAfter = scan[i]; break; }
+            int landDelta = landAfter == int.MinValue ? 99 : Math.Abs(landAfter - py);
+            bool gap = !doorAhead && wallH == 0
+                && !TileStand(px + sign, py) && !TileStand(px + sign, py + 1)
+                && landDelta >= 2 && landDelta <= 6;
+            bool higherFloor = scan[1] != int.MinValue && py - scan[1] >= 2;
+
+            // 一格台阶由原版自动跨；2~5 格墙、可跳坑和前方高台才按一次跳。
+            if (wallH >= 2 && wallH <= 5)
+            {
+                FollowJump(Math.Min(5.9f, wallH + 1.5f), me);
+                return;
+            }
+            if (gap)
+            {
+                FollowJump(Math.Min(5.9f, floorDepth + 0.8f), me);
+                return;
+            }
+            if (higherFloor && targetDy < -1.5f)
+            {
+                FollowJump(Math.Min(5.9f, py - scan[1] + 1.5f), me);
+                return;
+            }
+            // 只有连续卡住才自救一次；没有墙/坑时不跳，避免在平地抽动。
+            if (FollowStuckTicks >= 18 && !doorAhead && (wallH <= 5 || higherFloor))
+                FollowJump(5.9f, me);
+        }
+
+        private static void FollowJump(float tiles, Player me)
+        {
+            if (Now < FollowNextJump || me.velocity.Y != 0f || me.oldVelocity.Y != 0f) return;
+            RequestJump();
+            JumpUntil = Now + (ulong)Math.Max(4, (int)(tiles / 6.0f * 24.0f));
+            FollowNextJump = Now + Ticks(450);
+            FollowStuckTicks = 0;
         }
 
         /// <summary>精确横向移动：按目标格坐标比例控制速度，到位即停（误差 0.06 格）。</summary>

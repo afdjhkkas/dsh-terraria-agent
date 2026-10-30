@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
@@ -26,6 +28,9 @@ namespace DshAiMini
         static Action<string> _done;
         static int _frame;
         static string _note = "";
+        static bool _bridgeBusy;
+        static string _bridgeName = "";
+        static readonly ConcurrentQueue<Action> BridgeCallbacks = new();
 
         // 走路
         static float _walkStartX;
@@ -40,9 +45,9 @@ namespace DshAiMini
         static int _attackMs;
 
         /// <summary>对外：正在跑一个工具时为真，面板据此显示"执行中"。</summary>
-        public static bool Busy => _running;
+        public static bool Busy => _running || _bridgeBusy;
 
-        public static string CurrentName => _running ? _name : "";
+        public static string CurrentName => _running ? _name : (_bridgeBusy ? _bridgeName : "");
 
         /// <summary>给面板显示的一行进度。</summary>
         public static string Note => _note;
@@ -62,8 +67,23 @@ namespace DshAiMini
 
         public static void Run(string name, string argsJson, Action<string> done)
         {
-            if (_running) { done?.Invoke("已经有一个操作在跑，等它结束"); return; }
+            if (_running || _bridgeBusy) { done?.Invoke("已经有一个操作在跑，等它结束"); return; }
             if (!AiTools.Exists(name)) { done?.Invoke("没有这个工具: " + name); return; }
+
+            // bridge 是本机和 Bot 共用的完整能力入口。它走 TCP，不能在主线程同步等待；
+            // 回调排回本线程后再交给 Agent，和远程 Bot 的回调时序一致。
+            if (name == "bridge")
+            {
+                RunBridge(argsJson, done);
+                return;
+            }
+            // 跟随必须在本机和 Bot 走同一套主桥逻辑；本机旧状态机没有多人目标
+            // 的地形感知，所以把这个便捷工具也转成标准 follow 命令。
+            if (name == "follow")
+            {
+                RunBridgeCommand("follow", string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson, done);
+                return;
+            }
 
             _running = true;
             _name = name;
@@ -151,10 +171,6 @@ namespace DshAiMini
                     Finish(LocalPlayersText());
                     return;
 
-                case "follow":
-                    Finish("本机角色的跟随暂未接入；若要让队友跟随，请选择已进世界的 Bot，再调用 follow。");
-                    return;
-
                 case "summon_mount":
                 {
                     // 快捷召唤是边沿触发：第一次按下去骑上，再按一次下来。
@@ -235,6 +251,11 @@ namespace DshAiMini
         // ── 每帧推进 ─────────────────────────────────────────
         public static void Tick()
         {
+            int bridgeCount = 0;
+            while (bridgeCount++ < 16 && BridgeCallbacks.TryDequeue(out var callback))
+            {
+                try { callback(); } catch { }
+            }
             if (!_running) return;
             var p = P;
             _frame++;
@@ -358,6 +379,45 @@ namespace DshAiMini
                     return;
                 }
             }
+        }
+
+        static void RunBridge(string argsJson, Action<string> done)
+        {
+            string command;
+            string parameters;
+            try
+            {
+                using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
+                var root = doc.RootElement;
+                command = root.TryGetProperty("command", out var c) && c.ValueKind == JsonValueKind.String
+                    ? c.GetString() : "";
+                parameters = root.TryGetProperty("params", out var p) ? p.GetRawText() : "{}";
+            }
+            catch (Exception ex)
+            {
+                done?.Invoke("bridge 参数不是合法 JSON: " + ex.Message);
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(command)) { done?.Invoke("bridge 缺少 command"); return; }
+            RunBridgeCommand(command, parameters, done);
+        }
+
+        static void RunBridgeCommand(string command, string parameters, Action<string> done)
+        {
+            _bridgeBusy = true;
+            _bridgeName = "bridge " + command;
+            Task.Run(async () =>
+            {
+                string response;
+                try { response = await AiBridgeClient.RequestAsync(47777, command, parameters); }
+                catch (Exception ex) { response = "本机 Bridge 请求失败: " + ex.Message; }
+                BridgeCallbacks.Enqueue(() =>
+                {
+                    _bridgeBusy = false;
+                    _bridgeName = "";
+                    done?.Invoke(response);
+                });
+            });
         }
 
         /// <summary>把瞄准点设到目标格（原版会自己处理玩家能不能够到）。</summary>

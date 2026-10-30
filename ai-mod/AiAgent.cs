@@ -50,6 +50,7 @@ namespace DshAiMini
                     + "Bot 未显示‘已进世界’时，不要假装已经能操作；先说明等待入服。\n");
             }
             sb.Append("可用工具：").Append(AiTools.Brief()).Append("\n");
+            sb.Append("bridge 是完整主桥入口：command 使用主桥命令名，params 必须是嵌套对象；它覆盖本机和 Bot 的全部动作。先读 state/players，再发动作；动作完成必须依据 state、tile、inventory、shop 或其他回读字段确认。严格遵守知识库的真操作规则：只给输入让引擎计算，不用直接写位置、速度、pulley、生命、物品栏或 tile 来制造结果。\n");
             sb.Append("规则：① 做任何判断前先调 status 看实际情况；多人协作先调 players，确定队友 index 后再调 follow；② 一次只调一个，拿到结果再决定下一步；");
             sb.Append("③ 干完活要用玩家听得懂的话说结果（走了几格、挖掉没有、掉血没有）；④ 做不到就说做不到，别编。");
 
