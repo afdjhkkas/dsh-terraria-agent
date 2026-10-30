@@ -21,8 +21,48 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createHash, createHmac, randomUUID } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 
-const DEFAULT_BASE_URL = process.env.DSH_BASE_URL || 'http://127.0.0.1:49701'
+/**
+ * DSH 的 GUI 端口每次启动都可能变（它是动态分配的），所以不能把端口写死。
+ * 之前写死 49701，DSH 重启后变成 64900，chatd 就一直是
+ *   [WAKE-ERR] 连不上 DSH（http://127.0.0.1:49701）：fetch failed
+ * 而消息其实已经收到了，只是投不进去。
+ *
+ * 探测顺序：环境变量 → 问 Windows 哪个进程叫 DeepSeek Harness 且在听 → 常见端口兜底。
+ * 结果缓存，进程生命周期内只探一次。
+ */
+let _detectedBase = null
+
+function listeningPortsOf(processNamePattern) {
+  try {
+    const ps = [
+      "$p = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match '" + processNamePattern + "' } | Select-Object -ExpandProperty ProcessId",
+      "if ($p) { Get-NetTCPConnection -State Listen | Where-Object { $_.OwningProcess -in $p } | Select-Object -ExpandProperty LocalPort | Sort-Object -Unique }",
+    ].join('; ')
+    const out = execFileSync('powershell', ['-NoProfile', '-Command', ps], { encoding: 'utf8', timeout: 8000 })
+    return out.split(/\r?\n/).map((v) => parseInt(v.trim(), 10)).filter((v) => Number.isFinite(v) && v > 0)
+  } catch {
+    return []
+  }
+}
+
+export function detectBaseUrl() {
+  if (process.env.DSH_BASE_URL) return process.env.DSH_BASE_URL
+  if (_detectedBase) return _detectedBase
+  const ports = listeningPortsOf('DeepSeek Harness[.]exe')
+  const guess = ports.length ? ports : [49701, 64900, 49700, 64901]
+  _detectedBase = 'http://127.0.0.1:' + guess[0]
+  return _detectedBase
+}
+
+export function setBaseUrl(url) { _detectedBase = url }
+
+function currentBaseUrl(opts) {
+  return opts.baseUrl || detectBaseUrl()
+}
+
+const DEFAULT_BASE_URL = 'http://127.0.0.1:49701'   // 只作最后兜底，实际用 detectBaseUrl()
 const COOKIE_TTL_MS = 60 * 60 * 1000
 const COOKIE_REFRESH_MARGIN_MS = 5 * 60 * 1000
 
@@ -140,7 +180,7 @@ async function callApi(endpoint, args, { baseUrl, cookie, timeoutMs = 10000 } = 
 
 /** 列出会话（按 updatedAt 从新到旧）。 */
 export async function listSessions(opts = {}) {
-  const baseUrl = opts.baseUrl || DEFAULT_BASE_URL
+  const baseUrl = currentBaseUrl(opts)
   const cookie = opts.cookie || mintCookie(opts.secret || readBrowserSessionSecret(), baseUrl)
   const value = await callApi('session/list', { _request: {} }, { baseUrl, cookie })
   const list = Array.isArray(value) ? value : (value?.sessions ?? value?.items ?? [])
@@ -171,7 +211,7 @@ export async function say(text, opts = {}) {
   const content = String(text ?? '').trim()
   if (!content) throw Object.assign(new Error('要说的话是空的'), { code: 'empty' })
 
-  const baseUrl = opts.baseUrl || DEFAULT_BASE_URL
+  const baseUrl = currentBaseUrl(opts)
   const cookie = opts.cookie || mintCookie(opts.secret || readBrowserSessionSecret(), baseUrl)
 
   let sessionId = opts.sessionId
