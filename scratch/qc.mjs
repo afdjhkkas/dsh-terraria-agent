@@ -17,7 +17,7 @@ const queue = [];            // 等连接的请求
 
 function ensure() {
   if (sock && !sock.destroyed) return sock;
-  sock = net.connect(47777, '127.0.0.1');
+  sock = net.connect(PORT, '127.0.0.1');
   sock.setNoDelay(true);
 
   sock.on('data', (d) => {
@@ -62,6 +62,10 @@ function pump() {
     pump();
   }
 }
+
+// 端口：默认 47777（主客户端）。第二个客户端起来后会另开一个端口
+// （桥的 -dsh-bridge-port，实际部署在 47779），要控制那个角色就连它。
+const PORT = Number(process.env.DSH_BRIDGE_PORT || 47777);
 
 export function call(cmd, params = {}, timeout = 8000) {
   return new Promise((res) => {

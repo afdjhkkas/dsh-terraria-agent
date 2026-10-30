@@ -173,12 +173,19 @@ namespace DshAiMini
                     {
                         WorkingDirectory = working,
                         // 不经过 shell 启动，避免 Explorer/Steam 在进程创建瞬间激活 Bot 窗口。
-                        // 仍然是真实 tModLoader 客户端；这里只关闭启动时的 shell 激活，
-                        // 不调用 SetForegroundWindow/ShowWindow/SendInput 等桌面控制 API。
+                        // 保留正常窗口：用户可以随后切到 Bot 客机手动操作；启动代码不调用
+                        // SetForegroundWindow/ShowWindow/SendInput，因此不会主动抢当前焦点。
+                        // tModLoader is launched through dotnet.exe.  Suppress only the
+                        // launcher console; the MonoGame client creates its own normal,
+                        // interactive game window below.
                         UseShellExecute = false,
                         CreateNoWindow = true,
-                        WindowStyle = ProcessWindowStyle.Hidden,
+                        WindowStyle = ProcessWindowStyle.Normal,
                     };
+                    // 通过环境变量标记这是由本桥启动的 Bot 客户端。命令行参数会被
+                    // tModLoader 自己解析，不能塞入一个它不认识的开关；环境变量不会影响
+                    // 游戏参数，也让桥端能选择性隔离后台物理鼠标输入。
+                    psi.Environment["DSH_BOT_CLIENT"] = "1";
                     r.Process = Process.Start(psi);
                     if (r.Process == null) throw new InvalidOperationException("无法启动 Bot 进程");
                 }

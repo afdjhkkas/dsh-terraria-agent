@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -52,14 +53,40 @@ namespace DshAiMini
                             response = await AiBotRuntime.RequestAsync(actor, "moveto", new { x = target, ms = 12000 });
                             break;
                         }
-                        case "jump": response = await AiBotRuntime.RequestAsync(actor, "jump", new { ms = Int(a, "ms", 400) }); break;
+                        case "jump":
+                        {
+                            // Do not send tiles=0: the bridge treats an explicit tiles
+                            // value as a request to convert height back to press duration,
+                            // so an absent optional field must stay absent.
+                            var jump = new Dictionary<string, object> { ["ms"] = Int(a, "ms", 400) };
+                            if (a.TryGetProperty("tiles", out var jt) && jt.ValueKind == JsonValueKind.Number)
+                                jump["tiles"] = jt.GetDouble();
+                            if (a.TryGetProperty("dir", out var jd) && jd.ValueKind == JsonValueKind.String)
+                                jump["dir"] = jd.GetString();
+                            if (a.TryGetProperty("moveMs", out var jm) && jm.ValueKind == JsonValueKind.Number)
+                                jump["moveMs"] = jm.TryGetInt32(out var mm) ? mm : Int(a, "ms", 400);
+                            response = await AiBotRuntime.RequestAsync(actor, "jump", jump);
+                            break;
+                        }
                         case "fly": response = await AiBotRuntime.RequestAsync(actor, "fly", new { ms = Int(a, "ms", 1200) }); break;
-                        case "mine": response = await AiBotRuntime.RequestAsync(actor, "mine", new { x = Int(a, "x", 0), y = Int(a, "y", 0) }); break;
-                        case "place": response = await AiBotRuntime.RequestAsync(actor, "place", new { x = Int(a, "x", 0), y = Int(a, "y", 0), tile = Int(a, "tile", 1) }); break;
-                        case "attack": response = await AiBotRuntime.RequestAsync(actor, "attack", new { ms = Int(a, "ms", 1500), r = Int(a, "radius", 12) }); break;
+                        case "mine": response = await AiBotRuntime.RequestAsync(actor, "mine", new {
+                            x = Int(a, "x", 0), y = Int(a, "y", 0), ms = Int(a, "ms", 8000),
+                        }); break;
+                        case "place": response = await AiBotRuntime.RequestAsync(actor, "place", new {
+                            x = Int(a, "x", 0), y = Int(a, "y", 0),
+                            type = Int(a, "type", Int(a, "tile", 1)),
+                            ms = Int(a, "ms", 3000),
+                        }); break;
+                        case "attack": response = await AiBotRuntime.RequestAsync(actor, "attack", new {
+                            ms = Int(a, "ms", 1500), r = Int(a, "r", Int(a, "radius", 12)),
+                        }); break;
                         case "summon_mount": response = await AiBotRuntime.RequestAsync(actor, "mount", new { action = "quick" }); break;
                         case "dismount": response = await AiBotRuntime.RequestAsync(actor, "mount", new { action = "down" }); break;
-                        case "use_item": response = await AiBotRuntime.RequestAsync(actor, "use", new { ms = 250 }); break;
+                        case "use_item": response = await AiBotRuntime.RequestAsync(actor, "use", new {
+                            slot = Int(a, "slot", -1),
+                            x = Int(a, "x", int.MinValue), y = Int(a, "y", int.MinValue),
+                            right = Bool(a, "right", false), ms = Int(a, "ms", 250),
+                        }); break;
                         case "bridge":
                         {
                             string command = Str(a, "command", "");
@@ -73,7 +100,12 @@ namespace DshAiMini
                             response = await AiBotRuntime.RequestAsync(actor, command, parameters);
                             break;
                         }
-                        default: response = "Bot 执行器暂不支持工具: " + name; break;
+                        default:
+                            // Keep the remote executor forward-compatible with a newly added
+                            // convenience tool: if its name is also a bridge command, pass the
+                            // nested object through instead of silently pretending it worked.
+                            response = await AiBotRuntime.RequestAsync(actor, name, a.Clone());
+                            break;
                     }
                     if (done != null) MainThread.Enqueue(() => done(response));
                 }

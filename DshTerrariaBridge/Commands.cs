@@ -577,6 +577,18 @@ namespace DshTerrariaBridge
                 ["version"] = DshTerrariaBridge.BridgeVersion,
                 ["paused"] = Main.gamePaused,
                 ["hasFocus"] = Main.hasFocus,
+                ["bridge"] = new
+                {
+                    port = BridgeSystem.Port,
+                    processId = Environment.ProcessId,
+                    botClient = BridgeSystem.DbgBotClient,
+                    windowForeground = BridgeSystem.DbgBotWindowForeground,
+                    mouseSuppressed = BridgeSystem.DbgBotMouseSuppressed,
+                    physicalMouseLeft = BridgeSystem.DbgPhysicalMouseLeft,
+                    physicalMouseRight = BridgeSystem.DbgPhysicalMouseRight,
+                    bridgeMouseLeft = BridgeSystem.DbgBridgeMouseLeft,
+                    bridgeMouseRight = BridgeSystem.DbgBridgeMouseRight,
+                },
                 ["screen"] = new { w = Main.screenWidth, h = Main.screenHeight, x = (int)Main.screenPosition.X, y = (int)Main.screenPosition.Y },
                 ["mouseWorld"] = inWorld ? new[] { MathF.Round(Main.MouseWorld.X / 16f, 1), MathF.Round(Main.MouseWorld.Y / 16f, 1) } : null,
                 ["mouseTile"] = inWorld ? new[] { (int)(Main.MouseWorld.X / 16f), (int)(Main.MouseWorld.Y / 16f) } : null,
