@@ -46,9 +46,6 @@ namespace DshAiMini
             _prevF8 = f8;
             _prevF9 = f9;
 
-            // 每帧顺手看一眼有没有回来的
-            var got = AiHttp.TryTake();
-            if (got.HasValue) OnResult(got.Value);
         }
 
         private static void DoPost()
@@ -58,7 +55,8 @@ namespace DshAiMini
             _postedTick = Main.GameUpdateCount;
             _worstFrameMs = 0;
             Say("发请求中（F9 看结果）…", 180, 220, 255);
-            AiHttp.Post(TestUrl, "{\"probe\":\"dsh-ai-mini\"}", null, 20000);
+            AiHttp.Post(TestUrl, "{\"probe\":\"dsh-ai-mini\"}", null, 20000,
+                (ok, status, text, error) => OnResult(ok, status, text, error));
         }
 
         private static void DoReadResult()
@@ -67,21 +65,22 @@ namespace DshAiMini
             Say(_lastLine, 200, 255, 200);
         }
 
-        private static void OnResult((bool ok, int status, string text, string error, long elapsedMs, long frames) r)
+        private static void OnResult(bool ok, int status, string text, string error)
         {
             _waiting = false;
-            long frames = r.frames;
-            if (r.ok)
+            long frames = Main.GameUpdateCount - _postedTick;
+            if (frames < 0) frames = 0;
+            if (ok)
             {
-                string t = r.text ?? "";
+                string t = text ?? "";
                 if (t.Length > 180) t = t.Substring(0, 180) + "…";
                 t = t.Replace("\r", " ").Replace("\n", " ");
-                _lastLine = $"HTTP {r.status} / {r.elapsedMs}ms（主线程上过了 {frames} 帧）: {t}";
+                _lastLine = $"HTTP {status}（主线程上过了 {frames} 帧）: {t}";
                 Say(_lastLine, 160, 255, 160);
             }
             else
             {
-                _lastLine = $"失败 {r.error} / {r.elapsedMs}ms";
+                _lastLine = $"失败 {error}（主线程上过了 {frames} 帧）";
                 Say(_lastLine, 255, 160, 160);
             }
         }

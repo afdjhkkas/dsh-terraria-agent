@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -7,6 +8,20 @@ namespace DshAiMini
     /// <summary>把 AI 工具翻译成 Bot Bridge 命令；结果只使用桥的真实回读。</summary>
     internal static class AiRemoteToolExec
     {
+        static readonly ConcurrentQueue<Action> MainThread = new();
+
+        /// <summary>把后台 Bot Bridge 的结果投递回 Terraria 主线程。</summary>
+        public static void Tick(int max = 32)
+        {
+            if (max < 1) max = 1;
+            int count = 0;
+            while (count < max && MainThread.TryDequeue(out var action))
+            {
+                try { action(); } catch { }
+                count++;
+            }
+        }
+
         public static void Run(AiActorBinding actor, string name, string argsJson, Action<string> done)
         {
             if (!AiBotRuntime.IsReady(actor)) { done?.Invoke("Bot 尚未确认已进入世界"); return; }
@@ -40,9 +55,13 @@ namespace DshAiMini
                         case "use_item": response = await AiBotRuntime.RequestAsync(actor, "use", new { ms = 250 }); break;
                         default: response = "Bot 执行器暂不支持工具: " + name; break;
                     }
-                    done?.Invoke(response);
+                    if (done != null) MainThread.Enqueue(() => done(response));
                 }
-                catch (Exception ex) { done?.Invoke("Bot Bridge 请求失败: " + ex.Message); }
+                catch (Exception ex)
+                {
+                    string message = "Bot Bridge 请求失败: " + ex.Message;
+                    if (done != null) MainThread.Enqueue(() => done(message));
+                }
             });
         }
 

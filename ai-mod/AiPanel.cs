@@ -60,11 +60,16 @@ namespace DshAiMini
             Prev.Clear();
             if (ImeBridge)
             {
-                // 借用原版聊天框：把当前文字塞进去，并让引擎认为聊天框开着，
-                // 这样输入法的组合结果才会被写进 Main.chatText。
+                // 借用原版聊天框：通过原版入口打开输入状态，
+                // 这样 GetInputText/IME 才会在下一帧接管 Main.chatText。
                 Main.chatText = Text ?? "";
+                try { Main.OpenPlayerChat(); }
+                catch
+                {
+                    // 某些菜单加载阶段原版入口可能暂不可用，保留兼容回退。
+                    Main.drawingPlayerChat = true;
+                }
                 Main.chatRelease = false;
-                Main.drawingPlayerChat = true;
             }
         }
 
@@ -79,10 +84,27 @@ namespace DshAiMini
                 // 关桥。聊天内容已经同步进 Text，不要让它继续挂在游戏聊天框上，
                 // 否则玩家关面板后一按回车就把问题发到公屏了。
                 Main.chatText = "";
-                Main.chatRelease = true;
-                Main.drawingPlayerChat = false;
+                try { Main.ClosePlayerChat(); }
+                catch { Main.drawingPlayerChat = false; }
+                Main.chatRelease = false;
             }
             Prev.Clear();
+        }
+
+        private void Submit()
+        {
+            // 提交时再同步一次原版聊天框，避免输入法最后一帧尚未写入 Text。
+            if (ImeBridge)
+            {
+                string live = Main.chatText ?? "";
+                if (live.Length > MaxLength) live = live.Substring(0, MaxLength);
+                if (live != Text) { Text = live; OnChanged?.Invoke(); }
+            }
+            // 先释放原版聊天框，再把内容交给面板。
+            // 否则同一帧里 PollGameChat 还能看到旧的 Main.chatText，
+            // 轻则重复发送，重则把问题发到游戏公屏。
+            if (ImeBridge) Blur();
+            OnSubmit?.Invoke();
         }
 
         public override void Update(GameTime gameTime)
@@ -103,8 +125,7 @@ namespace DshAiMini
                 if (ks.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Enter) && !Prev.Contains(Microsoft.Xna.Framework.Input.Keys.Enter))
                 {
                     Prev.Add(Microsoft.Xna.Framework.Input.Keys.Enter);
-                    if (OnSubmit != null) OnSubmit();
-                    else Blur();
+                    Submit();
                 }
                 else if (ks.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Escape) && !Prev.Contains(Microsoft.Xna.Framework.Input.Keys.Escape))
                 {
@@ -143,12 +164,12 @@ namespace DshAiMini
                 }
                 else if (k == Microsoft.Xna.Framework.Input.Keys.Enter)
                 {
-                    if (OnSubmit != null) OnSubmit();
+                    if (OnSubmit != null) Submit();
                     else _focused = false;
                 }
                 else if (k == Microsoft.Xna.Framework.Input.Keys.Escape)
                 {
-                    _focused = false;
+                    Blur();
                 }
                 else
                 {
@@ -278,6 +299,14 @@ namespace DshAiMini
     {
         public static AiPanel Current;
 
+        // 面板默认是关闭的，但游戏聊天入口也要能工作。
+        // 之前 Current 只在 OnActivate 赋值，玩家不先按 F7 打开一次面板时，
+        // AiSystem.PollGameChat 找不到接收者，消息就静默丢掉了。
+        public AiPanel()
+        {
+            Current = this;
+        }
+
         /// <summary>当前获得焦点的输入框（没有就 null）。</summary>
         public AiInput FocusedInput
         {
@@ -298,6 +327,9 @@ namespace DshAiMini
 
         private AiLog _log;              // 对话页的消息流
         private AiInput _ask;            // 对话页的输入框
+        private readonly List<(UIText label, AiActorBinding bot)> _botStatusLabels = new();
+        private string _modelNotice = "";
+        private Color _modelNoticeColor = new Color(140, 150, 176);
         const double BusyTimeout = 120;  // 秒。超过就当这次请求死了
         private bool _busy;              // 正在等回复（防重复发）
         private double _busySince;       // 开始等的时刻（秒）。超时自动放开，否则一次没回调就能把面板锁死
@@ -311,14 +343,26 @@ namespace DshAiMini
             Rebuild();
         }
 
+        public override void Update(GameTime gameTime)
+        {
+            base.Update(gameTime);
+            if (_page != "model" || _botStatusLabels.Count == 0 || Main.GameUpdateCount % 30 != 0) return;
+            foreach (var entry in _botStatusLabels)
+            {
+                string role = string.IsNullOrWhiteSpace(entry.bot.PlayerName) ? "角色未设置" : "角色 " + entry.bot.PlayerName;
+                entry.label.SetText(AiBotRuntime.StatusText(entry.bot) + " · " + role);
+            }
+        }
+
         private void Rebuild()
         {
             _inputs.Clear();
+            _botStatusLabels.Clear();
             RemoveAllChildren();
 
             var bg = new UIPanel();
             bg.Width.Set(820, 0f);
-            bg.Height.Set(_page == "chat" ? 470 : 620, 0f);
+            bg.Height.Set(_page == "chat" ? 520 : 620, 0f);
             bg.HAlign = 0.5f;
             bg.VAlign = 0.5f;
             bg.BackgroundColor = Theme.BgOuter * 0.97f;
@@ -407,6 +451,7 @@ namespace DshAiMini
             MakeBtn(bg, "清空历史", 18, y, 110, 28, BtnKind.Ghost, () =>
             {
                 ChatStore.Clear();
+                AiChat.ClearHistory();
                 _log.Clear();
                 _log.Add(AiLog.Kind.Think, "历史已清空。");
                 Say("已清空", new Color(255, 220, 160));
@@ -419,6 +464,11 @@ namespace DshAiMini
             note.Left.Set(264, 0f); note.Top.Set(y + 4, 0f);
             note.TextColor = new Color(140, 148, 165);
             bg.Append(note);
+
+            var chatHint = new UIText("面板关闭时也可按 Enter 打开原版聊天框提问；回答会回到聊天记录。", 0.7f);
+            chatHint.Left.Set(18, 0f); chatHint.Top.Set(y + 30, 0f);
+            chatHint.TextColor = new Color(120, 135, 165);
+            bg.Append(chatHint);
         }
 
         /// <summary>
@@ -428,7 +478,16 @@ namespace DshAiMini
         private void Send()
         {
             if (_ask == null) return;
-            Ask((_ask.Text ?? "").Trim(), false);
+            string q = (_ask.Text ?? "").Trim();
+            if (_ask.ImeBridge && string.IsNullOrWhiteSpace(q))
+                q = (Main.chatText ?? "").Trim();
+            _ask.Blur();
+            if (string.IsNullOrWhiteSpace(q))
+            {
+                Say("请输入内容后再发送。", new Color(255, 190, 140));
+                return;
+            }
+            Ask(q, false);
         }
 
         /// <summary>
@@ -456,11 +515,6 @@ namespace DshAiMini
             if (q.Length == 0) return;
 
             var cfg = AiConfig.Load();
-            if (!cfg.CanExecuteActiveActor)
-            {
-                Say("当前选择的是 " + cfg.ActiveActorDescription + "；第二客户端尚未接入，暂不执行，避免误控我的角色。", Theme.Warn);
-                return;
-            }
             if (string.IsNullOrWhiteSpace(cfg.RuntimeBaseUrlResolved)) { Say("先去配置页填接口地址", new Color(255, 170, 150)); return; }
             if (string.IsNullOrWhiteSpace(cfg.RuntimeApiKeyResolved)) { Say("先去配置页填 API 密钥", new Color(255, 170, 150)); return; }
 
@@ -611,19 +665,28 @@ namespace DshAiMini
 
         /// <summary>
         /// 模型与队友页：模型是“脑子”，Actor 是“这个脑子要操控谁”。
-        /// self 绑定到当前客户端玩家；bot 绑定先落盘，等第二客户端接入后再执行。
+        /// Bot 使用真实的第二个 tModLoader 客户端；只有 Bridge 确认进世界才算加入成功。
         /// </summary>
         private void BuildModelPage(UIElement bg)
         {
             _sync.EnsureActors();
-            float top = 104f;
+            // 给说明/状态条留出独立的一行，避免覆盖左右两张卡片的边框。
+            float top = 124f;
 
             var intro = new UIText(
-                "先选模型，再决定它操控我的角色，还是作为第二客户端的队友 Bot。",
+                "Bot 使用真实 tModLoader 客户端加入当前世界；只有“已进世界”才算成功。先填写已有角色名，再点“启动”。",
                 0.78f);
             intro.Left.Set(18, 0f); intro.Top.Set(top - 28, 0f);
             intro.TextColor = Theme.Muted;
             bg.Append(intro);
+
+            if (!string.IsNullOrWhiteSpace(_modelNotice))
+            {
+                var notice = new UIText(_modelNotice, 0.72f);
+                notice.Left.Set(18, 0f); notice.Top.Set(top - 8, 0f);
+                notice.TextColor = _modelNoticeColor;
+                bg.Append(notice);
+            }
 
             var left = new UIPanel();
             left.Width.Set(382, 0f); left.Height.Set(438, 0f);
@@ -645,63 +708,99 @@ namespace DshAiMini
             var rh = new UIText("执行对象", 0.9f, true);
             rh.Left.Set(12, 0f); rh.Top.Set(10, 0f); rh.TextColor = Theme.Title;
             right.Append(rh);
+            MakeBtn(right, "刷新 Bot 状态", 238, 8, 112, 26, BtnKind.Ghost, () => Rebuild());
 
             var options = ModelOptions();
-            float y = 42f;
+            var modelList = new UIList { ListPadding = 5f };
+            modelList.Width.Set(328, 0f); modelList.Height.Set(370, 0f);
+            modelList.Left.Set(12, 0f); modelList.Top.Set(42, 0f);
+            left.Append(modelList);
+            var modelScroll = new UIScrollbar();
+            modelScroll.Height.Set(370, 0f); modelScroll.Left.Set(346, 0f); modelScroll.Top.Set(42, 0f);
+            left.Append(modelScroll); modelList.SetScrollbar(modelScroll);
             if (options.Count == 0)
             {
                 var empty = new UIText("先在“配置”页添加一个模型。", 0.78f);
-                empty.Left.Set(12, 0f); empty.Top.Set(y, 0f); empty.TextColor = Theme.Warn;
-                left.Append(empty);
+                empty.Left.Set(4, 0f); empty.Top.Set(8, 0f); empty.TextColor = Theme.Warn;
+                modelList.Add(empty);
             }
             else
             {
                 foreach (var opt in options)
                 {
                     var row = new UIPanel();
-                    row.Width.Set(358, 0f); row.Height.Set(34, 0f);
-                    row.Left.Set(12, 0f); row.Top.Set(y, 0f);
+                    row.Width.Set(318, 0f); row.Height.Set(42, 0f);
+                    row.Left.Set(0, 0f);
                     row.BackgroundColor = Theme.BgInset;
                     row.BorderColor = Theme.LineSoft;
-                    left.Append(row);
+                    modelList.Add(row);
 
                     string title = (opt.provider.DisplayName ?? "提供商") + " · " + DisplayModel(opt.model);
-                    var tx = new UIText(title, 0.68f);
-                    tx.Left.Set(8, 0f); tx.Top.Set(9, 0f); tx.TextColor = Theme.Text;
+                    var tx = new UIText(title, 0.64f);
+                    tx.Left.Set(8, 0f); tx.Top.Set(5, 0f); tx.TextColor = Theme.Text;
                     row.Append(tx);
 
-                    MakeBtn(row, "操控我", 192, 3, 72, 28, BtnKind.Primary,
+                    MakeBtn(row, "操控我", 192, 11, 72, 28, BtnKind.Primary,
                         () => AssignSelf(opt.provider, opt.model));
-                    MakeBtn(row, "+ Bot", 270, 3, 72, 28, BtnKind.Success,
+                    MakeBtn(row, "+ Bot", 270, 11, 72, 28, BtnKind.Success,
                         () => AddBot(opt.provider, opt.model));
-                    y += 38f;
                 }
             }
+
+            // 同一场 Host & Play 默认连本机地址；可在这里改目标主机与端口，之后新增的 Bot 会沿用。
+            var existingBot = _sync.Actors.FirstOrDefault(a => a != null && a.IsBot);
+            var hostInput = new AiInput("Host 地址");
+            hostInput.MaxLength = 128;
+            hostInput.Text = existingBot?.GameHost ?? "127.0.0.1";
+            hostInput.Width.Set(208, 0f); hostInput.Left.Set(12, 0f); hostInput.Top.Set(40, 0f);
+            hostInput.OnChanged = () =>
+            {
+                foreach (var bot in _sync.Actors.Where(a => a != null && a.IsBot)) bot.GameHost = hostInput.Text.Trim();
+            };
+            right.Append(hostInput); _inputs.Add(hostInput);
+
+            var portInput = new AiInput("端口");
+            portInput.MaxLength = 5;
+            portInput.Text = (existingBot?.GamePort ?? 7777).ToString();
+            portInput.Width.Set(92, 0f); portInput.Left.Set(230, 0f); portInput.Top.Set(40, 0f);
+            portInput.OnChanged = () =>
+            {
+                if (int.TryParse(portInput.Text, out int port) && port > 0 && port <= 65535)
+                    foreach (var bot in _sync.Actors.Where(a => a != null && a.IsBot)) bot.GamePort = port;
+            };
+            right.Append(portInput); _inputs.Add(portInput);
 
             int selfIndex = _sync.Actors.FindIndex(a => a != null && a.IsSelf);
             if (selfIndex < 0) selfIndex = 0;
             var self = _sync.Actors[selfIndex];
-            float sy = 42f;
+            float sy = 82f;
             var selfRow = new UIPanel();
-            selfRow.Width.Set(358, 0f); selfRow.Height.Set(52, 0f);
+            selfRow.Width.Set(358, 0f); selfRow.Height.Set(48, 0f);
             selfRow.Left.Set(12, 0f); selfRow.Top.Set(sy, 0f);
             selfRow.BackgroundColor = _sync.ActiveActorIndex == selfIndex ? Theme.AccentDim : Theme.BgInset;
             selfRow.BorderColor = _sync.ActiveActorIndex == selfIndex ? Theme.Accent : Theme.LineSoft;
             right.Append(selfRow);
             var selfText = new UIText("我的角色\n" + BindingModelText(self), 0.72f);
-            selfText.Left.Set(10, 0f); selfText.Top.Set(7, 0f); selfText.TextColor = Color.White;
+            selfText.Left.Set(10, 0f); selfText.Top.Set(5, 0f); selfText.TextColor = Color.White;
             selfRow.Append(selfText);
-            MakeBtn(selfRow, _sync.ActiveActorIndex == selfIndex ? "当前" : "使用", 284, 12, 58, 28,
+            MakeBtn(selfRow, _sync.ActiveActorIndex == selfIndex ? "当前" : "使用", 284, 10, 58, 28,
                 _sync.ActiveActorIndex == selfIndex ? BtnKind.Success : BtnKind.Ghost,
-                () => { _sync.ActiveActorIndex = selfIndex; Rebuild(); });
-            sy += 60f;
+                () => { _sync.ActiveActorIndex = selfIndex; SaveAndRebuild(); });
+            sy += 56f;
 
             var bots = _sync.Actors.Where(a => a != null && a.IsBot).ToList();
+            var botList = new UIList { ListPadding = 5f };
+            botList.Width.Set(328, 0f); botList.Height.Set(280, 0f);
+            botList.Left.Set(12, 0f); botList.Top.Set(140, 0f);
+            right.Append(botList);
+            var botScroll = new UIScrollbar();
+            botScroll.Height.Set(280, 0f); botScroll.Left.Set(346, 0f); botScroll.Top.Set(140, 0f);
+            right.Append(botScroll); botList.SetScrollbar(botScroll);
             if (bots.Count == 0)
             {
-                var empty = new UIText("还没有队友 Bot。\n从左侧模型行点“+ Bot”添加。", 0.74f);
-                empty.Left.Set(12, 0f); empty.Top.Set(sy, 0f); empty.TextColor = Theme.Muted;
-                right.Append(empty);
+                var empty = new UIText("还没有队友 Bot。\n从左侧模型行点“+ Bot”添加并启动。", 0.74f);
+                empty.Left.Set(4, 0f); empty.Top.Set(8, 0f); empty.TextColor = Theme.Muted;
+                botList.Add(empty);
             }
             else
             {
@@ -709,40 +808,49 @@ namespace DshAiMini
                 {
                     int botIndex = _sync.Actors.IndexOf(bot);
                     var row = new UIPanel();
-                    row.Width.Set(358, 0f); row.Height.Set(64, 0f);
-                    row.Left.Set(12, 0f); row.Top.Set(sy, 0f);
+                    row.Width.Set(318, 0f); row.Height.Set(112, 0f);
+                    row.Left.Set(0, 0f);
                     row.BackgroundColor = _sync.ActiveActorIndex == botIndex ? Theme.AccentDim : Theme.BgInset;
                     row.BorderColor = _sync.ActiveActorIndex == botIndex ? Theme.Accent : Theme.LineSoft;
-                    right.Append(row);
+                    botList.Add(row);
 
                     var name = new AiInput("队友名称");
                     name.MaxLength = 32;
                     name.Text = bot.DisplayName ?? "";
-                    name.Width.Set(150, 0f); name.Left.Set(8, 0f); name.Top.Set(6, 0f);
+                    name.Width.Set(190, 0f); name.Left.Set(8, 0f); name.Top.Set(5, 0f);
                     name.OnChanged = () => bot.DisplayName = name.Text;
                     row.Append(name); _inputs.Add(name);
 
-                    var modelText = new UIText(BindingModelText(bot), 0.66f);
-                    modelText.Left.Set(8, 0f); modelText.Top.Set(40, 0f); modelText.TextColor = Theme.Muted;
-                    row.Append(modelText);
+                    var role = new AiInput("游戏角色名（已有）");
+                    role.MaxLength = 80;
+                    role.Text = bot.PlayerName ?? "";
+                    role.Width.Set(116, 0f); role.Left.Set(194, 0f); role.Top.Set(5, 0f);
+                    role.OnChanged = () => bot.PlayerName = role.Text.Trim();
+                    row.Append(role); _inputs.Add(role);
 
-                    MakeBtn(row, _sync.ActiveActorIndex == botIndex ? "当前" : "使用", 166, 6, 58, 28,
+                    string roleText = string.IsNullOrWhiteSpace(bot.PlayerName) ? "角色名未设置" : "角色：" + bot.PlayerName;
+                    var statusText = new UIText(AiBotRuntime.StatusText(bot) + " · " + roleText, 0.62f);
+                    statusText.Left.Set(8, 0f); statusText.Top.Set(39, 0f); statusText.TextColor = Theme.Muted;
+                    row.Append(statusText);
+
+                    var portText = new UIText("桥 " + bot.BridgePort + " · " + BindingModelText(bot), 0.58f);
+                    portText.Left.Set(8, 0f); portText.Top.Set(57, 0f); portText.TextColor = Theme.Muted;
+                    row.Append(portText);
+                    _botStatusLabels.Add((statusText, bot));
+
+                    MakeBtn(row, _sync.ActiveActorIndex == botIndex ? "当前" : "使用", 8, 78, 58, 25,
                         _sync.ActiveActorIndex == botIndex ? BtnKind.Success : BtnKind.Ghost,
-                        () => { _sync.ActiveActorIndex = botIndex; Rebuild(); });
-                    MakeBtn(row, "换模型", 230, 6, 64, 28, BtnKind.Ghost,
+                        () => { _sync.ActiveActorIndex = botIndex; SaveAndRebuild(); });
+                    MakeBtn(row, "换模型", 70, 78, 64, 25, BtnKind.Ghost,
                         () => CycleBotModel(bot));
-                    MakeBtn(row, "删", 300, 6, 42, 28, BtnKind.Danger,
-                        () => { _sync.Actors.Remove(bot); if (_sync.ActiveActorIndex >= _sync.Actors.Count) _sync.ActiveActorIndex = 0; Rebuild(); });
-                    sy += 72f;
+                    MakeBtn(row, "启动", 138, 78, 62, 25, BtnKind.Primary,
+                        () => StartBot(bot));
+                    MakeBtn(row, "停止", 204, 78, 62, 25, BtnKind.Ghost,
+                        () => StopBot(bot));
+                    MakeBtn(row, "删", 270, 78, 42, 25, BtnKind.Danger,
+                        () => RemoveBot(bot));
                 }
             }
-
-            var note = new UIText(
-                "当前客户端只执行“我的角色”。Bot 配置会保存，但要等第二个 Terraria 客户端\n" +
-                "以独立玩家和桥端口接入后才能真正执行。",
-                0.72f);
-            note.Left.Set(12, 0f); note.Top.Set(360, 0f); note.TextColor = Theme.Warn;
-            right.Append(note);
 
             MakeBtn(bg, "保存", 18, 566, 100, 30, BtnKind.Primary, Save);
             MakeBtn(bg, "关闭 (F7)", 126, 566, 110, 30, BtnKind.Danger, () => AiSystem.TogglePanel(false));
@@ -773,11 +881,20 @@ namespace DshAiMini
             self.ModelId = model.Id;
             _sync.ActiveIndex = _sync.Providers.IndexOf(provider);
             _sync.ActiveActorIndex = index;
-            Rebuild();
+            // 这里必须落盘：对话每次从磁盘重新加载配置，只有刷新界面而不保存
+            // 会造成 UI 显示“操控我”，实际请求仍然打到旧模型/旧对象。
+            SaveAndRebuild();
         }
 
         private void AddBot(AiProvider provider, AiModel model)
         {
+            if (Main.netMode != NetmodeID.MultiplayerClient)
+            {
+                _modelNotice = "当前不是 Host & Play 客户端，无法加入队友 Bot。请先以多人模式开世界。";
+                _modelNoticeColor = Theme.Warn;
+                Rebuild();
+                return;
+            }
             _sync.EnsureActors();
             int n = _sync.Actors.Count(a => a != null && a.IsBot) + 1;
             var bot = new AiActorBinding
@@ -787,11 +904,84 @@ namespace DshAiMini
                 DisplayName = "队友 Bot " + n,
                 ProviderKey = provider.Key,
                 ModelId = model.Id,
+                PlayerName = AiBotRuntime.SuggestPlayerName(),
+                GameHost = _sync.Actors.FirstOrDefault(a => a != null && a.IsBot)?.GameHost ?? "127.0.0.1",
+                GamePort = _sync.Actors.FirstOrDefault(a => a != null && a.IsBot)?.GamePort ?? 7777,
                 BridgePort = 47779 + n - 1,
                 Enabled = true,
             };
             _sync.Actors.Add(bot);
-            _sync.ActiveActorIndex = _sync.Actors.Count - 1;
+            // 默认沿用当前角色并立即启动，保持“点 + Bot 就开始加入”的直觉。
+            // 如果角色名需要改，条目仍会保留；改完再点一次“启动”即可重试。
+            PersistAndStartBot(bot);
+            _modelNotice = "已添加并启动 " + bot.DisplayName + "；请等待状态变为“已进世界”。";
+            _modelNoticeColor = Theme.Good;
+            Rebuild();
+        }
+
+        private void PersistAndStartBot(AiActorBinding bot)
+        {
+            if (bot == null) return;
+            _sync.Save();
+            _cfg = AiConfig.Load();
+            var saved = _cfg.Actors.FirstOrDefault(a => a != null && a.Id == bot.Id);
+            if (saved != null)
+            {
+                AiBotRuntime.Start(saved);
+                _modelNotice = "正在启动 " + saved.DisplayName + "…";
+                _modelNoticeColor = Theme.Accent;
+            }
+        }
+
+        private void StartBot(AiActorBinding bot)
+        {
+            if (bot == null) return;
+            if (Main.netMode != NetmodeID.MultiplayerClient)
+            {
+                _modelNotice = "当前不是 Host & Play 客户端，Bot 无法连接这个世界。";
+                _modelNoticeColor = Theme.Warn;
+                Rebuild();
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(bot.GameHost)) bot.GameHost = "127.0.0.1";
+            if (bot.GamePort < 1 || bot.GamePort > 65535)
+            {
+                bot.GamePort = 7777;
+                _modelNotice = "端口无效，已恢复为 7777。";
+                _modelNoticeColor = Theme.Warn;
+                Rebuild();
+                return;
+            }
+            PersistAndStartBot(bot);
+            Rebuild();
+        }
+
+        private void StopBot(AiActorBinding bot)
+        {
+            AiBotRuntime.Stop(bot);
+            _modelNotice = "已停止 " + (bot?.DisplayName ?? "Bot") + "。";
+            _modelNoticeColor = Theme.Muted;
+            Rebuild();
+        }
+
+        private void RemoveBot(AiActorBinding bot)
+        {
+            if (bot == null) return;
+            AiBotRuntime.Stop(bot);
+            int oldIndex = _sync.Actors.IndexOf(bot);
+            _sync.Actors.Remove(bot);
+            if (_sync.ActiveActorIndex > oldIndex) _sync.ActiveActorIndex--;
+            else if (_sync.ActiveActorIndex == oldIndex) _sync.ActiveActorIndex = 0;
+            _sync.Save();
+            _modelNotice = "已删除队友条目。";
+            _modelNoticeColor = Theme.Muted;
+            Rebuild();
+        }
+
+        private void SaveAndRebuild()
+        {
+            _sync.Save();
+            _cfg = AiConfig.Load();
             Rebuild();
         }
 
@@ -805,6 +995,7 @@ namespace DshAiMini
             var next = options[(cur + 1 + options.Count) % options.Count];
             bot.ProviderKey = next.provider.Key;
             bot.ModelId = next.model.Id;
+            _sync.Save();
             Rebuild();
         }
 
@@ -1123,9 +1314,16 @@ namespace DshAiMini
 
         private void Say(string s, Color c)
         {
-            if (_status == null) return;
-            _status.SetText(s);
-            _status.TextColor = c;
+            if (_status != null)
+            {
+                _status.SetText(s);
+                _status.TextColor = c;
+                return;
+            }
+
+            // 面板关闭时，对话入口仍然可用；错误和准备提示不能静默消失。
+            if (!string.IsNullOrWhiteSpace(s) && !AiSystem.IsOpen)
+                Main.NewText("[DSH AI] " + s, c.R, c.G, c.B);
         }
 
         /// <summary>把面板上的副本落成真配置。编辑期一律改 _sync，点保存才写回文件。</summary>

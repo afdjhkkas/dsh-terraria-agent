@@ -371,6 +371,9 @@ namespace DshAiMini
         }
 
         [JsonIgnore] public string RuntimeApiKeyResolved => ActiveActorProvider?.ApiKey ?? "";
+        [JsonIgnore] public string RuntimeProtocolResolved =>
+            string.Equals(ActiveActorProvider?.Protocol, "anthropic", StringComparison.OrdinalIgnoreCase)
+                ? "anthropic" : "openai";
         [JsonIgnore] public string RuntimeBaseUrlResolved => ResolveChatUrl(ActiveActorProvider);
 
         static string ResolveChatUrl(AiProvider p)

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 
@@ -30,10 +31,33 @@ namespace DshAiMini
     internal static class AiChat
     {
         public static readonly List<ChatTurn> History = new();
+        private static bool _historyLoaded;
+
+        /// <summary>从面板的持久化记录恢复上下文，最多带最近 40 条。</summary>
+        public static void EnsureHistoryLoaded()
+        {
+            if (_historyLoaded) return;
+            _historyLoaded = true;
+            History.Clear();
+            foreach (var turn in ChatStore.Turns.TakeLast(40))
+            {
+                if (turn == null || (turn.Role != "user" && turn.Role != "assistant")) continue;
+                History.Add(new ChatTurn(turn.Role, turn.Text ?? ""));
+            }
+        }
+
+        public static void ClearHistory()
+        {
+            History.Clear();
+            _historyLoaded = true;
+        }
 
         /// <summary>把一段对话序列化成请求体。单独拆出来，方便离线看报文长什么样。</summary>
         public static string BuildBody(AiConfig cfg, IList<ChatTurn> turns, bool stream = false, bool withTools = false)
         {
+            if (string.Equals(cfg.RuntimeProtocolResolved, "anthropic", StringComparison.OrdinalIgnoreCase))
+                return BuildAnthropicBody(cfg, turns, stream, withTools);
+
             using var ms = new System.IO.MemoryStream();
             using (var w = new Utf8JsonWriter(ms, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
             {
@@ -80,6 +104,89 @@ namespace DshAiMini
                     w.WritePropertyName("tools");
                     w.WriteRawValue(AiTools.Json(), skipInputValidation: true);
                     w.WriteString("tool_choice", "auto");
+                }
+                w.WriteEndObject();
+            }
+            return Encoding.UTF8.GetString(ms.ToArray());
+        }
+
+        private static string BuildAnthropicBody(AiConfig cfg, IList<ChatTurn> turns, bool stream, bool withTools)
+        {
+            using var ms = new System.IO.MemoryStream();
+            using (var w = new Utf8JsonWriter(ms, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+            {
+                w.WriteStartObject();
+                w.WriteString("model", cfg.RuntimeModelResolved);
+                string system = "";
+                foreach (var t in turns)
+                    if (t != null && t.Role == "system" && !string.IsNullOrWhiteSpace(t.Content))
+                        system += (system.Length == 0 ? "" : "\n\n") + t.Content;
+                if (system.Length > 0) w.WriteString("system", system);
+                w.WriteStartArray("messages");
+                foreach (var t in turns)
+                {
+                    if (t == null || t.Role == "system") continue;
+                    if (t.Role == "tool")
+                    {
+                        w.WriteStartObject();
+                        w.WriteString("role", "user");
+                        w.WriteStartArray("content");
+                        w.WriteStartObject();
+                        w.WriteString("type", "tool_result");
+                        w.WriteString("tool_use_id", t.ToolCallId ?? "");
+                        w.WriteString("content", t.Content ?? "");
+                        w.WriteEndObject();
+                        w.WriteEndArray();
+                        w.WriteEndObject();
+                        continue;
+                    }
+                    w.WriteStartObject();
+                    w.WriteString("role", t.Role == "assistant" ? "assistant" : "user");
+                    if (t.Calls != null && t.Calls.Count > 0)
+                    {
+                        w.WriteStartArray("content");
+                        foreach (var c in t.Calls)
+                        {
+                            w.WriteStartObject();
+                            w.WriteString("type", "tool_use");
+                            w.WriteString("id", c.Id ?? "");
+                            w.WriteString("name", c.Name ?? "");
+                            w.WritePropertyName("input");
+                            try { w.WriteRawValue(string.IsNullOrWhiteSpace(c.Args) ? "{}" : c.Args, true); }
+                            catch { w.WriteStartObject(); w.WriteEndObject(); }
+                            w.WriteEndObject();
+                        }
+                        w.WriteEndArray();
+                    }
+                    else w.WriteString("content", t.Content ?? "");
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
+                w.WriteNumber("max_tokens", cfg.MaxTokens > 0 ? cfg.MaxTokens : 1024);
+                w.WriteNumber("temperature", cfg.Temperature);
+                if (stream) w.WriteBoolean("stream", true);
+                if (withTools)
+                {
+                    w.WritePropertyName("tools");
+                    w.WriteStartArray();
+                    using var tools = JsonDocument.Parse(AiTools.Json());
+                    foreach (var item in tools.RootElement.EnumerateArray())
+                    {
+                        if (!item.TryGetProperty("function", out var fn)) continue;
+                        w.WriteStartObject();
+                        if (fn.TryGetProperty("name", out var n)) w.WriteString("name", n.GetString());
+                        if (fn.TryGetProperty("description", out var d)) w.WriteString("description", d.GetString());
+                        if (fn.TryGetProperty("parameters", out var p))
+                        {
+                            w.WritePropertyName("input_schema");
+                            w.WriteRawValue(p.GetRawText(), true);
+                        }
+                        w.WriteEndObject();
+                    }
+                    w.WriteEndArray();
+                    w.WriteStartObject("tool_choice");
+                    w.WriteString("type", "auto");
+                    w.WriteEndObject();
                 }
                 w.WriteEndObject();
             }
@@ -133,7 +240,22 @@ namespace DshAiMini
             try
             {
                 using var doc = JsonDocument.Parse(json);
-                if (!doc.RootElement.TryGetProperty("choices", out var ch)) return list;
+                if (!doc.RootElement.TryGetProperty("choices", out var ch))
+                {
+                    if (doc.RootElement.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var block in content.EnumerateArray())
+                        {
+                            if (!block.TryGetProperty("type", out var type) || type.GetString() != "tool_use") continue;
+                            var call = new ToolCall();
+                            if (block.TryGetProperty("id", out var id)) call.Id = id.GetString() ?? "";
+                            if (block.TryGetProperty("name", out var name)) call.Name = name.GetString() ?? "";
+                            if (block.TryGetProperty("input", out var input)) call.Args = input.GetRawText();
+                            if (!string.IsNullOrEmpty(call.Name)) list.Add(call);
+                        }
+                    }
+                    return list;
+                }
                 if (ch.ValueKind != JsonValueKind.Array || ch.GetArrayLength() == 0) return list;
                 if (!ch[0].TryGetProperty("message", out var msg)) return list;
                 if (!msg.TryGetProperty("tool_calls", out var tc) || tc.ValueKind != JsonValueKind.Array) return list;
@@ -169,8 +291,9 @@ namespace DshAiMini
                     }
                     string reply = ExtractText(text);
                     if (reply.StartsWith("[错误]")) { done(false, reply.Substring(4)); return; }
+                    if (string.IsNullOrWhiteSpace(reply)) { done(false, "模型返回空回复"); return; }
                     done(true, "模型回了一句「" + Trim(reply) + "」");
-                });
+                }, cfg.RuntimeProtocolResolved);
         }
 
         /// <summary>
@@ -183,6 +306,11 @@ namespace DshAiMini
         /// </summary>
         public static void ListModelsAsync(AiConfig cfg, Action<bool, string, List<string>> done)
         {
+            if (string.Equals(cfg.Active?.Protocol, "anthropic", StringComparison.OrdinalIgnoreCase))
+            {
+                done(false, "Anthropic Messages API 没有通用的 /models 列表接口，请在配置页手动填写模型 id", null);
+                return;
+            }
             string url = ModelsUrl(cfg.BaseUrlResolved);
             AiHttp.Get(url, cfg.ApiKeyResolved, Math.Min(cfg.TimeoutMs, 20000),
                 (ok, status, text, error) =>
@@ -216,7 +344,7 @@ namespace DshAiMini
                     if (ids.Count == 0) { done(false, "这个地址没返回任何模型（回包：" + Trim(text) + "）", null); return; }
                     ids.Sort(StringComparer.OrdinalIgnoreCase);
                     done(true, "拿到 " + ids.Count + " 个模型", ids);
-                });
+                }, cfg.Active?.Protocol ?? "openai");
         }
 
         /// <summary>把 .../v1/chat/completions 或 .../v1 反推成 .../v1/models。</summary>
@@ -226,6 +354,7 @@ namespace DshAiMini
             string u = baseUrlResolved.TrimEnd('/');
             const string suffix = "/chat/completions";
             if (u.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) u = u.Substring(0, u.Length - suffix.Length);
+            if (u.EndsWith("/messages", StringComparison.OrdinalIgnoreCase)) u = u.Substring(0, u.Length - "/messages".Length);
             return u.TrimEnd('/') + "/models";
         }
 
@@ -241,6 +370,7 @@ namespace DshAiMini
         /// </summary>
         public static void SendAsync(AiConfig cfg, string systemPrompt, string userText, Action<bool, string> done)
         {
+            EnsureHistoryLoaded();
             var sb = new StringBuilder();
             sb.Append(string.IsNullOrWhiteSpace(systemPrompt) ? SystemPrompt.Text : systemPrompt);
 
@@ -277,13 +407,14 @@ namespace DshAiMini
                     }
                     string reply = ExtractText(text);
                     if (reply.StartsWith("[错误]")) { done(false, reply.Substring(4)); return; }
+                    if (string.IsNullOrWhiteSpace(reply)) { done(false, "模型返回空回复"); return; }
 
                     History.Add(new ChatTurn("user", userText));
                     History.Add(new ChatTurn("assistant", reply));
                     // 只留最近 20 轮，避免请求体越滚越大
                     while (History.Count > 40) History.RemoveAt(0);
                     done(true, reply);
-                });
+                }, cfg.RuntimeProtocolResolved);
         }
 
         private static string Trim(string s)

@@ -37,6 +37,7 @@ namespace DshAiMini
             public string Body;
             public string ApiKey;
             public int TimeoutMs;
+            public string Protocol;
             public long StartedTick;
             public Action<bool, int, string, string> Callback;
         }
@@ -60,12 +61,17 @@ namespace DshAiMini
 
         /// <summary>主线程调用。把请求丢进队列，立刻返回，不等网络。</summary>
         public static void Post(string url, string body, string apiKey, int timeoutMs = 30000,
-                                Action<bool, int, string, string> callback = null)
+                                Action<bool, int, string, string> callback = null, string protocol = "openai")
         {
-            if (string.IsNullOrWhiteSpace(url)) return;
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                callback?.Invoke(false, 0, "", "接口地址为空");
+                return;
+            }
             Pending.Enqueue(new Job {
                 StartedTick = Main.GameUpdateCount, Url = url.Trim(), Method = "POST",
-                                      Body = body, ApiKey = apiKey, TimeoutMs = timeoutMs, Callback = callback });
+                                      Body = body, ApiKey = apiKey, TimeoutMs = timeoutMs, Callback = callback,
+                                      Protocol = protocol });
             PumpIfIdle();
         }
 
@@ -74,12 +80,17 @@ namespace DshAiMini
         /// 和 Post 走同一条队列、同一个 worker，所以不会多开线程。
         /// </summary>
         public static void Get(string url, string apiKey, int timeoutMs = 20000,
-                               Action<bool, int, string, string> callback = null)
+                               Action<bool, int, string, string> callback = null, string protocol = "openai")
         {
-            if (string.IsNullOrWhiteSpace(url)) return;
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                callback?.Invoke(false, 0, "", "接口地址为空");
+                return;
+            }
             Pending.Enqueue(new Job {
                 StartedTick = Main.GameUpdateCount, Url = url.Trim(), Method = "GET",
-                                      Body = null, ApiKey = apiKey, TimeoutMs = timeoutMs, Callback = callback });
+                                      Body = null, ApiKey = apiKey, TimeoutMs = timeoutMs, Callback = callback,
+                                      Protocol = protocol });
             PumpIfIdle();
         }
 
@@ -100,6 +111,15 @@ namespace DshAiMini
                 return (r.Ok, r.Status, r.Text, r.Error, r.ElapsedMs, frames);
             }
             return null;
+        }
+
+        /// <summary>主线程每帧调用，消费本帧已经完成的所有 HTTP 回调。</summary>
+        public static int Drain(int max = 64)
+        {
+            if (max < 1) max = 1;
+            int count = 0;
+            while (count < max && TryTake().HasValue) count++;
+            return count;
         }
 
         /// <summary>还有多少没回来（含正在跑的）。用来在 UI 上显示"思考中"。</summary>
@@ -125,7 +145,13 @@ namespace DshAiMini
                         var verb = string.Equals(job.Method, "GET", StringComparison.OrdinalIgnoreCase)
                             ? HttpMethod.Get : HttpMethod.Post;
                         using var req = new HttpRequestMessage(verb, job.Url);
-                        if (!string.IsNullOrEmpty(job.ApiKey))
+                        if (string.Equals(job.Protocol, "anthropic", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (!string.IsNullOrEmpty(job.ApiKey))
+                                req.Headers.TryAddWithoutValidation("x-api-key", job.ApiKey);
+                            req.Headers.TryAddWithoutValidation("anthropic-version", "2023-06-01");
+                        }
+                        else if (!string.IsNullOrEmpty(job.ApiKey))
                             req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + job.ApiKey);
                         if (job.Body != null)
                             req.Content = new StringContent(job.Body, Encoding.UTF8, "application/json");

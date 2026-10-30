@@ -31,6 +31,7 @@ namespace DshAiMini
         //     （桥那边就吃过这个亏，一条消息记成 725 条）。
         //   · 不能用当帧 chatText —— 原版发完就把它清空了，读到的是空串。
         private static bool _prevEnter;
+        private static bool _prevGameChatOpen;
         private static string _prevChat = "";
         private static string _lastSent = "";
         private static long _lastSentTick;
@@ -45,6 +46,8 @@ namespace DshAiMini
 
         public override void Unload()
         {
+            // Mod 卸载时回收由模型页启动的隐藏 Bot 客户端，避免留下孤儿 tModLoader 进程。
+            AiBotRuntime.StopAll();
             _panel = null;
             _ui = null;
         }
@@ -80,7 +83,13 @@ namespace DshAiMini
         /// </summary>
         public override void PostUpdateEverything()
         {
-            if (Main.dedServ || Main.gameMenu) return;
+            if (Main.dedServ) return;
+            // HTTP 回调必须在 Terraria 主线程执行；正式对话不能依赖 F8/F9 测试页来消费队列。
+            AiHttp.Drain();
+            // Bot Bridge 请求在后台完成，回调在这里回到主线程，避免 UI/Agent 状态被后台线程改写。
+            AiRemoteToolExec.Tick();
+            AiBotRuntime.Tick();
+            if (Main.gameMenu) return;
             AiToolExec.Tick();
             PollGameChat();
         }
@@ -95,7 +104,7 @@ namespace DshAiMini
             // 只在"这一轮确实是打开聊天框在打字"时才认：
             // Main.drawingPlayerChat 为真说明聊天输入框正被使用。
             // 不加这层，别的界面（告示牌、箱子改名）按回车也会被当成对 AI 的提问。
-            bool inChat = Main.drawingPlayerChat || Main.editSign || Main.editChest;
+            bool inChat = (Main.drawingPlayerChat || _prevGameChatOpen) && !Main.editSign && !Main.editChest;
 
             // 面板开着的时候聊天框被输入法桥占用（AiInput.ImeBridge），这段必须让开，
             // 否则玩家在面板输入框里打的字会被当成"对 AI 的提问"再发一次。
@@ -114,6 +123,7 @@ namespace DshAiMini
             }
 
             _prevEnter = Main.inputTextEnter;
+            _prevGameChatOpen = Main.drawingPlayerChat;
             _prevChat = cur;
         }
 

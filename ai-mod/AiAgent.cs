@@ -24,6 +24,7 @@ namespace DshAiMini
                                Action<AiLog.Kind, string> stream,
                                Action<string> done)
         {
+            AiChat.EnsureHistoryLoaded();
             // system 和普通对话一样：人格 + 知识 + 实时状态
             string sys = BuildSystem(cfg, userText);
 
@@ -89,6 +90,7 @@ namespace DshAiMini
                         // 它不再要工具了 —— 这一轮的话就是最终回答
                         string reply = AiChat.ExtractText(text);
                         if (reply.StartsWith("[错误]")) { done(reply.Substring(4)); return; }
+                        if (string.IsNullOrWhiteSpace(reply)) { done("[模型返回空回复] 请检查模型、协议和接口地址"); return; }
                         AiChat.History.Add(new ChatTurn("user", LastUser(turns)));
                         AiChat.History.Add(new ChatTurn("assistant", reply));
                         while (AiChat.History.Count > 40) AiChat.History.RemoveAt(0);
@@ -100,7 +102,7 @@ namespace DshAiMini
                     turns.Add(new ChatTurn("assistant", null) { Calls = calls });
 
                     RunCalls(cfg, turns, calls, 0, depth, stream, done);
-                });
+                }, cfg.RuntimeProtocolResolved);
         }
 
         /// <summary>按顺序执行这一批工具，全部做完再回到 Step。</summary>
@@ -116,12 +118,18 @@ namespace DshAiMini
             var c = calls[i];
             stream(AiLog.Kind.Tool, c.Name + " " + Short(c.Args));
 
-            AiToolExec.Run(c.Name, c.Args, result =>
+            Action<string> onResult = result =>
             {
                 stream(AiLog.Kind.Tool, "→ " + OneLine(result));
                 turns.Add(new ChatTurn("tool", result) { ToolCallId = c.Id });
                 RunCalls(cfg, turns, calls, i + 1, depth, stream, done);
-            });
+            };
+
+            // 当前执行对象决定工具落点：本机走游戏内状态机，队友 Bot 走独立客户端桥。
+            if (cfg.ActiveActor != null && cfg.ActiveActor.IsBot)
+                AiRemoteToolExec.Run(cfg.ActiveActor, c.Name, c.Args, onResult);
+            else
+                AiToolExec.Run(c.Name, c.Args, onResult);
         }
 
         static string LastUser(List<ChatTurn> turns)

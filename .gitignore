@@ -14,3 +14,14 @@ t.log
 
 # 观摩模式运行期数据（本机样本，不进仓库）
 data/
+
+# mod 编译产物（dotnet build 会在 ModSources 和 ai-mod 下都生成）
+ai-mod/bin/
+ai-mod/obj/
+bin/
+obj/
+
+# GPT 挖源码用的工作目录（含反编译出来的 Terraria 源码，不进仓库）
+scratch/tmodsrc/
+scratch/Main.cs
+scratch/Program.cs

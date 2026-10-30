@@ -2,12 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Runtime.InteropServices;
 using Terraria;
 using Terraria.ModLoader;
 
@@ -24,7 +24,7 @@ namespace DshAiMini
             public BotState State = BotState.Configured;
             public string Error = "";
             public long LastProbe;
-            public long LastWindowSweep;
+            public long StartedTick;
             public bool ProbeBusy;
         }
 
@@ -55,6 +55,19 @@ namespace DshAiMini
             lock (Gate) return Runtimes.TryGetValue(actor.Id, out var r) && r.State == BotState.InWorld;
         }
 
+        public static string SuggestPlayerName()
+        {
+            string active = Main.ActivePlayerFileData?.Name ?? "";
+            var players = Main.PlayerList;
+            if (players != null)
+            {
+                var other = players.FirstOrDefault(p => p != null && !string.IsNullOrWhiteSpace(p.Name)
+                    && !string.Equals(p.Name, active, StringComparison.OrdinalIgnoreCase));
+                if (other != null) return other.Name;
+            }
+            return active;
+        }
+
         public static void Start(AiActorBinding actor)
         {
             if (actor == null || !actor.IsBot) return;
@@ -62,7 +75,7 @@ namespace DshAiMini
             {
                 if (Runtimes.TryGetValue(actor.Id, out var existing) && existing.Process != null && !existing.Process.HasExited)
                     return;
-                var r = new Runtime { State = BotState.Starting };
+                var r = new Runtime { State = BotState.Starting, StartedTick = (long)Main.GameUpdateCount };
                 r.Actor = actor.Clone();
                 Runtimes[actor.Id] = r;
                 try
@@ -77,22 +90,37 @@ namespace DshAiMini
                     if (!File.Exists(launcher)) throw new FileNotFoundException("找不到 Bot 启动器", launcher);
                     if (string.IsNullOrWhiteSpace(working)) working = Path.GetDirectoryName(launcher);
                     string dll = Path.Combine(working, "tModLoader.dll");
+                    if (!File.Exists(dll)) throw new FileNotFoundException("找不到 tModLoader.dll", dll);
+                    string playerName = string.IsNullOrWhiteSpace(actor.PlayerName) ? SuggestPlayerName() : actor.PlayerName.Trim();
+                    if (string.IsNullOrWhiteSpace(playerName))
+                        throw new InvalidOperationException("没有可用于 Bot 的角色；先创建角色，或在 Bot 行填写已有角色名");
+                    bool playerExists = Main.PlayerList != null && Main.PlayerList.Any(p => p != null
+                        && string.Equals(p.Name, playerName, StringComparison.OrdinalIgnoreCase));
+                    if (!playerExists)
+                        throw new InvalidOperationException("本机找不到角色“" + playerName + "”；请填写角色选择页中已有的角色名");
+                    r.Actor.PlayerName = playerName;
                     var args = new StringBuilder();
-                    args.Append(Quote(dll)).Append(" -j ").Append(Quote(string.IsNullOrWhiteSpace(actor.GameHost) ? "127.0.0.1" : actor.GameHost));
-                    args.Append(" -p ").Append(actor.GamePort <= 0 ? 7777 : actor.GamePort);
-                    if (!string.IsNullOrWhiteSpace(actor.GamePassword)) args.Append(" -password ").Append(Quote(actor.GamePassword));
+                    args.Append(Quote(dll));
+                    // 走 tModLoader 原生客户端启动参数。它会在 ModLoader 成功加载后
+                    // 调 Main.AutoJoin，并自动选择 -plr 指定的角色；这比在 mod.Load
+                    // 里临时注册回调可靠，也避免“桥已启动但客户端仍停在菜单”。
+                    string host = string.IsNullOrWhiteSpace(actor.GameHost) ? "127.0.0.1" : actor.GameHost.Trim();
+                    int gamePort = actor.GamePort <= 0 ? 7777 : actor.GamePort;
+                    args.Append(" -j ").Append(Quote(host + ":" + gamePort));
+                    args.Append(" -plr ").Append(Quote(playerName));
+                    if (!string.IsNullOrWhiteSpace(actor.GamePassword)) args.Append(" -pass ").Append(Quote(actor.GamePassword));
                     args.Append(" -dsh-bridge-port ").Append(actor.BridgePort);
                     if (!string.IsNullOrWhiteSpace(actor.ExtraArgs)) args.Append(" ").Append(actor.ExtraArgs);
                     var psi = new ProcessStartInfo(launcher, args.ToString())
                     {
                         WorkingDirectory = working,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
+                        // Bot 是真实客户端，但默认不额外显示一个窗口；它仍然会创建
+                        // 图形设备并执行原版联网流程，桥只在真实进世界后报成功。
+                        UseShellExecute = true,
                         WindowStyle = ProcessWindowStyle.Hidden,
                     };
                     r.Process = Process.Start(psi);
                     if (r.Process == null) throw new InvalidOperationException("无法启动 Bot 进程");
-                    HideProcessWindows(r.Process.Id);
                 }
                 catch (Exception ex)
                 {
@@ -122,15 +150,14 @@ namespace DshAiMini
                 var actor = r.Actor;
                 if (actor == null || !actor.IsBot || !actor.Enabled) continue;
                 long now = (long)Main.GameUpdateCount;
-                if (now - r.LastWindowSweep >= 15)
+                lock (Gate)
                 {
-                    r.LastWindowSweep = now;
-                    try
+                    if (r.Process != null && r.Process.HasExited && r.State != BotState.InWorld)
                     {
-                        if (r.Process != null && !r.Process.HasExited)
-                            HideProcessWindows(r.Process.Id);
+                        r.State = BotState.Failed;
+                        if (string.IsNullOrWhiteSpace(r.Error)) r.Error = "Bot 客户端已退出（未进世界）";
+                        continue;
                     }
-                    catch { }
                 }
                 lock (Gate)
                 {
@@ -138,11 +165,11 @@ namespace DshAiMini
                     r.ProbeBusy = true;
                     r.LastProbe = now;
                 }
-                ProbeAsync(actor, r);
+                ProbeAsync(actor, r, now);
             }
         }
 
-        static async void ProbeAsync(AiActorBinding actor, Runtime runtime)
+        static async void ProbeAsync(AiActorBinding actor, Runtime runtime, long probeTick)
         {
             try
             {
@@ -156,8 +183,14 @@ namespace DshAiMini
             {
                 lock (Gate)
                 {
-                    runtime.State = runtime.Process != null && !runtime.Process.HasExited ? BotState.Starting : BotState.Failed;
-                    runtime.Error = ex.Message;
+                    bool alive = runtime.Process != null && !runtime.Process.HasExited;
+                    // tModLoader 客户端首次启动要加载资源和模组，可能需要几分钟；
+                    // 10 秒会把“仍在加载”误报成失败。
+                    bool timedOut = alive && probeTick - runtime.StartedTick >= 18000;
+                    runtime.State = alive && !timedOut ? BotState.Starting : BotState.Failed;
+                    runtime.Error = timedOut
+                        ? "启动 5 分钟仍未连接桥；检查主机、端口和版本"
+                        : alive ? ex.Message : "客户端已退出";
                 }
             }
             finally { lock (Gate) runtime.ProbeBusy = false; }
@@ -168,13 +201,14 @@ namespace DshAiMini
             return Task.Run(async () =>
             {
                 using var client = new TcpClient();
-                await client.ConnectAsync("127.0.0.1", actor.BridgePort);
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                await client.ConnectAsync("127.0.0.1", actor.BridgePort, timeout.Token);
                 using NetworkStream stream = client.GetStream();
                 using var reader = new StreamReader(stream, new UTF8Encoding(false));
                 using var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
                 string json = JsonSerializer.Serialize(new { cmd, @params = parameters });
-                await writer.WriteLineAsync(json);
-                string line = await reader.ReadLineAsync();
+                await writer.WriteLineAsync(json.AsMemory(), timeout.Token);
+                string line = await reader.ReadLineAsync(timeout.Token);
                 if (string.IsNullOrWhiteSpace(line)) throw new IOException("Bot Bridge 没有返回响应");
                 return line;
             });
@@ -188,27 +222,6 @@ namespace DshAiMini
                     try { if (r.Process != null && !r.Process.HasExited) r.Process.Kill(true); } catch { }
                 Runtimes.Clear();
             }
-        }
-
-        delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
-
-        [DllImport("user32.dll")]
-        static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
-
-        [DllImport("user32.dll")]
-        static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
-
-        [DllImport("user32.dll")]
-        static extern bool ShowWindow(IntPtr hwnd, int command);
-
-        static void HideProcessWindows(int processId)
-        {
-            EnumWindows((hwnd, _) =>
-            {
-                GetWindowThreadProcessId(hwnd, out uint owner);
-                if (owner == (uint)processId) ShowWindow(hwnd, 0);
-                return true;
-            }, IntPtr.Zero);
         }
 
         static string Quote(string s) => "\"" + (s ?? "").Replace("\"", "\\\"") + "\"";
