@@ -674,7 +674,7 @@ namespace DshAiMini
             float top = 124f;
 
             var intro = new UIText(
-                "Bot 使用真实 tModLoader 客户端加入当前世界；只有“已进世界”才算成功。先填写已有角色名，再点“启动”。",
+                "Bot 使用真实 tModLoader 客户端加入当前世界；只有“已进世界”才算成功。可填写角色名，也可点“选本机角色”循环选择本地 .plr。",
                 0.78f);
             intro.Left.Set(18, 0f); intro.Top.Set(top - 28, 0f);
             intro.TextColor = Theme.Muted;
@@ -824,9 +824,12 @@ namespace DshAiMini
                     var role = new AiInput("游戏角色名（已有）");
                     role.MaxLength = 80;
                     role.Text = bot.PlayerName ?? "";
-                    role.Width.Set(116, 0f); role.Left.Set(194, 0f); role.Top.Set(5, 0f);
+                    role.Width.Set(178, 0f); role.Left.Set(8, 0f); role.Top.Set(5, 0f);
                     role.OnChanged = () => bot.PlayerName = role.Text.Trim();
                     row.Append(role); _inputs.Add(role);
+
+                    MakeBtn(row, "选本机角色", 192, 5, 118, 28, BtnKind.Ghost,
+                        () => ChooseBotPlayer(bot));
 
                     string roleText = string.IsNullOrWhiteSpace(bot.PlayerName) ? "角色名未设置" : "角色：" + bot.PlayerName;
                     var statusText = new UIText(AiBotRuntime.StatusText(bot) + " · " + roleText, 0.62f);
@@ -964,6 +967,27 @@ namespace DshAiMini
                 }
             }
             PersistAndStartBot(bot);
+            Rebuild();
+        }
+
+        private void ChooseBotPlayer(AiActorBinding bot)
+        {
+            if (bot == null) return;
+            var players = AiBotRuntime.AvailablePlayerNames();
+            if (players.Count == 0)
+            {
+                _modelNotice = "没有读到本机角色文件；请先在 Terraria 创建并保存角色。";
+                _modelNoticeColor = Theme.Warn;
+                Rebuild();
+                return;
+            }
+
+            int current = players.FindIndex(name =>
+                string.Equals(name, bot.PlayerName, StringComparison.OrdinalIgnoreCase));
+            bot.PlayerName = players[(current + 1 + players.Count) % players.Count];
+            _sync.Save();
+            _modelNotice = "已选择 Bot 角色：" + bot.PlayerName + "（本机角色 " + players.Count + " 个）";
+            _modelNoticeColor = Theme.Good;
             Rebuild();
         }
 

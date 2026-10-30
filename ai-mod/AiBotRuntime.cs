@@ -58,14 +58,56 @@ namespace DshAiMini
         public static string SuggestPlayerName()
         {
             string active = Main.ActivePlayerFileData?.Name ?? "";
-            var players = Main.PlayerList;
-            if (players != null)
-            {
-                var other = players.FirstOrDefault(p => p != null && !string.IsNullOrWhiteSpace(p.Name)
-                    && !string.Equals(p.Name, active, StringComparison.OrdinalIgnoreCase));
-                if (other != null) return other.Name;
-            }
+            string other = AvailablePlayerNames().FirstOrDefault(name =>
+                !string.Equals(name, active, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(other)) return other;
             return active;
+        }
+
+        /// <summary>
+        /// 返回本机真正可用于 -plr 的角色文件名。
+        /// Main.PlayerList 通常已经有这些条目，但在游戏内打开面板时它可能还没有
+        /// 完成刷新；因此同时从 Main.PlayerPath 读取 .plr，并让 Player.GetFileData
+        /// 给出角色显示名。只读，不加载或修改任何角色状态。
+        /// </summary>
+        public static List<string> AvailablePlayerNames()
+        {
+            var names = new List<string>();
+            void Add(string value)
+            {
+                if (string.IsNullOrWhiteSpace(value)) return;
+                value = value.Trim();
+                if (!names.Any(x => string.Equals(x, value, StringComparison.OrdinalIgnoreCase)))
+                    names.Add(value);
+            }
+
+            try
+            {
+                if (Main.PlayerList != null)
+                    foreach (var p in Main.PlayerList)
+                        if (p != null) Add(p.Name);
+            }
+            catch { }
+
+            try
+            {
+                string path = Main.PlayerPath;
+                if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+                {
+                    foreach (string file in Directory.EnumerateFiles(path, "*.plr"))
+                    {
+                        try
+                        {
+                            var data = Player.GetFileData(file, cloudSave: false);
+                            if (data != null) Add(data.Name);
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+
+            return names.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
         static string ResolveTModLoaderDirectory(string requested)
@@ -152,8 +194,8 @@ namespace DshAiMini
                     string playerName = string.IsNullOrWhiteSpace(actor.PlayerName) ? SuggestPlayerName() : actor.PlayerName.Trim();
                     if (string.IsNullOrWhiteSpace(playerName))
                         throw new InvalidOperationException("没有可用于 Bot 的角色；先创建角色，或在 Bot 行填写已有角色名");
-                    bool playerExists = Main.PlayerList != null && Main.PlayerList.Any(p => p != null
-                        && string.Equals(p.Name, playerName, StringComparison.OrdinalIgnoreCase));
+                    bool playerExists = AvailablePlayerNames().Any(name =>
+                        string.Equals(name, playerName, StringComparison.OrdinalIgnoreCase));
                     if (!playerExists)
                         throw new InvalidOperationException("本机找不到角色“" + playerName + "”；请填写角色选择页中已有的角色名");
                     r.Actor.PlayerName = playerName;

@@ -867,6 +867,11 @@ namespace DshTerrariaBridge
                     target = new { x = BridgeSystem.WalkX, y = BridgeSystem.WalkY },
                     tol = BridgeSystem.WalkTol,
                     stop = BridgeSystem.WalkStop,
+                    waypoint = BridgeSystem.WalkHasWp ? new { x = BridgeSystem.WalkWpX, y = BridgeSystem.WalkWpY } : null,
+                    repaths = BridgeSystem.WalkRepaths,
+                    stuck = BridgeSystem.WalkStuckTicks,
+                    pathWhy = BridgeSystem.LastPathWhy,
+                    follow = new { active = BridgeSystem.FollowActive, targetIndex = BridgeSystem.FollowTargetIdx },
                 };
                 data["exact"] = new
                 {
@@ -3776,6 +3781,18 @@ namespace DshTerrariaBridge
             }
             string? dir = p.TryGetProperty("dir", out var dv) && dv.ValueKind == JsonValueKind.String ? dv.GetString() : null;
             int moveMs = Json.Int(p, "moveMs", ms);
+            // 多段跳：count = 总共按几次。云朵瓶/暴雪瓶/泰拉靴这类 extraJump 每段都要新的按下边沿，
+            // 一次调用里由 BridgeSystem 自己在段间松两帧来制造边沿。
+            // 实测（Bot 客户端，云朵瓶 + 泰拉闪耀靴）：1 段 6.09 格，3 段 14.98 格。
+            int count = Math.Clamp(Json.Int(p, "count", 1), 1, 6);
+            BridgeSystem.JumpExtraLeft = count - 1;
+            BridgeSystem.JumpExtraMs = ms;
+            // 起跳后最早允许接下一段的帧数：只要 8 帧（约 130ms）。
+            // 之前写 (ms+200)/16 = 31 帧（约 0.5 秒）太晚了，第三段容易错过窗口，
+            // 实测三段只升到 14.15 格（第二段接上、第三段漏掉）。
+            BridgeSystem.JumpNextAt = Main.GameUpdateCount + 8;
+            // 整条连跳的总时限：从起跳算 100 帧（约 1.6 秒）内没接上就不再追，落地后不会乱跳。
+            BridgeSystem.JumpCascadeUntil = Main.GameUpdateCount + 100;
             if (BridgeSystem.QueueRopeReleaseJump(ms, dir ?? "", moveMs))
             {
                 return Json.Ok(new

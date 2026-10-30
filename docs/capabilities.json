@@ -618,7 +618,8 @@
       "kind": "act",
       "params": [
         "ms",
-        "moveMs"
+        "moveMs",
+        "count"
       ],
       "returns": [
         "native",

@@ -60,6 +60,13 @@ namespace DshAiMini
         internal static bool WantDown;
         internal static bool WantUseItem;
 
+        // 多段跳（云朵瓶 / 暴雪瓶 / 泰拉靴这类 extraJump）：每段都要一次新的按下边沿，
+        // 而边沿的时机就是"上一段快到顶"——实测轨迹 vy 从 −4.6 收窄到 −1.8 时接上,
+        // 立刻回到 −4.6，三段合计 14.98 格（单段只有 6.09）。
+        static int _jumpExtra;
+        static int _jumpGap;
+        static int _jumpHold;
+
         static void ClearIntent()
         {
             WantLeft = WantRight = WantJump = WantUp = WantDown = WantUseItem = false;
@@ -193,9 +200,14 @@ namespace DshAiMini
                 case "jump":
                 {
                     int ms = Math.Clamp(I("ms", 400), 1, 3000);
+                    int count = Math.Clamp(I("count", 1), 1, 6);
                     WantJump = true;
                     _frame = -ms;          // 负数帧当"按住倒计时"用
-                    _note = "按住跳 " + ms + "ms";
+                    _jumpExtra = count - 1;
+                    _jumpGap = 0;
+                    _jumpHold = ms;
+                    _note = count > 1 ? ("连跳 " + count + " 段，每段按住 " + ms + "ms")
+                                      : ("按住跳 " + ms + "ms");
                     return;
                 }
 
@@ -307,6 +319,25 @@ namespace DshAiMini
                 }
 
                 case "jump":
+                    // 这一段按满之后：还有余段就等"快没劲"再按下去，否则收工。
+                    if (_jumpExtra > 0)
+                    {
+                        WantJump = false;              // 先松手，制造新的按下边沿
+                        if (_jumpGap < 2) { _jumpGap++; return; }
+                        // 判据：在空中且 vy 已经大于 −2.0（上升快到头），这时接下一段收益最大。
+                        if (!(p.velocity.Y == 0f && p.oldVelocity.Y == 0f) && p.velocity.Y > -2.0f)
+                        {
+                            _jumpExtra--;
+                            _jumpGap = 0;
+                            WantJump = true;
+                            _frame = -_jumpHold;
+                            _note = "连跳：还有 " + _jumpExtra + " 段";
+                        }
+                        return;
+                    }
+                    ClearIntent();
+                    Finish("跳完（" + p.position.Y.ToString("0.0") + "）");
+                    return;
                 case "fly":
                 case "attack":
                 case "use_item":

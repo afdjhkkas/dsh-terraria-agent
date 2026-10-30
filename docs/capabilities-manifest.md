@@ -83,7 +83,7 @@
 | `homeroom` | `x` `y` `who` | — |
 | `idle` | — | — |
 | `interact` | `x` `y` | — |
-| `jump` | `ms` `moveMs` | — |
+| `jump` | `ms` `moveMs` `count` | — |
 | `key` | `key` `ms` | — |
 | `liquidop` | `x` `y` `ms` | — |
 | `mine` | `x` `y` `ms` | — |

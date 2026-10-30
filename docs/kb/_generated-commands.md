@@ -48,7 +48,7 @@
 | `interact` | `x` `y` |
 | `inventory` | — |
 | `items` | `r` |
-| `jump` | `ms` `moveMs` |
+| `jump` | `ms` `moveMs` `count` |
 | `key` | `key` `ms` |
 | `keyevents` | `since` `max` `clear` |
 | `liquidop` | `x` `y` `ms` |

@@ -126,3 +126,14 @@ test('目标点悬空：向下 1~3 格找落脚点', () => {
   assert.equal(r.ok, true, '应自动落到 209');
   assert.equal(r.path[r.path.length - 1].y, 209);
 });
+
+/* ── 11. 同列高台：原地跳到正上方的平台 ─────────────────── */
+test('同列高台：没有水平偏移也要生成真实跳跃边', () => {
+  const tiles = ground({}, 100, 120, 210);
+  tiles['110,204'] = T.PLATFORM;
+  const world = makeWorld(tiles);
+  const r = astar({ world, sx: 110, sy: 209, tx: 110, ty: 203 });
+  assert.equal(r.ok, true, `同列高台应可达：${r.why ?? ''}`);
+  assert.equal(r.path.at(-1).y, 203);
+  assert.ok(pathKinds(world, r.path).includes('jump'), '必须包含同列 jump 边');
+});

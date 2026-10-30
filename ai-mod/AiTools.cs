@@ -72,9 +72,12 @@ namespace DshAiMini
             },
             new Def {
                 Name = "jump",
-                Desc = "跳一次。按住 ms 毫秒；有翅膀时按住会持续上升。满跳约 6.1 格。",
+                Desc = "跳。按住 ms 毫秒；有翅膀时按住会持续上升。满跳约 6.1 格。"
+                     + "装备云朵瓶/暴雪瓶/泰拉靴这类多段跳饰品时，用 count 一次跳多段——"
+                     + "每段在上一段快到顶时接上，实测三段合计 14.98 格（单段只有 6.09）。",
                 Args = new (string, string, string, bool)[] {
                     ("ms", "int", "按住多少毫秒，150 是短跳，400 是满跳", true),
+                    ("count", "int", "一共跳几段（1=普通跳；装有多段跳饰品时最多 6）", false),
                 },
             },
             new Def {

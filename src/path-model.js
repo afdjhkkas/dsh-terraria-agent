@@ -56,6 +56,15 @@ function bodyFree(world, x, y) {
  */
 export function neighbors(world, x, y) {
   const out = [];
+  // 同列垂直跳：原地按跳跃键可以跳到上方同列的平台。
+  // 这条边必须与 C# ComputePath 保持一致，否则离线规划会漏掉跟随高处的路径。
+  for (let up = 1; up <= JUMP_UP_MAX; up++) {
+    const ny = y - up;
+    if (!clearColumn(world, x, y, ny)) break;
+    if (!bodyFree(world, x, ny)) continue;
+    if (!floorAt(world, x, ny)) continue;
+    out.push({ x, y: ny, cost: JUMP_COST + up * 0.3, kind: 'jump' });
+  }
   for (const dx of [-1, 1]) {
     const nx = x + dx;
     // 1) 同高直走
