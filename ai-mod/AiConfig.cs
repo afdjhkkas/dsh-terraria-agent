@@ -41,7 +41,7 @@ namespace DshAiMini
 
         public string BaseUrl { get; set; } = "";
 
-        /// <summary>openai = /chat/completions；anthropic = /messages。目前只实现了 openai。</summary>
+        /// <summary>openai = /chat/completions；anthropic = /messages。</summary>
         public string Protocol { get; set; } = "openai";
 
         public string ApiKey { get; set; } = "";
@@ -79,6 +79,14 @@ namespace DshAiMini
         public int BridgePort { get; set; } = 47779;
         public bool Enabled { get; set; } = true;
 
+        // Bot 启动参数。留空时运行时使用本机 tModLoader 安装目录的默认探测。
+        public string LauncherPath { get; set; } = "";
+        public string WorkingDirectory { get; set; } = "";
+        public string GameHost { get; set; } = "127.0.0.1";
+        public int GamePort { get; set; } = 7777;
+        public string GamePassword { get; set; } = "";
+        public string ExtraArgs { get; set; } = "";
+
         [JsonIgnore] public bool IsSelf => string.Equals(Kind, "self", StringComparison.OrdinalIgnoreCase);
         [JsonIgnore] public bool IsBot => string.Equals(Kind, "bot", StringComparison.OrdinalIgnoreCase);
 
@@ -92,6 +100,12 @@ namespace DshAiMini
             ModelId = ModelId,
             BridgePort = BridgePort,
             Enabled = Enabled,
+            LauncherPath = LauncherPath,
+            WorkingDirectory = WorkingDirectory,
+            GameHost = GameHost,
+            GamePort = GamePort,
+            GamePassword = GamePassword,
+            ExtraArgs = ExtraArgs,
         };
     }
 
@@ -150,11 +164,13 @@ namespace DshAiMini
                 if (p == null) return "";
                 string u = (p.BaseUrl ?? "").Trim();
                 if (u.Length == 0) return "";
-                // 允许只填到 /v1，自动补上 chat/completions
+                string protocol = string.Equals(p.Protocol, "anthropic", StringComparison.OrdinalIgnoreCase)
+                    ? "anthropic" : "openai";
+                string suffix = protocol == "anthropic" ? "/messages" : "/chat/completions";
                 if (!u.Contains("/chat/completions") && !u.Contains("/messages"))
                 {
                     if (u.EndsWith("/")) u = u.TrimEnd('/');
-                    u += "/chat/completions";
+                    u += suffix;
                 }
                 return u;
             }
@@ -268,8 +284,7 @@ namespace DshAiMini
         }
 
         /// <summary>
-        /// 执行对象绑定表。第一版只有 self（本机玩家）；bot 是给"第二个客户端加入世界"预留的，
-        /// 现在配好也没有执行者，所以运行时只有 self 会被真正驱动。
+        /// 执行对象绑定表。self 是本机玩家，bot 对应一个独立客户端和桥端口。
         /// </summary>
         public List<AiActorBinding> Actors { get; set; } = new List<AiActorBinding>();
 
@@ -328,11 +343,11 @@ namespace DshAiMini
                 var a = ActiveActor;
                 if (a == null || a.IsSelf) return "我的角色（本机玩家，可以直接操作）";
                 string who = string.IsNullOrWhiteSpace(a.PlayerName) ? a.DisplayName : a.PlayerName;
-                return who + "（队友角色，当前尚未接入执行器，只能读取状态、不能操作）";
+                return who + "（队友 Bot，" + AiBotRuntime.StatusText(a) + "）";
             }
         }
 
-        [JsonIgnore] public bool CanExecuteActiveActor => ActiveActor == null || ActiveActor.IsSelf;
+        [JsonIgnore] public bool CanExecuteActiveActor => ActiveActor == null || ActiveActor.IsSelf || AiBotRuntime.IsReady(ActiveActor);
 
         [JsonIgnore] public AiProvider ActiveActorProvider
         {
@@ -363,10 +378,13 @@ namespace DshAiMini
             if (p == null) return "";
             string u = (p.BaseUrl ?? "").Trim();
             if (u.Length == 0) return "";
+            string protocol = string.Equals(p.Protocol, "anthropic", StringComparison.OrdinalIgnoreCase)
+                ? "anthropic" : "openai";
+            string suffix = protocol == "anthropic" ? "/messages" : "/chat/completions";
             if (!u.Contains("/chat/completions") && !u.Contains("/messages"))
             {
                 if (u.EndsWith("/")) u = u.TrimEnd('/');
-                u += "/chat/completions";
+                u += suffix;
             }
             return u;
         }

@@ -55,6 +55,20 @@ namespace DshTerrariaBridge
             return false;
         }
 
+        private static int CommandLinePort()
+        {
+            try
+            {
+                string[] args = Environment.GetCommandLineArgs();
+                for (int i = 0; i + 1 < args.Length; i++)
+                    if (string.Equals(args[i], "-dsh-bridge-port", StringComparison.OrdinalIgnoreCase)
+                        && int.TryParse(args[i + 1], out int port) && port >= 1024 && port <= 65535)
+                        return port;
+            }
+            catch { }
+            return 0;
+        }
+
         public static int Port { get; private set; } = ClientPort;
 
         /// <summary>Logger reachable from the static connection threads.</summary>
@@ -99,7 +113,8 @@ namespace DshTerrariaBridge
             keepFocusThread.Start();
             // Note: single player freezes when the window loses focus (measured: paused =
             // true, nothing ticks), so co-op play uses Host & Play, which never pauses.
-            Port = IsDedicatedServer() ? ServerPort : ClientPort;
+            Port = CommandLinePort();
+            if (Port == 0) Port = IsDedicatedServer() ? ServerPort : ClientPort;
             try
             {
                 listener = new TcpListener(IPAddress.Loopback, Port);
