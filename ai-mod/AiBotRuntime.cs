@@ -68,6 +68,62 @@ namespace DshAiMini
             return active;
         }
 
+        static string ResolveTModLoaderDirectory(string requested)
+        {
+            var candidates = new List<string>();
+            void Add(string value)
+            {
+                if (string.IsNullOrWhiteSpace(value)) return;
+                try
+                {
+                    string full = Path.GetFullPath(value.Trim().Trim('"'));
+                    if (!candidates.Contains(full, StringComparer.OrdinalIgnoreCase)) candidates.Add(full);
+                }
+                catch { }
+            }
+
+            Add(requested);
+            Add(Environment.GetEnvironmentVariable("TMODLOADER_DIR"));
+            Add(AppContext.BaseDirectory);
+            try { Add(Path.GetDirectoryName(typeof(AiBotRuntime).Assembly.Location)); } catch { }
+
+            // A mod can be loaded from a temporary Mods directory. Walk a few
+            // parents so the normal game directory is still found without a
+            // machine-specific Steam path.
+            foreach (string seed in candidates.ToArray())
+            {
+                string current = seed;
+                for (int i = 0; i < 5 && !string.IsNullOrWhiteSpace(current); i++)
+                {
+                    Add(current);
+                    try { current = Directory.GetParent(current)?.FullName; } catch { current = null; }
+                }
+            }
+
+            // Last-resort discovery for a normal Windows Steam install. This is
+            // deliberately bounded to common library layouts and never scans a
+            // user's entire disk.
+            try
+            {
+                foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady))
+                {
+                    foreach (string relative in new[]
+                    {
+                        @"Steam\steamapps\common\tModLoader",
+                        @"SteamLibrary\steamapps\common\tModLoader",
+                        @"Games\Steam\steamapps\common\tModLoader",
+                        @"Program Files (x86)\Steam\steamapps\common\tModLoader",
+                        @"Program Files\Steam\steamapps\common\tModLoader",
+                    }) Add(Path.Combine(drive.RootDirectory.FullName, relative));
+                }
+            }
+            catch { }
+
+            return candidates.FirstOrDefault(c =>
+                File.Exists(Path.Combine(c, "tModLoader.dll"))
+                && File.Exists(Path.Combine(c, "dotnet", "dotnet.exe"))) ?? "";
+        }
+
         public static void Start(AiActorBinding actor)
         {
             if (actor == null || !actor.IsBot) return;
@@ -84,7 +140,9 @@ namespace DshAiMini
                     string working = actor.WorkingDirectory;
                     if (string.IsNullOrWhiteSpace(launcher))
                     {
-                        working = string.IsNullOrWhiteSpace(working) ? @"D:\STEAM\steamapps\common\tModLoader" : working;
+                        working = ResolveTModLoaderDirectory(working);
+                        if (string.IsNullOrWhiteSpace(working))
+                            throw new InvalidOperationException("找不到 tModLoader 安装目录；请在 Bot 配置中填写路径，或设置 TMODLOADER_DIR");
                         launcher = Path.Combine(working, "dotnet", "dotnet.exe");
                     }
                     if (!File.Exists(launcher)) throw new FileNotFoundException("找不到 Bot 启动器", launcher);

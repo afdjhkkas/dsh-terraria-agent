@@ -39,6 +39,19 @@
 
 ## 安装
 
+### 别人下载仓库后能否直接玩
+
+可以跨设备使用，但不是下载仓库后双击就能启动。仓库里的 `artifacts/` 已包含可安装的
+`DshTerrariaBridge.tmod` 和 `DshAiMini.tmod`，因此普通使用者不必在自己的机器上编译源码；
+仍需要先安装与该 Mod 匹配的 tModLoader，复制两个 `.tmod` 到自己的 `Mods` 目录，在模组列表
+启用它们，并在 AI 面板填写自己的模型地址、模型名和 API Key。要让 Bot 作为队友加入，还要
+在 Bot 条目里选择本机已有角色，并把 tModLoader 安装目录填成自己的路径；不要使用仓库维护者
+的 `D:\STEAM` 路径。世界、角色、Mod 版本和多人 Host & Play 配置也必须由使用者自己准备。
+
+所以结论是：**成品包和代码不是绑定某一台设备的，但运行环境和模型配置不能省略。**别人按本节
+安装并配置后可以在自己的电脑上运行；只下载 GitHub 文件而没有 Terraria/tModLoader、Mod、
+模型凭据或角色时，不能直接进入游戏。
+
 ### 1. 安装游戏侧 Mod
 
 先**完全关闭 tModLoader 和 Terraria**（运行中的游戏锁住 `.tmod`，复制会失败，脚本会检测并提示）：
@@ -138,7 +151,8 @@ $sync = "$env:USERPROFILE\Documents\My Games\Terraria\tModLoader\ModSources\DshT
 $dotnet = "$env:LOCALAPPDATA\Microsoft\dotnet\dotnet.exe"
 $game = "D:\STEAM\steamapps\common\tModLoader"
 Copy-Item "$repo\DshTerrariaBridge\*.cs" $sync -Force
-& $dotnet build "$sync\DshTerrariaBridge.csproj" -c Release --no-incremental -p:BuildMod=false
+Copy-Item "$repo\tModLoader.targets" (Split-Path $sync) -Force
+& $dotnet build "$sync\DshTerrariaBridge.csproj" -c Release --no-incremental -p:BuildMod=false -p:TModLoaderPath=$game
 Push-Location $game
 & $dotnet tModLoader.dll -server -build $sync -eac "$sync\bin\Release\net8.0\DshTerrariaBridge.dll"
 Pop-Location
@@ -155,8 +169,10 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\build-bridge-roslyn.ps1 `
   -TModLoaderPath "D:\STEAM\steamapps\common\tModLoader"
 ```
 
-工程按本机 tModLoader 1.4.4 分支和 .NET 8 配置；不要把它当作原版 Terraria 1.4.5 的直接 Mod 工程。
-换用其他 tModLoader 版本时需要重新编译并重新测试。
+工程按 tModLoader 1.4.4 分支和 .NET 8 配置；不要把它当作原版 Terraria 1.4.5 的直接 Mod 工程。
+源码构建会使用脚本探测到的 tModLoader 目录；手工构建时设置 `$env:TMODLOADER_DIR`，或传
+`-p:TModLoaderPath=<你的 tModLoader 目录>`，不依赖仓库维护者的 Steam 路径。换用其他
+tModLoader 版本时仍需要重新编译并重新测试。
 
 ## 测试
 

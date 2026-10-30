@@ -4440,6 +4440,9 @@ namespace DshTerrariaBridge
             if (target == null)
                 return Json.Error("世界里没有其他玩家：跟随只在多人模式有意义（单人请用 walkto）");
 
+            // Reinitialise the follow controller when changing target/range so
+            // a previous target's walkto waypoint cannot be reused accidentally.
+            BridgeSystem.ClearFollow();
             BridgeSystem.FollowTargetIdx = target.whoAmI;
             BridgeSystem.FollowGuard = Json.Bool(p, "guard", false);
             BridgeSystem.FollowStopTiles = Math.Clamp(Json.Float(p, "range", 4.5f), 1f, 30f);

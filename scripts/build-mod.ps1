@@ -146,10 +146,15 @@ Ok "dotnet  $dotnet"
 
 $modSources = Join-Path $dataRoot "ModSources\$ModName"
 $modsDir = Join-Path $dataRoot 'Mods'
+$sharedTargets = Join-Path $dataRoot 'ModSources\tModLoader.targets'
 
 # ---------------------------------------------------------------- 3. 同步源码
 Step "3/6 同步源码到 $modSources"
 if (-not (Test-Path $modSources)) { New-Item -ItemType Directory -Path $modSources -Force | Out-Null }
+# The checked-in projects import this wrapper from ModSources\..; keep that
+# wrapper in sync too, otherwise an older machine-local file can reintroduce a
+# hard-coded Steam path before the build even reaches our -p:TModLoaderPath.
+Copy-Item (Join-Path $repoRoot 'tModLoader.targets') $sharedTargets -Force
 # 只同步源码与工程文件；bin/obj 由 build 自己生成，build.txt 决定打包元数据
 $patterns = @('*.cs', '*.csproj', 'build.txt', 'description.txt', 'icon.png')
 $copied = 0
@@ -166,7 +171,7 @@ Ok "复制 $copied 个文件"
 # 禁用 tMLMod.targets 的自动 BuildMod target，明确把“编译”和“打包”分成两步。
 # 这样流程与 HANDOFF.md 的硬规矩一致：先得到刚编译的 DLL，再显式用 -eac 打包。
 Step '4/6 dotnet build -c Release --no-incremental（只编译）'
-$buildLog = & $dotnet build $modSources -c Release --no-incremental -p:BuildMod=false 2>&1
+$buildLog = & $dotnet build $modSources -c Release --no-incremental -p:BuildMod=false -p:TModLoaderPath=$gameDir 2>&1
 $buildExit = $LASTEXITCODE
 if ($buildExit -ne 0) {
     $tail = ($buildLog | Select-Object -Last 25) -join "`n"

@@ -37,7 +37,7 @@ namespace DshAiMini
             },
             new Def {
                 Name = "follow",
-                Desc = "让当前队友 Bot 通过真实方向输入跟随另一名玩家；先用 players 找目标 index。off=true 停止跟随，range 是保持距离，guard=true 时兼顾护卫。",
+                Desc = "让当前操控对象通过真实方向输入跟随另一名玩家；目标可由 players 实时识别或用 player 指定。寻路和越障复用主桥的 walkto 执行器。off=true 停止跟随，range 是保持距离，guard=true 时兼顾护卫。",
                 Args = new (string, string, string, bool)[] {
                     ("player", "int", "players 返回的目标索引", false),
                     ("range", "number", "保持距离（格），默认 4.5", false),

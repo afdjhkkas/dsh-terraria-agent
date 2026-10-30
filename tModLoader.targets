@@ -1,3 +1,12 @@
 <Project ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="D:\STEAM\steamapps\common\tModLoader\tMLMod.targets" />
+  <!-- The repository is shared across machines; resolve the local game path at build time. -->
+  <PropertyGroup>
+    <TModLoaderPath Condition="'$(TModLoaderPath)' == '' and '$(TMODLOADER_DIR)' != ''">$(TMODLOADER_DIR)</TModLoaderPath>
+  </PropertyGroup>
+  <Import Project="$(TModLoaderPath)\tMLMod.targets"
+          Condition="'$(TModLoaderPath)' != '' and Exists('$(TModLoaderPath)\tMLMod.targets')" />
+  <Target Name="DshRequireTModLoaderTargets" BeforeTargets="PrepareForBuild"
+          Condition="'$(TModLoaderPath)' == '' or !Exists('$(TModLoaderPath)\tMLMod.targets')">
+    <Error Text="tModLoader targets not found. Set TMODLOADER_DIR or pass -p:TModLoaderPath=&lt;tModLoader directory&gt;." />
+  </Target>
 </Project>

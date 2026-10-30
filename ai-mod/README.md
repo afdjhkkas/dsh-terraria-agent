@@ -61,12 +61,18 @@ Bot 由真实的第二个 tModLoader 客户端通过原生 `-j/-plr/-pass` 参�
 
 ## 部署
 
-```bash
-cp -f ai-mod/*.cs ai-mod/*.csproj ai-mod/build.txt \
+```powershell
+Copy-Item ai-mod/*.cs, ai-mod/*.csproj, ai-mod/build.txt `
   "C:/Users/联想/Documents/My Games/Terraria/tModLoader/ModSources/DshAiMini/"
+Copy-Item tModLoader.targets `
+  "C:/Users/联想/Documents/My Games/Terraria/tModLoader/ModSources/tModLoader.targets"
 cd "C:/Users/联想/Documents/My Games/Terraria/tModLoader/ModSources/DshAiMini"
-dotnet build -c Release --no-incremental
+$env:TMODLOADER_DIR = "<你的 tModLoader 目录>"
+dotnet build -c Release --no-incremental -p:TModLoaderPath=$env:TMODLOADER_DIR
 # 编译会自动用 tMLMod.targets 打包，产物落到 Mods/DshAiMini.tmod
 ```
+
+Windows PowerShell 可先执行 `$env:TMODLOADER_DIR = '你的 tModLoader 目录'`，再运行上面的
+`dotnet build`；也可以直接安装仓库 `artifacts/DshAiMini.tmod`，无需在本机编译源码。
 
 `enabled.json` 打包时会自动加进 `DshAiMini`，不用手改。
