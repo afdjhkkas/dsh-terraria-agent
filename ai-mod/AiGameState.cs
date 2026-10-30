@@ -15,9 +15,21 @@ namespace DshAiMini
     /// </summary>
     internal static class AiGameState
     {
-        public static string Describe()
+        public static string Describe() => Describe(null);
+
+        public static string Describe(AiConfig cfg)
         {
             if (Main.dedServ || Main.gameMenu) return "";
+
+            // Bot 是另一个 tModLoader 客户端；这里不能把宿主客户端的坐标
+            // 冒充成 Bot 的坐标。Bot 的真实状态必须由它自己的 Bridge status 回读。
+            if (cfg?.ActiveActor != null && cfg.ActiveActor.IsBot)
+            {
+                string who = string.IsNullOrWhiteSpace(cfg.ActiveActor.PlayerName)
+                    ? cfg.ActiveActor.DisplayName : cfg.ActiveActor.PlayerName;
+                return $"当前执行对象是队友 Bot「{who}」（{AiBotRuntime.StatusText(cfg.ActiveActor)}）；"
+                    + "这里不提供本机玩家的位置，必须先调用 status 读取 Bot 自己的状态。";
+            }
 
             Player p = Main.player[Main.myPlayer];
             if (p == null || !p.active) return "";

@@ -35,6 +35,13 @@ namespace DshAiMini
                     switch (name)
                     {
                         case "status": response = await AiBotRuntime.RequestAsync(actor, "state", new { }); break;
+                        case "players": response = await AiBotRuntime.RequestAsync(actor, "players", new { }); break;
+                        case "follow": response = await AiBotRuntime.RequestAsync(actor, "follow", new {
+                            player = Int(a, "player", -1),
+                            range = Number(a, "range", 4.5),
+                            guard = Bool(a, "guard", false),
+                            off = Bool(a, "off", false),
+                        }); break;
                         case "scan": response = await AiBotRuntime.RequestAsync(actor, "scan", new { radius = Int(a, "radius", 8) }); break;
                         case "walk":
                         {
@@ -72,6 +79,18 @@ namespace DshAiMini
         static string Str(JsonElement e, string key, string fallback)
         {
             return e.ValueKind == JsonValueKind.Object && e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : fallback;
+        }
+
+        static double Number(JsonElement e, string key, double fallback)
+        {
+            return e.ValueKind == JsonValueKind.Object && e.TryGetProperty(key, out var v)
+                && v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var n) ? n : fallback;
+        }
+
+        static bool Bool(JsonElement e, string key, bool fallback)
+        {
+            return e.ValueKind == JsonValueKind.Object && e.TryGetProperty(key, out var v)
+                && (v.ValueKind == JsonValueKind.True || v.ValueKind == JsonValueKind.False) ? v.GetBoolean() : fallback;
         }
         static double StateX(string json)
         {

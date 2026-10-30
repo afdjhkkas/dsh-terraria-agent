@@ -31,6 +31,21 @@ namespace DshAiMini
                 Args = Array.Empty<(string, string, string, bool)>(),
             },
             new Def {
+                Name = "players",
+                Desc = "读取多人世界里的玩家列表、索引、位置、生命和是否本机。要跟随队友前先调用它。",
+                Args = Array.Empty<(string, string, string, bool)>(),
+            },
+            new Def {
+                Name = "follow",
+                Desc = "让当前队友 Bot 通过真实方向输入跟随另一名玩家；先用 players 找目标 index。off=true 停止跟随，range 是保持距离，guard=true 时兼顾护卫。",
+                Args = new (string, string, string, bool)[] {
+                    ("player", "int", "players 返回的目标索引", false),
+                    ("range", "number", "保持距离（格），默认 4.5", false),
+                    ("guard", "boolean", "是否护卫", false),
+                    ("off", "boolean", "是否停止跟随", false),
+                },
+            },
+            new Def {
                 Name = "summon_mount",
                 Desc = "召唤并骑上坐骑（快捷召唤）。已经骑着时会先下来。需要背包或装备槽里有坐骑。",
                 Args = Array.Empty<(string, string, string, bool)>(),

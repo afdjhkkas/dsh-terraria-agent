@@ -1,3 +1,4 @@
+name = DshAiMini
 displayName = DSH AI Mini
 author = DSH
 version = 0.1.0

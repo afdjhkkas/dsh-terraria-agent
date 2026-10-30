@@ -120,6 +120,19 @@ namespace DshAiMini
 
         static Player P => Main.player[Main.myPlayer];
 
+        static string LocalPlayersText()
+        {
+            if (Main.gameMenu) return "当前在主菜单，没有玩家列表";
+            var rows = new List<string>();
+            for (int i = 0; i < Main.maxPlayers; i++)
+            {
+                Player q = Main.player[i];
+                if (q == null || !q.active) continue;
+                rows.Add($"index={q.whoAmI}, name={q.name}, tile=({q.Center.X / 16f:0.0},{q.Center.Y / 16f:0.0}), hp={q.statLife}/{q.statLifeMax2}, local={q.whoAmI == Main.myPlayer}");
+            }
+            return rows.Count == 0 ? "世界里没有活跃玩家" : string.Join("; ", rows);
+        }
+
         // ── 起点：立刻能做完的当场做完，要花时间的进状态机 ──
         static void Begin()
         {
@@ -132,6 +145,14 @@ namespace DshAiMini
 
                 case "scan":
                     Finish(ScanText(Math.Clamp(I("radius", 8), 1, 20)));
+                    return;
+
+                case "players":
+                    Finish(LocalPlayersText());
+                    return;
+
+                case "follow":
+                    Finish("本机角色的跟随暂未接入；若要让队友跟随，请选择已进世界的 Bot，再调用 follow。");
                     return;
 
                 case "summon_mount":

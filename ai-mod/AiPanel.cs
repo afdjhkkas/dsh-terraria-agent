@@ -952,6 +952,17 @@ namespace DshAiMini
                 Rebuild();
                 return;
             }
+            if (string.IsNullOrWhiteSpace(bot.PlayerName))
+            {
+                bot.PlayerName = AiBotRuntime.SuggestPlayerName();
+                if (string.IsNullOrWhiteSpace(bot.PlayerName))
+                {
+                    _modelNotice = "没有可用角色名。请先在角色选择页创建角色，或填写已有角色名。";
+                    _modelNoticeColor = Theme.Warn;
+                    Rebuild();
+                    return;
+                }
+            }
             PersistAndStartBot(bot);
             Rebuild();
         }
