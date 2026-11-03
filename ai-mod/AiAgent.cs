@@ -12,14 +12,13 @@ namespace DshAiMini
     ///   真的走 → 把结果回填 → 再问它 → 它说"走了 4.8 格，现在 x=..." →
     ///   它接着判断 → 直到它不再要工具，直接给答案。
     ///
-    /// 上限 6 层，防止它陷入"再挖一格/再挖一格"停不下来。
+    /// 每个任务默认最多推进 64 轮工具调用，配置里可调但会夹在 8~128 之间，
+    /// 防止它陷入"再挖一格/再挖一格"停不下来。
     /// 每一层都把过程推给 UI（stream），玩家能看见它此刻在做什么，
     /// 而不是盯着一个静止的"思考中"。
     /// </summary>
     internal static class AiAgent
     {
-        const int MaxDepth = 6;
-
         public static void Ask(AiConfig cfg, string userText,
                                Action<AiLog.Kind, string> stream,
                                Action<string> done)
@@ -74,9 +73,10 @@ namespace DshAiMini
         static void Step(AiConfig cfg, List<ChatTurn> turns, int depth,
                          Action<AiLog.Kind, string> stream, Action<string> done)
         {
-            if (depth >= MaxDepth)
+            int maxDepth = Math.Clamp(cfg?.MaxActionRounds ?? 64, 8, 128);
+            if (depth >= maxDepth)
             {
-                done("（已经连续做了 " + MaxDepth + " 步，先停在这里。要我继续就说一声。）");
+                done("（已经连续推进 " + maxDepth + " 轮工具调用，达到安全上限；任务未必完成。要我继续就说一声。）");
                 return;
             }
 

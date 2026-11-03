@@ -1463,6 +1463,18 @@ namespace DshTerrariaBridge
                     TryEdge(cx, jy, 4f + up * 0.3f);
                 }
 
+                // 同列向下落差：目标在下层时，不能被迫绕到旁边再跳回来。
+                // 只允许身体通道连续为空的真实下落/下平台路线；重力和碰撞仍由原版处理。
+                bool directDrop = !IsBlockingSolid(cx, cy + 1) && !IsBlockingSolid(cx, cy + 2);
+                if (directDrop) for (int down = 1; down <= 14; down++)
+                {
+                    int jy = cy + down;
+                    if (!PathColumnClearDown(cx, cy, jy)) break;
+                    if (!PathBodyFree(cx, jy)) break;
+                    if (!PathFloorAt(cx, jy)) continue;
+                    TryEdge(cx, jy, 1.2f + down * 0.2f);
+                }
+
                 for (int d = -1; d <= 1; d += 2)
                 {
                     // 走 / 跨（原版能自己上的 1~2 格台阶）
@@ -1826,6 +1838,13 @@ namespace DshTerrariaBridge
         private static bool PathColumnClear(int x, int y, int ny)
         {
             for (int yy = y - 1; yy >= ny; yy--) if (IsBlockingSolid(x, yy)) return false;
+            return true;
+        }
+
+        /// <summary>从 y 往下到 ny 的竖直通道是否清空。</summary>
+        private static bool PathColumnClearDown(int x, int y, int ny)
+        {
+            for (int yy = y + 1; yy < ny - 1; yy++) if (IsBlockingSolid(x, yy)) return false;
             return true;
         }
 
@@ -2211,6 +2230,14 @@ namespace DshTerrariaBridge
             if (sign == 0)
             {
                 if (dy < 0) WalkJump(Math.Min(5.9f, -dy + 1.2f));
+                else if (dy > 0)
+                {
+                    int fx = (int)MathF.Floor(p.Center.X / 16f);
+                    int fy = (int)MathF.Floor((p.position.Y + p.height) / 16f);
+                    Tile foot = Main.tile[fx, fy];
+                    if (OnRopeNow(p) || (foot != null && foot.HasTile && TileID.Sets.Platforms[foot.TileType]))
+                        RequestDown();
+                }
                 return;
             }
 
@@ -2377,21 +2404,33 @@ namespace DshTerrariaBridge
 
         internal static volatile bool FollowActive, FollowGuard;
         internal static volatile int FollowTargetIdx = -1;
+        internal static volatile string FollowTargetName = "";
         internal static volatile float FollowStopTiles = 4.5f;
         internal static ulong FollowNextThink;
         // 跟随只负责把队友的实时位置转换成 walkto 目标；具体寻路、越障和
         // 输入时序全部复用既有 WalkActive/ComputePath 执行器，不维护 Bot 专属规则。
         private static int FollowPathTargetX = int.MinValue, FollowPathTargetY = int.MinValue;
         private static ulong FollowNextRepath;
+        internal static int FollowNoPathTicks;
+        internal static int FollowStuckTicks;
+        internal static float FollowLastX, FollowLastY;
+        internal static string FollowMode = "off";
+        internal static string FollowLastWhy = "";
 
         internal static void ClearFollow()
         {
             FollowActive = false;
             FollowGuard = false;
             FollowTargetIdx = -1;
+            FollowTargetName = "";
             FollowNextThink = 0;
             FollowPathTargetX = FollowPathTargetY = int.MinValue;
             FollowNextRepath = 0;
+            FollowNoPathTicks = 0;
+            FollowStuckTicks = 0;
+            FollowLastX = FollowLastY = 0f;
+            FollowMode = "off";
+            FollowLastWhy = "";
             ClearAttack();
         }
 
@@ -2400,7 +2439,18 @@ namespace DshTerrariaBridge
             if (FollowTargetIdx >= 0 && FollowTargetIdx < Main.maxPlayers)
             {
                 Player q = Main.player[FollowTargetIdx];
-                if (q != null && q.active && !q.dead && q.whoAmI != me.whoAmI) return q;
+                if (q != null && q.active && !q.dead && q.whoAmI != me.whoAmI
+                    && (string.IsNullOrWhiteSpace(FollowTargetName)
+                        || string.Equals(q.name, FollowTargetName, StringComparison.OrdinalIgnoreCase))) return q;
+            }
+            if (!string.IsNullOrWhiteSpace(FollowTargetName))
+            {
+                for (int i = 0; i < Main.maxPlayers; i++)
+                {
+                    Player q = Main.player[i];
+                    if (q == null || !q.active || q.dead || q.whoAmI == me.whoAmI) continue;
+                    if (string.Equals(q.name, FollowTargetName, StringComparison.OrdinalIgnoreCase)) return q;
+                }
             }
             // 没指定就找最近的另一个活着的玩家
             Player best = null; float bestD = float.MaxValue;
@@ -2412,6 +2462,44 @@ namespace DshTerrariaBridge
                 if (d < bestD) { bestD = d; best = q; }
             }
             return best;
+        }
+
+        /// <summary>
+        /// A* 没有给出可执行路点时的输入级退化跟随。它只按真实方向键和跳键，
+        /// 让原版自己处理台阶、重力和碰撞；一旦路线重新可算，下一轮自动回到 A*。
+        /// 这保证跟随不会因为某一帧目标站在空中或路径盒暂时失败而永久停住。
+        /// </summary>
+        private static void TickFollowFallback(Player me, Player mate, float dx, float dy)
+        {
+            FollowMode = "fallback";
+            int px = (int)MathF.Floor(me.Center.X / 16f);
+            int py = (int)MathF.Floor(me.Center.Y / 16f);
+            int sign = Math.Sign(dx);
+            if (Math.Abs(dx) > 0.75f
+                && (Math.Abs(dx) > FollowStopTiles * 0.75f || dy < -1.1f)
+                && sign != 0)
+            {
+                if (sign < 0) RequestLeft(); else RequestRight();
+                me.direction = sign;
+            }
+
+            bool grounded = me.velocity.Y == 0f && me.oldVelocity.Y == 0f;
+            bool wallAhead = sign != 0 && (TileSolid(px + sign, py) || TileSolid(px + sign, py - 1));
+            bool descendingSurface = false;
+            int footY = (int)MathF.Floor((me.position.Y + me.height) / 16f);
+            Tile foot = Main.tile[px, footY];
+            if (foot != null && foot.HasTile && TileID.Sets.Platforms[foot.TileType]) descendingSurface = true;
+            if (OnRopeNow(me)) descendingSurface = true;
+            if (dy > 1.1f && descendingSurface) RequestDown();
+
+            // 卡住时只有目标不在下方才尝试跳；目标在下方应先找落差/下平台，
+            // 否则就是“人在楼上、队友在楼下、原地反复跳”的死循环。
+            bool needsJump = dy < -1.1f || wallAhead || (FollowStuckTicks >= 24 && dy <= 1.1f);
+            if (needsJump && grounded)
+                WalkJump(Math.Min(5.9f, Math.Max(2.4f, -dy + 1.2f)));
+
+            // 同列高差大时不能只按左右键；给一次真实跳跃机会，随后等待落地再决定下一次。
+            if (sign == 0 && dy < -1.1f && grounded) WalkJump(Math.Min(5.9f, -dy + 1.2f));
         }
 
         /// <summary>找玩家正在打的目标；直接读 NPC.target（原版就是这么记仇恨的）。</summary>
@@ -2434,9 +2522,19 @@ namespace DshTerrariaBridge
         internal static void TickFollow()
         {
             Player me = Main.LocalPlayer;
-            if (me == null || !me.active || me.dead) return;
+            if (me == null || !me.active || me.dead) { FollowMode = "no-player"; return; }
             Player mate = FindFollowTarget(me);
             if (mate == null) { ClearFollow(); return; }
+            FollowTargetIdx = mate.whoAmI;
+            FollowTargetName = mate.name ?? "";
+
+            float movedX = Math.Abs(me.Center.X / 16f - FollowLastX);
+            float movedY = Math.Abs(me.Center.Y / 16f - FollowLastY);
+            if (FollowLastX == 0f && FollowLastY == 0f) FollowStuckTicks = 0;
+            else if (movedX < 0.03f && movedY < 0.03f) FollowStuckTicks++;
+            else FollowStuckTicks = 0;
+            FollowLastX = me.Center.X / 16f;
+            FollowLastY = me.Center.Y / 16f;
 
             float dx = (mate.Center.X - me.Center.X) / 16f;
             float dy = (mate.Center.Y - me.Center.Y) / 16f;
@@ -2465,6 +2563,8 @@ namespace DshTerrariaBridge
             if (!needMove)
             {
                 StopWalk("follow-range");
+                FollowMode = "holding";
+                FollowNoPathTicks = 0;
                 return;
             }
 
@@ -2485,7 +2585,10 @@ namespace DshTerrariaBridge
             // 让 TickWalk 自己完成现有路点并在受阻时重规划。
             // 加 250ms 冷却：A* 找不到路时 BeginWalk 会立刻失败，若不节流就变成
             // 每帧重跑一次全图搜索，帧率会被拖垮，而且仍是一步不动。
-            if ((!WalkActive || targetMoved) && Now >= FollowNextRepath)
+            // 目标在移动时不要每 250ms 清掉一条尚未走完的跳跃路线；
+            // 只有没有路线、路线卡住，或目标已经明显换层时才重规划。
+            bool routeStale = targetMoved && (!WalkActive || !WalkHasWp || FollowStuckTicks >= 18);
+            if (( !WalkActive || routeStale) && Now >= FollowNextRepath)
             {
                 PathAllowDig = false;
                 PathGreedy = false;
@@ -2493,7 +2596,8 @@ namespace DshTerrariaBridge
                 BeginWalk(goalX, goalY, 1, Now + Ticks(3000));
                 FollowPathTargetX = goalX;
                 FollowPathTargetY = goalY;
-                FollowNextRepath = Now + Ticks(250);
+                FollowNextRepath = Now + Ticks(750);
+                FollowLastWhy = "repath";
             }
             else
             {
@@ -2503,6 +2607,22 @@ namespace DshTerrariaBridge
                 WalkY = goalY;
             }
             TickWalk();
+
+            if (WalkActive)
+            {
+                FollowMode = "path";
+                FollowNoPathTicks = 0;
+            }
+            else if (WalkStop == "no-path" || WalkStop == "cliff" || WalkStop == "wall-ahead" || WalkStop == "blocked-build")
+            {
+                FollowNoPathTicks++;
+                FollowLastWhy = WalkStop;
+                TickFollowFallback(me, mate, dx, dy);
+            }
+            else if (FollowStuckTicks >= 18)
+            {
+                TickFollowFallback(me, mate, dx, dy);
+            }
         }
 
         /// <summary>精确横向移动：按目标格坐标比例控制速度，到位即停（误差 0.06 格）。</summary>

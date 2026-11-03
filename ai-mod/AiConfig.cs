@@ -129,6 +129,9 @@ namespace DshAiMini
         /// <summary>单次回复上限 token。0 表示不传。</summary>
         public int MaxTokens { get; set; } = 800;
 
+        /// <summary>一次任务允许连续推进的工具轮数；保留上限防止模型无限重复。</summary>
+        public int MaxActionRounds { get; set; } = 64;
+
         /// <summary>请求超时（毫秒）。</summary>
         public int TimeoutMs { get; set; } = 60000;
 
@@ -274,6 +277,8 @@ namespace DshAiMini
             }
 
             if (cfg.ActiveIndex < 0 || cfg.ActiveIndex >= cfg.Providers.Count) cfg.ActiveIndex = 0;
+            if (cfg.MaxActionRounds < 8) cfg.MaxActionRounds = 8;
+            if (cfg.MaxActionRounds > 128) cfg.MaxActionRounds = 128;
             foreach (var p in cfg.Providers)
             {
                 p.Models ??= new List<AiModel>();
@@ -415,6 +420,7 @@ namespace DshAiMini
             ActiveIndex = ActiveIndex,
             Temperature = Temperature,
             MaxTokens = MaxTokens,
+            MaxActionRounds = MaxActionRounds,
             TimeoutMs = TimeoutMs,
             IncludeGameState = IncludeGameState,
             UseKnowledge = UseKnowledge,

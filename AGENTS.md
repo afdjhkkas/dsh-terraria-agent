@@ -250,6 +250,24 @@ git rev-list --left-right --count origin/main...HEAD   # 必须是 0 0
 锁照样绿而真机已经不动。**那种只有进游戏实测才发现。** 所以完整的三层是：
 `doctor`（防没落盘）→ `source-locks`（防落盘后被改回去）→ **真机验证（防写法对但不工作，永远省不掉）**。
 
+## 0.58 回包先看 `ok`，再看 `data`（用户 m47745 之后追加）
+
+桥的每个回包都是 `{ok, data}` 或 `{ok:false, error}`。**`ok:false` 时根本没有 `data`。**
+
+事故（三次复发，最贵的一次排查了两小时）：`mine {x:2070,y:292}` 回
+`{"ok":false,"error":"够不到：离这一格超过 7 格，先走过去再挖"}`，
+脚本写成 `const r = await call(...); if (r.data) { 当成挖了 }` ——
+`r.data` 是 `undefined`，于是掉进 else 分支却没人看，
+最后一路上报成「挖了但没挖掉，是不是次数不够」。**实际是根本没挥动。**
+
+规矩：
+1. 脚本一律用 `qc.mjs` 的 `must(cmd, params)` —— 它在 `ok!==true` 时直接抛错。
+2. 偶发要读原始回包时，先判 `r.ok`，再判 `r.data` 的字段。
+3. **`mine`/`place` 的 `armed:true` 只代表「已经开始挥」，不代表「已经挖掉/放上」**；
+   判真伪只认回读：`tile` 的 `hasTile`（挖）/ `hasTile===true`（放）。
+4. `mine` 现在回包带 `before:{hasTile,type,frameX}`，挖完回读对比即可，
+   不用再自己猜 baseline。
+
 ## 0.6 解决完必须回灌（用户 m18346 定的规矩）
 
 > **"你要在不断的解决问题中完善自己的知识库和命中。比如我告诉你可以把部分屋顶换成平台，

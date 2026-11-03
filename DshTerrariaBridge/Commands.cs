@@ -871,7 +871,16 @@ namespace DshTerrariaBridge
                     repaths = BridgeSystem.WalkRepaths,
                     stuck = BridgeSystem.WalkStuckTicks,
                     pathWhy = BridgeSystem.LastPathWhy,
-                    follow = new { active = BridgeSystem.FollowActive, targetIndex = BridgeSystem.FollowTargetIdx },
+                    follow = new
+                    {
+                        active = BridgeSystem.FollowActive,
+                        targetIndex = BridgeSystem.FollowTargetIdx,
+                        targetName = BridgeSystem.FollowTargetName,
+                        mode = BridgeSystem.FollowMode,
+                        noPathTicks = BridgeSystem.FollowNoPathTicks,
+                        stuckTicks = BridgeSystem.FollowStuckTicks,
+                        lastWhy = BridgeSystem.FollowLastWhy,
+                    },
                 };
                 data["exact"] = new
                 {
@@ -3516,10 +3525,41 @@ namespace DshTerrariaBridge
             // 反复踩过三次坑（100ms、800ms 都白挖），所以把默认值调到够用，下限提到 300。
             // 默认“挖到空为止”：8 秒只是兜底上限，实际由桥每 tick 回读目标格，一挖空立刻收手。
             // 不同方块硬度差很多（土 1 下、石头 3 下、更硬的更多），固定时长必然有的不够、有的白按。
+            // 挖之前先把目标格的状态记下来。为什么要带 before：
+            // 方块在数据层没有"挖到第几刀"这个状态（Main.tileShatter 在本版本不存在，
+            // TileFrameX 是图集坐标、实测挖 1000ms 后仍是 36），玩家看到的裂纹纯属客户端渲染。
+            // 所以唯一能判真伪的是「回读 hasTile 有没有从 true 变 false」——把挖前状态
+            // 一起回给调用方，它就不用再猜 baseline 是什么。
+            Tile before = Main.tile[x, y];
+            bool beforeHas = before.HasTile;
+            int beforeType = TileCode(before);
+            int beforeFrameX = before.TileFrameX;
+
             string started = BeginPlayerMine(x, y, Math.Clamp(Json.Int(p, "ms", 8000), 300, 20000));
-            if (started != null && started.StartsWith("{")) return started;
-            if (started != null) return Json.Error(started);
-            return Json.Error("empty player-mode response");
+            if (started == null) return Json.Error("empty player-mode response");
+            if (!started.StartsWith("{")) return Json.Error(started);
+
+            // 复核内层回包：ok=false 说明根本没挥动（够不到/没工具），必须原样当错误抛回去，
+            // 不能因为"拿到了 data"就当成功——这是「命令生效 ≠ 操作发生」最容易复发的地方。
+            using (JsonDocument inner = JsonDocument.Parse(started))
+            {
+                if (!inner.RootElement.TryGetProperty("ok", out JsonElement okEl) || !okEl.GetBoolean())
+                    return started;
+                if (!inner.RootElement.TryGetProperty("data", out JsonElement d))
+                    return started;
+                return Json.Ok(new
+                {
+                    mode = "player",
+                    x,
+                    y,
+                    before = new { hasTile = beforeHas, type = beforeType, frameX = beforeFrameX },
+                    armed = true,
+                    slot = d.TryGetProperty("slot", out JsonElement sl) ? sl.GetInt32() : -1,
+                    untilTick = d.TryGetProperty("untilTick", out JsonElement ut) ? (ulong)ut.GetInt64() : 0UL,
+                    onScreen = d.TryGetProperty("onScreen", out JsonElement os) && os.GetBoolean(),
+                    verify = "这是「已经开始挥」不是「已经挖掉」：之后回读 tile，hasTile=false 才算掉了。默认 ms 8000 只是兜底上限，桥每 tick 回读目标格，一挖空立刻收手。",
+                });
+            }
         }
 
         /// <summary>
@@ -4473,6 +4513,7 @@ namespace DshTerrariaBridge
             // a previous target's walkto waypoint cannot be reused accidentally.
             BridgeSystem.ClearFollow();
             BridgeSystem.FollowTargetIdx = target.whoAmI;
+            BridgeSystem.FollowTargetName = target.name ?? "";
             BridgeSystem.FollowGuard = Json.Bool(p, "guard", false);
             BridgeSystem.FollowStopTiles = Math.Clamp(Json.Float(p, "range", 4.5f), 1f, 30f);
             BridgeSystem.FollowActive = true;

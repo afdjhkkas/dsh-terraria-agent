@@ -74,6 +74,17 @@ export function call(cmd, params = {}, timeout = 8000) {
   });
 }
 
+// ok:false 时必须炸出来，不能当成功。
+// 事故：mine 回 {"ok":false,"error":"够不到：离这一格超过 7 格"}，
+// 脚本只判 `r.data` 有没有值，于是把"根本没挥动"记成了"挖了但没挖掉"，
+// 一路排查到「是不是次数不够」——其实是够不到。命令回 ok 不等于操作发生过。
+export function must(cmd, params = {}, timeout = 8000) {
+  return call(cmd, params, timeout).then((r) => {
+    if (!r || r.ok !== true) throw new Error(cmd + ' 失败: ' + ((r && r.error) || 'unknown'));
+    return r.data;
+  });
+}
+
 export function close() {
   if (sock) { try { sock.end(); } catch {} sock = null; }
 }

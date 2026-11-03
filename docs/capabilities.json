@@ -713,7 +713,10 @@
         "y",
         "ms"
       ],
-      "returns": [],
+      "returns": [
+        "mode",
+        "before"
+      ],
       "summary": ""
     },
     {
