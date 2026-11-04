@@ -25,3 +25,6 @@ obj/
 scratch/tmodsrc/
 scratch/Main.cs
 scratch/Program.cs
+
+# scratch 内的截图是本机调试画面，不进仓库
+scratch/*.png
