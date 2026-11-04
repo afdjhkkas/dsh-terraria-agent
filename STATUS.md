@@ -1,4 +1,4 @@
-# 项目状态（截至第 195 轮）
+# 项目状态（截至第 196 轮）
 
 一个人工智能体玩泰拉瑞亚的工程记录。本文只写**有证据的结论**，
 没验证过的不写、测不准的标注"未验证"。
@@ -8,6 +8,24 @@
 > 还需要哪些能力见 [`docs/capability-roadmap.md`](docs/capability-roadmap.md)，
 > 逐轮过程见 [`docs/playthrough.md`](docs/playthrough.md)，
 > 世界硬知识见 [`docs/terraria-mechanics.md`](docs/terraria-mechanics.md)。
+
+---
+
+## 零-丙、第 196 轮：接手验收 + 连造四间 NPC 房
+
+**接手三件事**：① 重启最后一步补齐（artifacts 与 `Mods/` 内两个 tmod 的 SHA-256 一致，`ai-mod.tmod` 已清，`enabled.json` 三件套，启动后 `ping` 返回 `pong/inWorld:true/paused:false`）；② `mine` 新回包真机验收 **10 pass / 0 fail**（`before:{hasTile,type,frameX}`、`armed` 文案、事后回读 `hasTile:false`、够不到时外层 `ok:false` 且无 `data`）；③ 世界右侧连造 **两间 10×7 木屋**（外框 70 格、内部 40 格人工墙、工作台/椅/火把/门齐），`roomcheck ok`、`housediag valid` 双过。
+
+**本轮新确认的硬事实**（都已写进 `docs/kb/build-standard.md`）：
+
+1. **`wall` 的 `type` 是墙 id，不是物品 id**：木墙是 `WallID.Wood = 4`，传 `93`（item id）会回「背包里没有能放置该墙的物品（wall id 93）」，且**一格都铺不上**——24 格全灭、白跑一趟。`docs/capabilities.md:259` 早有这句，施工时仍踩了。
+2. **从屋顶穿平台下到屋内，必须站"两格平台之间的接缝"**（x 落在整数上）。站单格中央或偏半格时，按"下"坐标**一动不动**、命令也不报错；同一处接缝按下半秒即从屋顶穿进屋内。
+3. **玩家占 3 格高**（hitbox 2.6 格），脚下与上方两格都不能放东西；整排连铺时先放离身体 2~4 格远的，再挪回来补脚下那几格。
+4. **一间一间造完再开下一间**。两间同步推进时人在 A 间、目标在 B 间，中间隔外墙，`moveto` 只会直线撞墙刷"够不到"，白跑几十轮。
+5. **平台口正下方别放家具/火把**：会占据落脚格，跳上去 `grounded:true` 但坐标不动；火把放偏一格即可。
+6. **站椅子（t15）上跳不起来**：`jump` 回 `grounded:true`，坐标纹丝不动；要跳到干净实心地面上再跳。
+7. **`move` 的参数名是 `dir`**，传 `direction` 会被静默忽略、永远走默认 `right`。
+
+**遗留**：`Wall()` 里那道 `HasTile` 拦截（家具格铺不了墙，原版允许）只登记未改，改它要重新打包并重启游戏，需单独征得同意。
 
 ---
 
@@ -271,6 +289,14 @@ Host & Play 下 `paused:false` 与 `hasFocus:false` 能同时成立，后台发�
   `api` 的 `filter`/`limit`、`heal` 诊断字段。
 - 已知未修 **4 条**：`drop` 在 Host & Play 客户端不落地、`mirror` 不认贝壳电话、
   `path`/`walkto` 不把平台当地板、`save` 在客户端不落盘。
+- 本轮新增待修 **1 条**（2026-11-03，造房时真机发现）：
+  `Commands.cs` 的 `Wall()` 有 `if (Main.tile[x,y].HasTile) return Json.Error("这一格有方块挡着...")`，
+  但**原版允许墙贴在方块背后**——家具/方块占着的格子铺不了墙。现场绕法是先 `mine` 拆家具、
+  铺完墙再 `place` 放回（工作台会回收物品，椅子有时不回收要重 craft）。修法：去掉这道检查，
+  交给原版 `ItemCheck` 自己判。已写进 `docs/capabilities.md` 的 `wall` 段与 `docs/kb/game-rule.md`。
+- 同一轮记下的**工具事实**（不是缺陷，已落文档）：`needs` 回包的
+  `roomDoor/roomChair/roomTable/roomTorch` 恒 `false`，房间合格也一样——判房间只看
+  `roomcheck.ok`、`housediag.gameOk`、`housing.homeless`。
 - **N04/F04 两条用例**（渔夫任务交付、护士治疗）仍缺「点对话选项」原语。
   设计已明确：`Main.DrawNPCChatButtons` + `npcChatFocus1..4` 跨帧扫描反推按钮矩形，
   再发真实左键 —— 需要**跨帧状态机**（每帧只能测一个点，扫完约 15 秒），

@@ -177,7 +177,11 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 命令返回 `untilTick` 和发送前状态，必须在该 tick 之后回读 `state.playerInventory`、`talkNPC`、`npcShopIndex`。
 
 ### 其余
-`players` 多人列表、`boss {active,bosses}`、`event`（血月/日食/雨）、`housing {x,y}`（房间判定 + 无家可归人数）、`needs {x,y}`（房间差什么：门/椅/桌/火把/墙）、`help` 命令清单。
+`players` 多人列表、`boss {active,bosses}`、`event`（血月/日食/雨）、`housing {x,y}`（房间判定 + 无家可归人数）、`needs {x,y}`（房间尺寸/失败原因）、`help` 命令清单。
+
+> **`needs` 的 `roomDoor/roomChair/roomTable/roomTorch` 那组布尔字段不可信**：房间完全合格、`roomcheck` 已经 `ok:true`、NPC 已入住之后，它们照样回 `false`。
+> 判房间合不合只看三条：`roomcheck {x,y}` 的 `ok`、`housediag` 的 `gameOk`、`housing` 的 `homeless`。
+> `needs` 只用来读 `numRoomTiles`、`roomCheckFailureReason`、`roomX1..roomY2`（2026-11-03 真机：10×7=70 格的合格房仍回 `roomTorch/roomDoor/roomChair/roomTable` 全 false）。
 
 ---
 
@@ -229,8 +233,20 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 ## 3. 挖掘与建造
 
 ### `mine {x,y,ms}` — 真实挥镐
-选镐 → `BeginItemUse` → 原版 `ItemCheck` 挥击 → 物品栏真出方块。**默认 1300ms**（铁镐挖石头/丛林草要 1.2~1.3 秒；900ms 会「返回成功但方块不动」）。
-回读：`before/after` 方块类型 + 背包数量变化。
+选镐 → `BeginItemUse` → 原版 `ItemCheck` 挥击 → 物品栏真出方块。
+`ms` 是**兜底上限**（默认 8000，夹在 300..20000）：桥每 tick 回读目标格，一挖空立刻收手，
+所以不必再按硬度手调时长（早期"默认 1300ms"的说法已过时）。
+
+回包三样：`before:{hasTile,type,frameX}`（挥动前的真实状态，调用方不用猜 baseline）、
+`armed:true`（**只代表「已经开始挥」**）、`verify`（说明文案）。
+判真伪只认事后 `tile` 回读：`hasTile === false` 才算掉了。
+
+**够不到 / 没工具时外层直接是 `ok:false`，没有 `data`**（内层 `ok:false` 原样抛回）——
+脚本必须先判 `ok` 再判 `data`，见 `AGENTS.md` §0.58。
+
+真机（2026-11-03，2026 年 11 月那版 tmod，224053 字节）：`mine` 命中玩家脚下 3.16 格处的土方块
+→ `before:{hasTile:true,type:0,frameX:36}`，回读 `hasTile:false`；
+同一命令指向 20 格外的格子 → `ok:false`「够不到：离这一格超过 7 格，先走过去再挖」且无 `data`。
 
 ### `removeblock {x,y,ms}` — 真实挥锤
 同上路径，锤子拆墙/家具。
@@ -240,6 +256,10 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 `tiledata {type:17}` 给出 `3×2 / origin(1,1)`，瞄准 `(2081,303)` → 339 熔炉落在 `2080..2082 × 302..303`。
 
 ### `wall {x,y,type,ms,remove}` — 放/拆墙
+- `type` 是 **wall id**（木墙 `WallID.Wood = 4`，对应 item 93 木墙），不是 tile id。
+- **该格 `HasTile` 时直接拒绝**：报「这一格有方块挡着」，而原版允许墙贴在方块背后 → 家具/方块占着的格子要先 `mine` 拆掉、铺完墙再 `place` 放回。工作台拆下会回收物品，**椅子拆下有时不回收**，要重新 `craft`。
+- 回 `ok:true` 只代表起手，真伪只认 1~2 秒后 `tile {x,y}` 的 `wall === type`。
+- 真机证据（2026-11-03）：工作台/椅子所在 4 格铺墙上不去的现场处理，拆家具→铺墙→放回，四次全部 `wall=4`。
 
 ### `fill {x1,y1,x2,y2,type}` — 矩形铺地
 - **`type` 是 tile id，不是 item id**：石块 item 3 → tile **1**；木材 item 9 → tile **30**。
@@ -332,7 +352,8 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 | `homeroom {who,x,y}` | 让 NPC 搬进指定房间（走原版 `WorldGen.moveRoom`） |
 | `follow {player,range,guard}` / `idle` | 跟随玩家 / 原地待命 |
 
-`homeroom` 前置条件：`housing {x,y}` 要 `roomFound:true`，且 `needs` 里门/椅/桌/火把/墙都齐。
+`homeroom` 前置条件：`housing {x,y}` 要 `roomFound:true`，且 **`roomcheck {x,y}` 的 `ok:true`**（`housediag.gameOk` 也应为 true）。
+**不要用 `needs` 里那组家具布尔当门槛**——它们恒 false，见上文 `needs` 的说明。
 
 `talk` 只返回输入已排队，不把 `talkNPC`、商店索引或台词当作成功证据。命令完成后必须轮询
 `state.talkNPC`、`state.npcChatText`、`state.npcShopIndex`；其中 `npcChatText` 非空才算原版对话路径真正执行。

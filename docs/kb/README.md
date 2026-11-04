@@ -34,13 +34,13 @@
 **自动校验**：`npm run kb:lint` 会扫这些库文件，发现坐标、`x=`/`y=`、
 "本档/本次/实测/测试"、世界名、毫秒/tick 这类单局痕迹就报错；`npm test` 里也挂了这条。
 
-## 结构：4 个基础主库 + 6 个内容主库 + 4 个辅助库
+## 结构：14 个机制库 + 1 个技能清单
 
 | # | 标签 | 库文件 | 覆盖内容 |
 |---|---|---|---|
 | 1 | `game_rule` | [game-rule.md](game-rule.md) | 房屋判定 / NPC 入住与生成 / 怪物刷新 / 物块与地形 / 环境扩散 / 世界全局机制 / 判定速查 |
 | 2 | `item_operation` | [item-operation.md](item-operation.md) | 物品分类与功能边界 / 使用硬性约束 / 背包与切换 / 交互站位 / 常用 ID 速查 |
-| 3 | `build_standard` | [build-standard.md](build-standard.md) | 通用建造规范 / NPC 房屋通用规范 / 各类平台 / 方块搭配 / 地形改造 |
+| 3 | `build_standard` | [build-standard.md](build-standard.md) | 通用建造规范 / NPC 房屋通用规范 / **房间尺寸与面积下限（60 格）** / **单间房屋标准施工顺序** / 各类平台 / 方块搭配 / 地形改造 |
 | 4 | `actor_behavior` | [actor-behavior.md](actor-behavior.md) | 移动 / 战斗 / 拾取 / NPC 交互 / 增益与召唤 |
 | 5 | `world_biome` | [world-biome.md](world-biome.md) | 世界分层 / 生物群系判定 / 液体窒息坠落 / 环境扩散 / 昼夜月相天气 / 地貌结构 |
 | 6 | `progression_boss` | [progression-boss.md](progression-boss.md) | 进程骨牌 / 前困难模式首领 / 困难模式首领 / 祭坛 / 战前准备 |
@@ -52,6 +52,7 @@
 | 12 | `atomic_action` | [atomic-action.md](atomic-action.md) | 动作执行链条 / 判定条件 / 先后顺序 / 失败分类 / 重试策略 / 操作限制 / 批量规范 |
 | 13 | `task_correct` | [task-correct.md](task-correct.md) | 模糊指令 / 歧义 / 任务中断 / 修改迭代 / 无法完成怎么回 |
 | 14 | `safety_limit` | [safety-limit.md](safety-limit.md) | 禁止行为清单 / 操作范围限制 / 自检修正规则 |
+| 15 | `skills` | [skills.md](skills.md) | **技能清单**：成组的可复用能力——造一间 NPC 房 / 斜向右上爬坡 / 砍树 / 上下穿平台 / 铺背景墙 / 放多格家具 / 整平地面。每条要求"前提 → 步骤 → 验收"，机制细节仍指回上面 14 个库 |
 
 生成物（由代码/游戏导出，**不要手改**）：
 
