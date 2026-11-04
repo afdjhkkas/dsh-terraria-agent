@@ -25,12 +25,13 @@
 | `npc_town` | NPC 与城镇库 | NPC 入住的两个必要条件、各 NPC 的出现条件、幸福度三因素、传送水晶激活规则、商店价格 |
 | `gear_route` | 装备进阶路线库 | 镐力门槛、矿石阶梯（前困难/困难）、护甲三件与职业分支、四条武器线、机动性饰品、词条重铸、增益药水 |
 | `abilities` | 能力与移动 profile 库 | 当前能力门槛、连续移动 profile、闭环动作、可达性标定、失效与重标规则 |
+| `skills` | 技能清单（成组能力） | 把一件事完整做出来的步骤：造一间 NPC 房、斜向右上爬坡、砍倒一棵树、上下穿平台、铺背景墙、放多格家具、整平地面 |
 
 ## 规则
 
 1. 可以同时输出多个标签，按任务实际需要组合。
 2. **只输出标签，不要解释、不要额外文字、不要编号、不要引号。**
-3. 输出顺序固定为加载顺序：`safety_limit` → `game_rule` → `world_biome` → `progression_boss` → `gear_route` → `abilities` → `combat_math` → `loot_source` → `npc_town` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。
+3. 输出顺序固定为加载顺序：`safety_limit` → `game_rule` → `world_biome` → `progression_boss` → `gear_route` → `abilities` → `combat_math` → `loot_source` → `npc_town` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct` → `skills`。
 4. 分隔符是英文逗号加一个空格：`a, b, c`。
 5. 只要任务里出现**要角色真的动手改世界或动身体**的动作（放、挖、切、铺、捡、走、打），就一定要带 `atomic_action` 或 `actor_behavior`。
 6. 只要任务涉及**大规模破坏地形、在危险环境作业、可能致死**，就一定要带 `safety_limit`。

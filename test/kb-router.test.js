@@ -12,7 +12,7 @@ import { extractCommands, extractTools, braceDelta } from '../scripts/kb-sync.mj
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-test('十四个标签都有库文件，且文件真实存在', async () => {
+test('十五个标签都有库文件，且文件真实存在', async () => {
   assert.deepEqual(Object.keys(LIBRARIES).sort(), [
     'abilities',
     'actor_behavior',
@@ -26,6 +26,7 @@ test('十四个标签都有库文件，且文件真实存在', async () => {
     'npc_town',
     'progression_boss',
     'safety_limit',
+    'skills',
     'task_correct',
     'world_biome',
   ])

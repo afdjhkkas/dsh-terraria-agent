@@ -66,6 +66,7 @@ test('标签常量不被手改坏', () => {
     'atomic_action',
     'item_operation',
     'task_correct',
+    'skills',
   ])
   assert.deepEqual(normalizeTags(TAGS.join(',')).tags, TAGS)
 })

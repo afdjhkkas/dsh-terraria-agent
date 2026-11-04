@@ -37,12 +37,12 @@ function expectedRows() {
   return rows
 }
 
-test('分类器 Prompt 存在且覆盖全部十四个标签', () => {
+test('分类器 Prompt 存在且覆盖全部十五个标签', () => {
   assert.ok(ROUTER_PROMPT_PATH.endsWith('intent-router.md'))
   for (const tag of Object.keys(LIBRARIES)) {
     assert.match(ROUTER_PROMPT, new RegExp('`' + tag + '`'), `Prompt 里缺标签 ${tag}`)
   }
-  assert.equal(TAGS.length, 14)
+  assert.equal(TAGS.length, 15)
 })
 
 test('Prompt 咬死“只输出标签”和固定顺序', () => {
@@ -172,6 +172,22 @@ test('命令回包 ok 但行为不对 → 命中 atomic_action（AGENTS.md 7.5 �
   ]) {
     const r = route(q)
     assert.ok(r.tags.includes('atomic_action'), `${q} 应该命中 atomic_action，实际 ${r.tags.join(',')}`)
+  }
+})
+
+test('位移前不判断地形 → 命中 skills（AGENTS.md 0.57 掉坑事故）', () => {
+  // 2026-11-03：从洞口直接 move right ms=1200 冲出去，掉 14 格。
+  // 用户原话「你跳下去的目的是什么」「你为什么没做判断」。
+  // 库里写的是 skills.md 第 12 条的"位移之前先报落差"，必须能被这些说法检索到。
+  for (const q of [
+    '你跳下去的目的是什么，为什么没做判断',
+    '我掉下去了，为什么没判断地形',
+    '前面落差大不大，能不能走',
+    '悬崖怎么过去',
+    '走之前要先看前方地形吗',
+  ]) {
+    const r = route(q)
+    assert.ok(r.tags.includes('skills'), `${q} 应该命中 skills，实际 ${r.tags.join(',')}`)
   }
 })
 

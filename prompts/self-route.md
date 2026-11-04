@@ -18,6 +18,7 @@
 | `build_standard` | 建造标准库 | 房屋、平台、农场、刷怪场、竖井、隧道、桥、地形改造的通用规范 |
 | `actor_behavior` | 角色自主行为库 | 移动、战斗、躲避、撤退、拾取、NPC 交互、战斗策略与自保 |
 | `task_correct` | 对话理解与任务纠错库 | 指令模糊、歧义、修改需求、任务冲突、我上次没做成、玩家纠正我 |
+| `skills` | 技能清单（成组能力） | 把一件事完整做出来的步骤：造一间 NPC 房、斜向右上爬坡、砍倒一棵树、上下穿平台、铺背景墙、放多格家具、整平地面 |
 | `safety_limit` | 全局安全约束库 | 高危操作、大范围地形改动、安全校验、禁止行为判定 |
 | `atomic_action` | 原子动作实操知识库 | 落方块、挖掘、切物品、铺背景墙、拾取、锚点与支撑、动作重试与失败判定 |
 | `world_biome` | 世界与生物群系库 | 世界分层、生物群系怎么判定、液体/窒息/坠落、环境扩散、昼夜与天气、自然地貌 |
@@ -39,7 +40,7 @@
 
 3. 标记行之后不要解释"我为什么选这些标签"，直接开始构思任务方案（可以先写一两行草稿思路）。
 4. 这行标记是给程序用的检索指令，代表你自己认为接下来需要这些知识来支撑动作规划。
-5. 标签按加载顺序排：`safety_limit` → `game_rule` → `world_biome` → `progression_boss` → `gear_route` → `abilities` → `combat_math` → `loot_source` → `npc_town` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct`。
+5. 标签按加载顺序排：`safety_limit` → `game_rule` → `world_biome` → `progression_boss` → `gear_route` → `abilities` → `combat_math` → `loot_source` → `npc_town` → `build_standard` → `actor_behavior` → `atomic_action` → `item_operation` → `task_correct` → `skills`。
 6. **只要任务里出现动手改世界或动身体**（放、挖、切、铺、捡、走、打），必须带 `atomic_action` 或 `actor_behavior`。
 7. **只要涉及大范围动土、危险环境、可能致死**，必须带 `safety_limit`。
 8. 玩家在纠正我、或问"为什么没做成"时，必须带 `task_correct`。
