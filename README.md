@@ -13,7 +13,7 @@
 | 1 | **只能有真操作，假操作零容忍** | 只写"手指动作"（`control*` / `mouseLeft` / `mouseRight` 及其释放边沿），结果必须由原版物理与 `ItemCheck` 算出来。写 `velocity` / `position` / `pulley` / `statLife` / `Main.tile[...]` 这类"引擎算出来的结果"一律作废 | [`AGENTS.md` §0.55](AGENTS.md) |
 | 2 | **一切操作必须在游戏失焦时可用** | 测的时候**不许把窗口点亮**：`hasFocus` 必须是 `false`，这个值要一起记进证据。有焦点的成功不算通过 | [`AGENTS.md` §0.56](AGENTS.md) |
 
-两条都踩过反复的坑，正文里各写了"曾经怎么犯的"和"怎么验证这次是真的"，**先读那两节再写一行代码**。
+两条都反复踩过坑，正文里各写了"曾经怎么犯的"和"怎么验证这次是真的"，**先读那两节再写一行代码**。
 
 与第 2 条直接相关的一个反例值得单独记住：**`mount` / `dismount` 不能直写 `controlMount`**。
 原版 `releaseMount` 的置真语句整段挂在 `if (Main.hasFocus)` 里，失焦时它永远是 `false`，
@@ -196,7 +196,7 @@ npm run bridge help     # 桥支持的全部命令
 // tiles[j].slice(i*stride, i*stride+stride) => [type, wall, liquid, shape]
 // x = x0 + i, y = y0 + j
 // tiles[1], i=1 → x=101, y=51, [1,0,0,0]  → 石块，无墙、无液体、实心
-// tiles[2], i=1 → x=101, y=52, [2,0,255,0] → 泥块，整格水，实心
+// tiles[2], i=1 → x=101, y=52, [2,0,255,0] → 草地，整格水，实心
 // tiles[0] 全是 -1 → 这一行三格都是空气
 ```
 
@@ -296,7 +296,7 @@ terraria_observe({})
 
 用背包里的镐子挖掉一格，**确认这一格真的空了**才返回。
 
-- `ms` 是单次挥动的按住时间（默认 1300ms；丛林草/冰雪/石头在铁镐下要 1.2~1.3 秒）。
+- `ms` 是单次挥动的按住时间（默认 1300ms；丛林草/冰雪块/石块在铁镐下要 1.2~1.3 秒）。
 - `tries` 是重试次数（默认 3）：硬方块一次挥不动就再挥，不会把"还没挖掉"当成失败。
 - 返回 `{ok, removed, x, y, attempts, before, swings[]}`；每次挥动都记录当时手持的工具和
   `aimed`（是否在攻击范围内）。
@@ -306,7 +306,7 @@ terraria_observe({})
 
 从背包里拿出**能放成这种方块的物品**，放到指定格，确认格子变成 `type` 且**背包数量减少 1** 才返回。
 
-- `type` 是 Terraria **tile id**（注意：石头是 `1`，木材是 `30`，土块是 `0`）。
+- `type` 是 Terraria **tile id**（注意：石块是 `1`，木材是 `30`，土块是 `0`）。
 - 返回 `{ok, placed, consumed, slot, stackBefore, stackAfter}`；`consumed` 是背包真实减少的数量。
 - 需要支撑（下/左/右有实心方块），空气格孤立漂浮会放不上。
 
