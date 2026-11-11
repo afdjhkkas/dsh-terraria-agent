@@ -184,11 +184,15 @@
       "kind": "act",
       "params": [
         "item",
+        "guard",
         "times"
       ],
       "returns": [
         "item",
         "name",
+        "before",
+        "after",
+        "gained",
         "reason",
         "perCraft",
         "groupsUsed"
@@ -566,6 +570,24 @@
       "summary": ""
     },
     {
+      "name": "intent",
+      "kind": "read",
+      "params": [],
+      "returns": [
+        "schema",
+        "stage",
+        "stageLabel",
+        "goal",
+        "missing",
+        "blockedBy",
+        "confidence",
+        "advanced",
+        "stageOrder",
+        "hint"
+      ],
+      "summary": ""
+    },
+    {
       "name": "interact",
       "kind": "act",
       "params": [
@@ -711,6 +733,7 @@
       "params": [
         "x",
         "y",
+        "guard",
         "ms"
       ],
       "returns": [
@@ -890,7 +913,8 @@
         "x",
         "y",
         "type",
-        "ms"
+        "ms",
+        "guard"
       ],
       "returns": [
         "armed",
@@ -908,6 +932,18 @@
       "returns": [
         "count",
         "players"
+      ],
+      "summary": ""
+    },
+    {
+      "name": "probe",
+      "kind": "read",
+      "params": [
+        "dir",
+        "steps"
+      ],
+      "returns": [
+        "from"
       ],
       "summary": ""
     },

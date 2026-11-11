@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "stage": "wood",
+  "stageOrder": ["wood", "iron_gear", "eye_of_cthulhu", "evil_boss"],
+  "note": "AI 用 intent 命令读这个文件（只读，不写）。推进阶段＝把 stage 改成下一个 key；判据变化就改 checks。物品 id 用 Terraria ItemID 数值（见 docs/kb/_generated-ids.md）。",
+  "stages": {
+    "wood": {
+      "label": "木器时代",
+      "goal": "砍树凑木材，做出工作台、火把和一把能用的剑",
+      "checks": [
+        { "id": 9, "label": "木材", "need": 20 },
+        { "id": 36, "label": "工作台", "need": 1 },
+        { "id": 8, "label": "火把", "need": 5 }
+      ],
+      "blocked": [],
+      "next": "砍树拿木材（9）→ craft 工作台（36）→ 用木材做火把（8）",
+      "guard": { "strict": false, "world": true }
+    },
+    "iron_gear": {
+      "label": "铁器时代",
+      "goal": "挖铁矿熔成铁锭，做出铁砧和铁阔剑",
+      "checks": [
+        { "id": 22, "label": "铁锭", "need": 6 },
+        { "id": 35, "label": "铁砧", "need": 1 },
+        { "id": 4, "label": "铁阔剑", "need": 1 }
+      ],
+      "blocked": [
+        "铁锭要先有熔炉：熔炉的配方是木材 9 + 火把 8 + 石头 20（工作台旁）",
+        "铁砧要 5 个铁锭，在工作台旁合成"
+      ],
+      "next": "挖铁矿（tile 6 Iron）→ craft 熔炉 → 熔炼铁锭（22）→ craft 铁砧（35）→ craft 铁阔剑（4）",
+      "guard": { "strict": false, "world": true }
+    },
+    "eye_of_cthulhu": {
+      "label": "克苏鲁之眼",
+      "goal": "凑 6 个晶状体做出可疑眼球，夜里召唤并击败克苏鲁之眼",
+      "checks": [
+        { "id": 43, "label": "可疑眼球", "need": 1 }
+      ],
+      "blocked": [
+        "晶状体（38）只有夜里打恶魔之眼才掉，白天刷不到",
+        "可疑眼球必须在恶魔祭坛／猩红祭坛旁合成"
+      ],
+      "next": "夜里打恶魔之眼攒 6 个晶状体（38）→ 在祭坛 craft 可疑眼球（43）→ 夜里使用召唤克苏鲁之眼",
+      "why": "这一阶段只差一件合成品；再挖矿、再盖房都不会推进它，先把晶状体凑够",
+      "guard": { "strict": true, "world": false }
+    },
+    "evil_boss": {
+      "label": "邪恶群系 Boss",
+      "goal": "做出世界吞噬者／克苏鲁之脑的召唤物并打赢，拿到魔金／血金锭",
+      "checks": [
+        { "id": 1331, "label": "血腥脊椎 / 蠕虫诱饵", "need": 1, "anyOf": [70, 1331] }
+      ],
+      "blocked": [
+        "腐化世界：蠕虫诱饵（70）＝腐肉 15 + 魔粉 3",
+        "猩红世界：血腥脊椎（1331）＝椎骨 15 + 毒粉 3",
+        "两者都要在祭坛旁合成"
+      ],
+      "next": "凑 15 个椎骨／腐肉 → 在祭坛 craft 召唤物（70 或 1331）→ 到对应邪恶群系地下使用",
+      "guard": { "strict": false, "world": true }
+    }
+  }
+}

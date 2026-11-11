@@ -51,3 +51,55 @@
 AI 在运行中自行维护一份进度日志（里程碑、证据、失败与修正），
 模板与格式见 [`docs/playthrough.md`](docs/playthrough.md)；
 它属于运行产物，不属于项目的固定内容。
+
+## 机器可读进度（[`goal-progress.json`](goal-progress.json)）
+
+上面那些是给人读的。**"现在该做什么"必须落成机器读得懂的数据**，否则每新开一个对话
+都要从头判断一遍——这是过去 96 条命令都没解决的那个问题。
+
+进度表存在仓库根 `goal-progress.json`，AI 用只读命令 `intent` 读它：
+
+```bash
+npm run bridge intent            # 或 {"cmd":"intent","params":{}}
+```
+
+`intent` 回 `stage` / `goal` / `missing[{id,label,have,need}]` / `blockedBy` / `suggestedNext`，
+就是"当前阶段、还差什么、下一步干什么"。`mine` / `place` / `craft` 加 `{"guard":true}` 会先问它一句。
+
+### 文件结构
+
+```jsonc
+{
+  "stage": "wood",                    // 当前阶段 key
+  "stageOrder": ["wood", "iron_gear", "eye_of_cthulhu", "evil_boss"],
+  "stages": {
+    "wood": {
+      "label": "木头阶段",
+      "goal": "做工作台 + 火把，攒够 20 木材",
+      "checks": [                     // 完成判据：背包数量
+        {"id": 9,  "label": "木材",   "need": 20},
+        {"id": 36, "label": "工作台", "need": 1},
+        {"id": 8,  "label": "火把",   "need": 5}
+      ],
+      "blocked": ["木材靠砍树（axe 或镐都行）", "火把要 木材×1 + 凝胶×1"],
+      "next": "砍树到 20 木材 → 做工作台 → 做火把",
+      "guard": {"strict": false, "world": true}   // 见下
+    }
+  }
+}
+```
+
+- 物品 id 必须是真实的 `ItemID` 数值，查 [`docs/kb/_generated-ids.md`](docs/kb/_generated-ids.md)（不要整读，用 grep）。
+- `checks[].anyOf: [70, 1331]` 表示"任意一个够数就算"，例如蠕虫诱饵/血腥脊椎二选一。
+- `guard.strict: true` —— 这一阶段的 `craft` 目标必须出现在 checks 里，否则 `guard:true` 会拦。
+- `guard.world: false` —— 这一阶段不该动土（例如"只差一件合成品去打 Boss"），`mine`/`place` 会拦。
+- `guard` 缺省或 `strict:false` + `world:true` = 什么都不拦。
+
+### 谁维护它
+
+**AI 自己**。`intent` 判据全满足时会沿 `stageOrder` 在内存里推进一格（回包 `advanced` 列出来），
+但**不写文件**——进度落盘要 AI 自己动手：把 `stage` 改成新 key，然后把新阶段的
+`checks` / `blocked` / `next` 按实际情况写准。
+
+规矩和 §0.65 一致：**验证通过就当场落盘**。做完一件事（合出铁砧、打通 Boss）就更新这个文件并提交，
+不要攒到最后一起写，否则下次开局读到的是过期进度。

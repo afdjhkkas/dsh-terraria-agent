@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -28,6 +29,18 @@ namespace DshTerrariaBridge
             string cmd = Json.Str(root, "cmd", "");
             JsonElement p = root.TryGetProperty("params", out var pe) ? pe : default;
 
+            // 记下这条命令真正读过哪些参数名；传了但没人读的，附在成功回包的 data.ignoredParams 里。
+            // 这样拼错的参数名（direction/dir、radius/r）不再被静默吞掉。
+            Json.BeginParamTracking();
+            string response;
+            HashSet<string> read;
+            try { response = Dispatch(cmd, p); }
+            finally { read = Json.EndParamTracking(); }
+            return Json.WithIgnoredParams(response, p, read);
+        }
+
+        private static string Dispatch(string cmd, JsonElement p)
+        {
             switch (cmd)
             {
                 case "ping": return Ping();
@@ -47,6 +60,7 @@ namespace DshTerrariaBridge
                 case "walkdiff": return WalkDiffCmd();
                 case "walkmode": return WalkModeCmd(p);
                 case "path": return PathTo(p);
+                case "probe": return Probe(p);
                 case "research": return Research(p);
                 case "find": return FindTile(p);
                 case "duplicate": return Duplicate(p);
@@ -101,6 +115,7 @@ namespace DshTerrariaBridge
                 case "jump": return Jump(p);
                 case "climb": return Climb(p);
                 case "use": return Use(p);
+                case "intent": return IntentCommand(p);
                 case "interact": return Interact(p);
                 case "attack": return Attack(p);
                 case "select": return SelectSlot(p);
@@ -551,7 +566,7 @@ namespace DshTerrariaBridge
         /// 免得再出现"实现了但提示里没有、调用方以为不存在"的误导。</summary>
         internal static readonly string[] CommandNames = new[]
         {
-            "accessory", "api", "attack", "bobber", "boss", "buy", "capture", "castline", "chat", "chatpoll", "chatpost", "chest", "climb", "craft", "dialog", "drop", "duplicate", "equip", "event", "fields", "fill", "find", "fly", "follow", "grab", "grapple", "gravity", "guard", "heal", "help", "homeroom", "hook", "hookdebug", "housediag", "housing", "humaninput", "idle", "idmap", "interact", "inventory", "items", "jump", "key", "keyevents", "liquidop", "map", "methods", "mine", "minion", "mirror", "mount", "move", "moveto", "navrules", "needs", "nodig", "npc", "path", "ping", "place", "players", "props", "quest", "recipes", "reel", "removeblock", "research", "roomcheck", "save", "scan", "select", "sell", "shoot", "shop", "shopdebug", "shops", "splitstack", "startevent", "state", "stop", "talk", "talkclose", "talkfocus", "talkoption", "tile", "tiledata", "trash", "travel", "travelstatus", "unhook", "use", "walkdiff", "walkmode", "walkto", "wall"
+            "accessory", "api", "attack", "bobber", "boss", "buy", "capture", "castline", "chat", "chatpoll", "chatpost", "chest", "climb", "craft", "dialog", "drop", "duplicate", "equip", "event", "fields", "fill", "find", "fly", "follow", "grab", "grapple", "gravity", "guard", "heal", "help", "homeroom", "hook", "hookdebug", "housediag", "housing", "humaninput", "idle", "idmap", "intent", "interact", "inventory", "items", "jump", "key", "keyevents", "liquidop", "map", "methods", "mine", "minion", "mirror", "mount", "move", "moveto", "navrules", "needs", "nodig", "npc", "path", "ping", "place", "players", "props", "quest", "recipes", "reel", "removeblock", "research", "roomcheck", "save", "scan", "select", "sell", "shoot", "shop", "shopdebug", "shops", "splitstack", "startevent", "state", "stop", "talk", "talkclose", "talkfocus", "talkoption", "tile", "tiledata", "trash", "travel", "travelstatus", "unhook", "use", "walkdiff", "walkmode", "walkto", "wall"
         };
 
         private static string Help() => Json.Ok(new
@@ -3250,8 +3265,76 @@ namespace DshTerrariaBridge
         }
 
         /// <summary>
-        /// 只读查询 travel 任务状态。原来只能靠再调一次 travel 来“看”状态，
-        /// 而那会重新 StartTravel 把 steps/mine/swings 清零，导致我误判成“travel 坏了、根本不动”。
+        /// 试探性移动预判：模拟向某方向移动 N 格会不会掉坑/撞墙/卡住，返回预测结果而不实际移动。
+        /// AI 可以用它做”往右走 10 格安全吗”判断，再决定要不要真走或搭桥。
+        /// </summary>
+        private static string Probe(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            string dir = (Json.Str(p, "dir", "right") ?? "right").ToLowerInvariant();
+            if (dir != "left" && dir != "right") return Json.Error("probe 的 dir 只能是 left/right");
+            int steps = Math.Clamp(Json.Int(p, "steps", 5), 1, 50);
+
+            int px = (int)(pl.Center.X / 16f), py = (int)(pl.Center.Y / 16f);
+            int dx = dir == "right" ? 1 : -1;
+            string issue = null;
+            int reachedSteps = 0;
+
+            // 模拟逐格前进，检测会不会掉坑/撞墙
+            for (int i = 1; i <= steps; i++)
+            {
+                int nx = px + dx * i;
+                int ny = py;
+
+                // 检查身体是否能通过（上下两格都要空）
+                if (!BridgeSystem.PathBodyFree(nx, ny))
+                {
+                    issue = "blocked";
+                    break;
+                }
+
+                // 检查脚下是否有地板
+                if (!BridgeSystem.PathFloorAt(nx, ny))
+                {
+                    // 没地板，向下找最近的落脚点（最多找 14 格）
+                    bool foundFloor = false;
+                    for (int down = 1; down <= 14; down++)
+                    {
+                        if (BridgeSystem.PathBodyFree(nx, ny + down) && BridgeSystem.PathFloorAt(nx, ny + down))
+                        {
+                            if (down > 3)
+                            {
+                                issue = $"pit_{down}_deep";
+                                break;
+                            }
+                            foundFloor = true;
+                            ny = ny + down;
+                            break;
+                        }
+                    }
+                    if (!foundFloor && issue == null) issue = "pit_deep";
+                    if (issue != null) break;
+                }
+
+                reachedSteps = i;
+            }
+
+            return Json.Ok(new
+            {
+                from = new { x = px, y = py },
+                dir,
+                steps,
+                reachedSteps,
+                safe = issue == null,
+                issue = issue ?? "none"
+            });
+        }
+
+        /// <summary>
+        /// 只读查询 travel 任务状态。原来只能靠再调一次 travel 来”看”状态，
+        /// 而那会重新 StartTravel 把 steps/mine/swings 清零，导致我误判成”travel 坏了、根本不动”。
         /// </summary>
         /// <summary>只读：新旧两套走路逻辑在同一帧各自算出的行为，用于重构期对比。</summary>
         /// <summary>切换走路驱动：new=四层行为系统，old=旧逻辑（重构期对照用）。</summary>
@@ -3521,6 +3604,12 @@ namespace DshTerrariaBridge
             if (!InBounds(x, y)) return Json.Error($"out of world bounds: {x},{y}");
             // 没有 admin 直写分支了：世界只能通过真实挥镐改变（AGENTS.md 第 1 条）。
             if (!HasPlayer(out string perr)) return Json.Error(perr);
+            // guard:true 时先看一眼进度表：这一步是不是当前阶段该干的事。默认 false，不影响任何现有调用。
+            if (Json.Bool(p, "guard", false))
+            {
+                string guarded = IntentGuard(p, "mine", TileCode(Main.tile[x, y]));
+                if (guarded != null) return Json.Error(guarded);
+            }
             // 默认 1300ms：丛林草/冰雪/石头在铁镐下要 1.2~1.3 秒，默认 900 会让"看起来挖了其实没掉"
             // 反复踩过三次坑（100ms、800ms 都白挖），所以把默认值调到够用，下限提到 300。
             // 默认“挖到空为止”：8 秒只是兜底上限，实际由桥每 tick 回读目标格，一挖空立刻收手。
@@ -3583,6 +3672,11 @@ namespace DshTerrariaBridge
             Player pl = P;
             if (pl.dead) return Json.Error("玩家已死亡，请先复活");
             if (!BridgeSystem.InReach(pl, x, y)) return Json.Error("够不到：离这一格超过 7 格，先走过去");
+            if (Json.Bool(p, "guard", false))
+            {
+                string guarded = IntentGuard(p, "place", type);
+                if (guarded != null) return Json.Error(guarded);
+            }
 
             int slot = FindItemForTile(pl, type);
             if (slot < 0) return Json.Error($"背包里没有能放置 {TileID.Search.GetName(type)} 的物品");
@@ -3805,7 +3899,10 @@ namespace DshTerrariaBridge
             // Jump is always a real held-key input.  Keep accepting the old
             // native:false/height spelling as a compatibility alias, but never use it to
             // synthesize velocity: height is converted to a real held-key duration below.
-            bool legacyNativeFalse = p.TryGetProperty("native", out var nv) && nv.ValueKind == JsonValueKind.False;
+            // 下面四个参数是直接 TryGetProperty 读的，不经过 Json.Int/Str，要手动登记，
+            // 否则会被 ignoredParams 误报成"没人读"。
+            Json.Seen("native", "tiles", "height", "dir");
+            bool legacyNativeFalse = p.ValueKind == JsonValueKind.Object && p.TryGetProperty("native", out var nv) && nv.ValueKind == JsonValueKind.False;
             // 便利参数：直接说"要跳几格"，按住时长由实测表反查（真人同样按这两列对应）。
             double? wantTiles = null;
             if (p.TryGetProperty("tiles", out var tv) && tv.ValueKind == JsonValueKind.Number)
@@ -4734,6 +4831,279 @@ namespace DshTerrariaBridge
             });
         }
 
+        /* ── 进度检查表（intent）────────────────────────────────────────────
+         * 症结不是"不会推理"，是推理结果不落盘：换个对话，"现在该干什么"就得从头推一遍，
+         * 同一个坑重复踩。所以把「阶段 + 目标 + 判据」写成 goal-progress.json（仓库根），
+         * intent 只读它 + 数背包，一帧算完。
+         * 纯只读：不开状态机、不写文件、不改世界。阶段推进只发生在这一次调用的内存里，
+         * 回包用 advanced 告诉调用方"按判据已经该是下一阶段了"，落盘由 AI 自己改 stage 字段。
+         */
+
+        private sealed class GoalItem
+        {
+            public int Id;
+            public string Label;
+            public int Need;
+            public int[] AnyOf;
+        }
+
+        private sealed class GoalStage
+        {
+            public string Key;
+            public string Label;
+            public string Goal;
+            public string Next;
+            public string Why;
+            public bool Strict;      // guard 只管标了 strict 的阶段；其余一律放行
+            public bool World = true; // false = 这一阶段不该动土/建造
+            public readonly List<GoalItem> Checks = new List<GoalItem>();
+            public readonly List<string> Blocked = new List<string>();
+        }
+
+        /// <summary>按优先级列出进度文件可能的位置；显式 path 优先，其次环境变量，再按游戏/进程目录猜。</summary>
+        private static IEnumerable<string> GoalFileCandidates(string explicitPath)
+        {
+            if (!string.IsNullOrWhiteSpace(explicitPath)) { yield return explicitPath; yield break; }
+            string env = null;
+            try { env = Environment.GetEnvironmentVariable("DSH_GOAL_FILE"); } catch { }
+            if (!string.IsNullOrWhiteSpace(env)) yield return env;
+            string docs = null;
+            try
+            {
+                docs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                                    "My Games", "Terraria", "tModLoader");
+            }
+            catch { }
+            if (!string.IsNullOrEmpty(docs))
+            {
+                yield return Path.Combine(docs, "goal-progress.json");
+                yield return Path.Combine(docs, "ModSources", "DshTerrariaBridge", "goal-progress.json");
+            }
+            string cwd = null;
+            try { cwd = Directory.GetCurrentDirectory(); } catch { }
+            if (!string.IsNullOrEmpty(cwd))
+            {
+                yield return Path.Combine(cwd, "goal-progress.json");
+                yield return Path.Combine(cwd, "ModSources", "DshTerrariaBridge", "goal-progress.json");
+            }
+        }
+
+        private static bool TryLoadGoal(JsonElement p, out JsonDocument doc, out string source,
+                                        out List<string> tried, out string err)
+        {
+            doc = null; source = null; err = null;
+            tried = new List<string>();
+            string json = null;
+            foreach (string cand in GoalFileCandidates(Json.Str(p, "path", null)))
+            {
+                try
+                {
+                    if (!File.Exists(cand)) { tried.Add(cand + "（不存在）"); continue; }
+                    json = File.ReadAllText(cand);
+                    source = cand;
+                    break;
+                }
+                catch (Exception e) { tried.Add(cand + "（" + e.GetType().Name + "）"); }
+            }
+            if (json == null)
+            {
+                err = "读不到进度文件 goal-progress.json。试过：" + string.Join("；", tried)
+                    + "。用 intent.path 传绝对路径，或设环境变量 DSH_GOAL_FILE。";
+                return false;
+            }
+            try
+            {
+                doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+                    !doc.RootElement.TryGetProperty("stages", out JsonElement stEl) ||
+                    stEl.ValueKind != JsonValueKind.Object)
+                {
+                    doc.Dispose(); doc = null;
+                    err = "进度文件格式不对：" + source + " 顶层缺少 stages 对象";
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception e)
+            {
+                doc = null;
+                err = "进度文件不是合法 JSON（" + source + "）：" + e.Message;
+                return false;
+            }
+        }
+
+        private static GoalStage ReadStage(JsonElement stages, string key)
+        {
+            if (string.IsNullOrEmpty(key)) return null;
+            if (!stages.TryGetProperty(key, out JsonElement s) || s.ValueKind != JsonValueKind.Object) return null;
+            var st = new GoalStage { Key = key };
+            if (s.TryGetProperty("label", out JsonElement l) && l.ValueKind == JsonValueKind.String) st.Label = l.GetString();
+            if (s.TryGetProperty("goal", out JsonElement g) && g.ValueKind == JsonValueKind.String) st.Goal = g.GetString();
+            if (s.TryGetProperty("next", out JsonElement n) && n.ValueKind == JsonValueKind.String) st.Next = n.GetString();
+            if (s.TryGetProperty("why", out JsonElement w) && w.ValueKind == JsonValueKind.String) st.Why = w.GetString();
+            if (s.TryGetProperty("guard", out JsonElement gd) && gd.ValueKind == JsonValueKind.Object)
+            {
+                st.Strict = gd.TryGetProperty("strict", out JsonElement sv) && sv.ValueKind == JsonValueKind.True;
+                st.World = !(gd.TryGetProperty("world", out JsonElement wv) && wv.ValueKind == JsonValueKind.False);
+            }
+            if (string.IsNullOrEmpty(st.Label)) st.Label = key;
+            if (string.IsNullOrEmpty(st.Goal)) st.Goal = "（goal-progress.json 里 " + key + " 没有写 goal）";
+            if (s.TryGetProperty("checks", out JsonElement cs) && cs.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement c in cs.EnumerateArray())
+                {
+                    if (c.ValueKind != JsonValueKind.Object) continue;
+                    var it = new GoalItem { Need = 1, Label = "" };
+                    if (c.TryGetProperty("id", out JsonElement idv) && idv.ValueKind == JsonValueKind.Number) it.Id = idv.GetInt32();
+                    if (c.TryGetProperty("label", out JsonElement lb) && lb.ValueKind == JsonValueKind.String) it.Label = lb.GetString();
+                    if (c.TryGetProperty("need", out JsonElement nv) && nv.ValueKind == JsonValueKind.Number) it.Need = Math.Max(1, nv.GetInt32());
+                    if (c.TryGetProperty("anyOf", out JsonElement any) && any.ValueKind == JsonValueKind.Array)
+                        it.AnyOf = any.EnumerateArray()
+                                      .Where(x => x.ValueKind == JsonValueKind.Number)
+                                      .Select(x => x.GetInt32()).ToArray();
+                    if (it.Id <= 0) continue;
+                    if (string.IsNullOrEmpty(it.Label)) it.Label = "item " + it.Id;
+                    st.Checks.Add(it);
+                }
+            }
+            if (s.TryGetProperty("blocked", out JsonElement bs) && bs.ValueKind == JsonValueKind.Array)
+                foreach (JsonElement b in bs.EnumerateArray())
+                    if (b.ValueKind == JsonValueKind.String) st.Blocked.Add(b.GetString());
+            return st;
+        }
+
+        /// <summary>背包里这件东西有几个；anyOf 表示"任意一个都算"，取最大值而不是求和。</summary>
+        private static int HaveGoalItem(Player pl, GoalItem it)
+        {
+            int n = CountItem(pl, it.Id);
+            if (it.AnyOf != null)
+                foreach (int alt in it.AnyOf) n = Math.Max(n, CountItem(pl, alt));
+            return n;
+        }
+
+        private static string IntentCommand(JsonElement p)
+        {
+            if (!InWorld(out string werr)) return Json.Error(werr);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            if (!TryLoadGoal(p, out JsonDocument doc, out string source, out List<string> tried, out string loadErr))
+                return Json.Error(loadErr);
+            using (doc)
+            {
+                JsonElement root = doc.RootElement;
+                JsonElement stages = root.GetProperty("stages");
+
+                string stage = root.TryGetProperty("stage", out JsonElement sv) && sv.ValueKind == JsonValueKind.String
+                    ? sv.GetString() : null;
+                var order = new List<string>();
+                if (root.TryGetProperty("stageOrder", out JsonElement ov) && ov.ValueKind == JsonValueKind.Array)
+                    foreach (JsonElement o in ov.EnumerateArray())
+                        if (o.ValueKind == JsonValueKind.String) order.Add(o.GetString());
+                if (string.IsNullOrEmpty(stage) && order.Count > 0) stage = order[0];
+                if (string.IsNullOrEmpty(stage))
+                    return Json.Error("进度文件里 stage 与 stageOrder 都是空的，无法确定当前阶段：" + source);
+                if (order.Count == 0) order.Add(stage);
+
+                GoalStage st = ReadStage(stages, stage);
+                if (st == null)
+                    return Json.Error("进度文件里找不到阶段 \"" + stage + "\"（stageOrder: "
+                                      + string.Join(",", order) + "）：" + source);
+
+                Player pl = P;
+                var advanced = new List<string>();
+                // 判据全满足就往后走一格，只推进连续完成的阶段，绝不跳空。
+                for (int step = 0; step <= order.Count; step++)
+                {
+                    bool allDone = true;
+                    foreach (GoalItem it in st.Checks)
+                        if (HaveGoalItem(pl, it) < it.Need) { allDone = false; break; }
+                    if (!allDone) break;
+                    int idx = order.IndexOf(st.Key);
+                    if (idx < 0 || idx + 1 >= order.Count) break;
+                    GoalStage nxt = ReadStage(stages, order[idx + 1]);
+                    if (nxt == null) break;
+                    advanced.Add(nxt.Key);
+                    st = nxt;
+                }
+
+                var missing = new List<object>();
+                var blockedBy = new List<string>();
+                foreach (GoalItem it in st.Checks)
+                {
+                    int have = HaveGoalItem(pl, it);
+                    if (have >= it.Need) continue;
+                    missing.Add(new { id = it.Id, label = it.Label, have, need = it.Need });
+                    blockedBy.Add("缺 " + it.Label + "（" + it.Id + "）：有 " + have + "，要 " + it.Need);
+                }
+                foreach (string b in st.Blocked) blockedBy.Add(b);
+
+                bool done = missing.Count == 0;
+                int pos = order.IndexOf(st.Key);
+                bool last = pos < 0 || pos + 1 >= order.Count;
+                string suggestedNext = !done
+                    ? (string.IsNullOrEmpty(st.Next) ? "按 checks 补齐：" + string.Join("、", st.Checks.Select(c => c.Label)) : st.Next)
+                    : (last ? "stageOrder 里最后一段也完成了：往 goal-progress.json 的 stages 里加新阶段，再更新 stage"
+                            : "本阶段已完成；下次 intent 会自动推进到 " + order[pos + 1] + "，也可以现在手改 stage");
+                string whyNotOther = !done
+                    ? (string.IsNullOrEmpty(st.Why)
+                        ? "当前阶段的完成判据还没满足，后面的阶段都依赖它——先把这一段补齐，别提前做下一阶段的事"
+                        : st.Why)
+                    : "当前阶段判据已全部满足，重复做这一段不会推进进度";
+
+                return Json.Ok(new
+                {
+                    schema = root.TryGetProperty("schema", out JsonElement sc) && sc.ValueKind == JsonValueKind.Number
+                        ? sc.GetInt32() : 1,
+                    stage = st.Key,
+                    stageLabel = st.Label,
+                    goal = st.Goal,
+                    done,
+                    missing = missing.ToArray(),
+                    blockedBy = blockedBy.ToArray(),
+                    suggestedNext,
+                    whyNotOther,
+                    confidence = 0.95,
+                    advanced = advanced.ToArray(),
+                    stageOrder = order.ToArray(),
+                    source,
+                    hint = "只读：本命令不改文件。按 suggestedNext 做，判据满足后把 goal-progress.json 的 stage 改成下一段。",
+                });
+            }
+        }
+
+        /// <summary>
+        /// 动手前先查 intent。只在调用方显式传 guard:true 时生效（默认 false，保护现有全部调用与测试）；
+        /// 只有阶段自己标了 strict 才可能拦，而且只拦"明显不属于本阶段"的动作——这是提醒，不是锁。
+        /// 读不到进度文件就放行（宁可放过，不因为没有进度表把正常干活挡住）。
+        /// </summary>
+        private static string IntentGuard(JsonElement p, string action, int targetId)
+        {
+            if (!TryLoadGoal(p, out JsonDocument doc, out string source, out _, out _)) return null;
+            using (doc)
+            {
+                JsonElement root = doc.RootElement;
+                if (!root.TryGetProperty("stage", out JsonElement sv) || sv.ValueKind != JsonValueKind.String) return null;
+                GoalStage st = ReadStage(root.GetProperty("stages"), sv.GetString());
+                if (st == null || !st.Strict) return null;
+
+                if (action == "craft")
+                {
+                    foreach (GoalItem it in st.Checks)
+                    {
+                        if (it.Id == targetId) return null;
+                        if (it.AnyOf != null && Array.IndexOf(it.AnyOf, targetId) >= 0) return null;
+                    }
+                    return "当前阶段是「" + st.Label + "」，目标是：" + st.Goal
+                         + "。craft " + targetId + " 不在这一阶段要凑的东西里（判据："
+                         + string.Join("、", st.Checks.Select(c => c.Label + " " + c.Id))
+                         + "）。确认要做就传 guard:false。";
+                }
+                if (!st.World)
+                    return "当前阶段是「" + st.Label + "」，目标是：" + st.Goal
+                         + "。这一阶段不需要动土/建造，" + action + " 先放一放（要强行做传 guard:false）。";
+                return null;
+            }
+        }
+
         private static int CountItem(Player pl, int type)
         {
             int n = 0;
@@ -4779,58 +5149,6 @@ namespace DshTerrariaBridge
         }
 
         /// <summary>Consume one requirement slot, taking exact items first, then group members.</summary>
-        private static int ConsumeRequirement(Player pl, int type, int count, List<HashSet<int>> groups)
-        {
-            int left = count;
-            var order = new List<int> { type };
-            foreach (var set in groups)
-            {
-                if (!set.Contains(type)) continue;
-                foreach (int member in set) if (member != type) order.Add(member);
-            }
-            foreach (int want in order)
-            {
-                for (int i = 0; i < MainBagSlots && left > 0; i++)
-                {
-                    Item it = pl.inventory[i];
-                    if (it.type != want) continue;
-                    int take = Math.Min(it.stack, left);
-                    it.stack -= take; left -= take;
-                    if (it.stack <= 0) it.SetDefaults(0);
-                }
-                if (left <= 0) break;
-            }
-            return count - left;
-        }
-
-        /// <summary>把物品直接塞进背包（先叠加再空格），返回实际放入数量。</summary>
-        private static int AddToInventory(Player pl, int type, int stack)
-        {
-            int maxStack = 9999;
-            try { Item sample = ContentSamples.ItemsByType[type]; if (sample != null && sample.maxStack > 0) maxStack = sample.maxStack; } catch { }
-            int added = 0;
-            for (int i = 0; i < MainBagSlots && stack > 0; i++)
-            {
-                Item it = pl.inventory[i];
-                if (it.type == type && it.stack > 0 && it.stack < maxStack)
-                {
-                    int can = Math.Min(maxStack - it.stack, stack);
-                    it.stack += can; stack -= can; added += can;
-                }
-            }
-            for (int i = 0; i < MainBagSlots && stack > 0; i++)
-            {
-                Item it = pl.inventory[i];
-                if (it.type <= 0)
-                {
-                    it.SetDefaults(type);
-                    it.stack = Math.Min(stack, maxStack);
-                    stack -= it.stack; added += it.stack;
-                }
-            }
-            return added;
-        }
-
         /// <summary>附近是否有配方要求的工作站方块。</summary>
         private static bool HasStation(Player pl, Recipe recipe)
         {
@@ -4862,6 +5180,11 @@ namespace DshTerrariaBridge
             int itemType = Json.Int(p, "item", 0);
             if (itemType <= 0) return Json.Error("craft 需要 item（物品类型 id）");
             if (!ValidItemType(itemType)) return Json.Error($"invalid item type {itemType}: 不是有效的物品 ID");
+            if (Json.Bool(p, "guard", false))
+            {
+                string guarded = IntentGuard(p, "craft", itemType);
+                if (guarded != null) return Json.Error(guarded);
+            }
             int times = Math.Clamp(Json.Int(p, "times", 1), 1, 20);
 
             Player pl = P;
@@ -4928,6 +5251,9 @@ namespace DshTerrariaBridge
                 }
             }
 
+            // 回读验证用：合成前的背包快照
+            int beforeCount = CountItem(pl, itemType);
+
             int crafted = 0;
             int dropped = 0;
             for (int round = 0; round < times; round++)
@@ -4936,29 +5262,38 @@ namespace DshTerrariaBridge
                 {
                     if (CountRequirement(pl, kv.Key, groups) < kv.Value)
                         return crafted > 0
-                            ? Json.Ok(new { item = itemType, name = Lang.GetItemNameValue(itemType), crafted, dropped, times, reason = "材料用完了" })
+                            ? Json.Ok(new { item = itemType, name = Lang.GetItemNameValue(itemType), crafted, dropped, times, before = beforeCount, after = CountItem(pl, itemType), gained = CountItem(pl, itemType) - beforeCount, reason = "材料用完了" })
                             : Json.Error($"材料不足：需要 {Lang.GetItemNameValue(kv.Key)} x{kv.Value}，背包里有 {CountRequirement(pl, kv.Key, groups)}");
                 }
                 if (!HasStation(pl, recipe))
                     return crafted > 0
-                        ? Json.Ok(new { item = itemType, name = Lang.GetItemNameValue(itemType), crafted, dropped, times, reason = "附近没有工作站" })
+                        ? Json.Ok(new { item = itemType, name = Lang.GetItemNameValue(itemType), crafted, dropped, times, before = beforeCount, after = CountItem(pl, itemType), gained = CountItem(pl, itemType) - beforeCount, reason = "附近没有工作站" })
                         : Json.Error("附近没有这个配方需要的工作站（工作台/熔炉/铁砧…）");
 
-                // 扣材料（配方组按"任意成员"结算）
-                foreach (var kv in need) ConsumeRequirement(pl, kv.Key, kv.Value, groups);
-
+                // 走原版合成路径：recipe.Create() 消耗材料（处理配方组、mod 消耗钩子），
+                // 不再手动 it.stack -= take（那是替引擎算结果，违反 AGENTS.md §0.55）。
                 int per = Math.Max(1, recipe.createItem.stack);
-                int added = AddToInventory(pl, itemType, per);
-                // Do not claim the inventory received what actually fell on the floor.
-                if (added < per)
+                recipe.Create();
+
+                // 产物走原版拾取管线 pl.GetItem，不再手动写 inventory。
+                Item product = recipe.createItem.Clone();
+                product.Prefix(-1);
+                try { RecipeLoader.OnCraft(product, recipe, Main.mouseItem); } catch { }
+                Item leftover = pl.GetItem(pl.whoAmI, product, GetItemSettings.PickupItemFromWorld);
+                int remaining = leftover != null ? leftover.stack : 0;
+
+                if (remaining > 0)
                 {
-                    int spill = per - Math.Max(0, added);
-                    pl.QuickSpawnItem(new EntitySource_Misc("dsh-bridge"), itemType, spill);
-                    dropped += spill;
-                    added = Math.Max(0, added);
+                    // 背包满：产物掉在地上，和原版合成 UI 满背包时一样
+                    pl.QuickSpawnItem(new EntitySource_Misc("dsh-bridge"), itemType, remaining);
+                    dropped += remaining;
                 }
-                crafted += added;
+                crafted += per - remaining;
             }
+
+            // 回读验证：用背包前后差确认真的合出来了
+            int afterCount = CountItem(pl, itemType);
+            int gained = afterCount - beforeCount;
 
             return Json.Ok(new
             {
@@ -4969,6 +5304,9 @@ namespace DshTerrariaBridge
                 times,
                 perCraft = Math.Max(1, recipe.createItem.stack),
                 groupsUsed = groups.Count,
+                before = beforeCount,
+                after = afterCount,
+                gained,
             });
         }
 

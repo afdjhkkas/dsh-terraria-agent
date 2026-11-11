@@ -25,6 +25,7 @@
 | 感知 | 按类型找方块 | `find {type,x1,x2,y1,y2,max}` | ✅ |
 | 感知 | 附近生物 | `npc {r}` | ✅ |
 | 感知 | 背包 | `inventory` | ✅ 主背包、货币栏、弹药栏、垃圾桶槽位 |
+| 感知 | 当前该做什么 | `intent {path}` | 🚧 读进度表算 stage/missing/blockedBy；代码已编译、判据有测试，**未做真机验证** |
 | 感知 | 地上掉落物 | `items {r}` | ✅ |
 | 感知 | 玩家列表 | `players` | ✅ |
 | 感知 | 游戏聊天读取 | `chatpoll {since,max}` | 🚧 代码已编译打包，待本轮游戏内验收；设计上只收原版真实发送的完整消息 |
@@ -40,12 +41,12 @@
 | 移动 | 坐骑 | `mount {action}` | ✅ 骑上／下骑都成，失焦下也有效（靠 `preOpenTicks` 预开闸） |
 | 移动 | 飞行 | `fly {ms}` | ✅ 自动选键：翅膀/普通飞行坐骑走跳键、悬停坐骑走上键（回包 `key`/`hovering` 可核对） |
 | 移动 | 飞行·悬停坐骑 | `fly {ms}` | ✅ UFO 类悬停坐骑走**上键**：真机 `key:"up"`、`hovering:true`，地面升 37.71 格、空中再按又升 25.73 格，全程 `wingTime` 不消耗 |
-| 挖掘 | 真实挥镐挖一格 | `mine {x,y,ms}` | ✅ |
+| 挖掘 | 真实挥镐挖一格 | `mine {x,y,ms,guard}` | ✅ |
 | 挖掘 | 挥锤拆方块 | `removeblock {x,y,ms}` | ✅ |
-| 建造 | 放一格方块 | `place {x,y,type,ms}` | ✅ |
+| 建造 | 放一格方块 | `place {x,y,type,ms,guard}` | ✅ |
 | 建造 | 放墙 | `wall {x,y,type,ms,remove}` | ✅ |
 | 建造 | 矩形铺地 | `fill {x1,y1,x2,y2,type}` | ⚠️ 需支撑、自下而上、≤400 格 |
-| 物品 | 制作 | `craft {item,times}` | ⚠️必须贴近工作站 |
+| 物品 | 制作 | `craft {item,times,guard}` | ⚠️必须贴近工作站 |
 | 物品 | 丢弃 / 拾取 | `drop {slot,count}` / `grab {r}` | ✅ |
 | 物品 | 箱子 | `chest {action,slot,count}` | 🚧 箱子未建，未实测 |
 | 物品 | 穿护甲 / 饰品 | `equip {slot}` / `accessory {slot,from,off}` | ✅ |
@@ -69,6 +70,44 @@
 ---
 
 ## 1. 感知
+
+### `intent` — 当前该做什么（读进度表，只读）
+
+给"新开一个对话，不知道现在该干什么"用。它不推理，只做三件事：读进度表 → 数背包 → 算缺口。
+
+```json
+{"cmd":"intent","params":{}}
+→ {"ok":true,"data":{
+    "stage":"iron_gear","stageLabel":"铁器时代","goal":"做铁砧+铁阔剑",
+    "done":false,
+    "missing":[{"id":22,"label":"铁锭","have":2,"need":6}],
+    "blockedBy":["缺 铁锭（22）：有 2，要 6","铁锭要熔炉，熔炉要先有 20 石头 + 3 火把"],
+    "suggestedNext":"挖铁矿 → 熔炉烧成铁锭 → 做铁砧 → 做铁阔剑",
+    "whyNotOther":"骷髅王/克苏鲁之眼前置是铁器，现在打不动",
+    "confidence":0.95,"advanced":[],"stageOrder":["wood","iron_gear","eye_of_cthulhu","evil_boss"],
+    "source":"C:\\...\\goal-progress.json"}}
+```
+
+- **数据源**：`goal-progress.json`（字段 `stage` / `stageOrder` / `stages{goal,checks,blocked,next,guard}`）。
+  查找顺序：`intent {path}` 显式 → 环境变量 `DSH_GOAL_FILE` → `My Games/Terraria/tModLoader/goal-progress.json`
+  → 同目录 `ModSources/DshTerrariaBridge/goal-progress.json` → 进程工作目录下同名文件。
+- **判据**：`checks` 逐条比对背包数量，字段名是 `type`（不是 `id`）。`anyOf` 表示"任意一个都算"，取最大值、不求和。
+- **自动推进**：当前阶段判据全满足 → 沿 `stageOrder` 往后挪一格并记进 `advanced`。**只在内存里推进，不写文件**；
+  要让下次开局看到新阶段，得自己改 `goal-progress.json` 的 `stage`。
+- **失败就说失败**：文件读不到 / JSON 不合法 / 顶层缺 `stages` → `ok:false` + 试过的路径清单，不猜。
+- **纯只读**：不开状态机、不切槽、不写世界、不写文件，一帧算完。
+
+### `guard` — 动手前先问一句"这属于当前阶段吗"
+
+`mine` / `place` / `craft` 三条各有可选参数 `guard`（**默认 false**，不写就是老行为）。
+
+```json
+{"cmd":"mine","params":{"x":2100,"y":300,"guard":true}}
+→ {"ok":false,"error":"当前阶段是「铁器时代」，目标是：做铁砧+铁阔剑。挖 猩红石(203) 不属于这一步。"}
+```
+
+- 只有阶段里写了 `"guard":{"strict":true}` 才拦合成品；`"guard":{"world":false}` 表示这一阶段不动世界，mine/place 直接拦。
+- 是**提醒不是锁死**：`guard:false` 或干脆不传，照样执行。判据宁可放过，不误拦。
 
 ### `state` — 角色 + 世界
 

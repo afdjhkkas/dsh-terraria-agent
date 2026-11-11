@@ -4,7 +4,7 @@
 > 元自检的第 4、5 维（动作原语 / 状态读取）就是拿这张表对照的：
 > 表里没有的接口和命令，一律视为不存在，不许在计划里使用。
 
-## 一、状态读取能力（48 个命令）
+## 一、状态读取能力（50 个命令）
 
 | 命令 | 能读到什么（返回值顶层字段） |
 |---|---|
@@ -23,6 +23,7 @@
 | `housing` | `townNPCs` |
 | `humaninput` | `inWorld` `tick` `paused` `focus` `playerIndex` `inputDiag` `control` `left` `right` `up` `down` `jump` `useItem` `useTile` `grapple` `mount` |
 | `idmap` | `rows` `schema` |
+| `intent` | `schema` `stage` `stageLabel` `goal` `missing` `blockedBy` `confidence` `advanced` `stageOrder` `hint` |
 | `inventory` | `selected` `count` `free` `freeMain` `freeAll` `items` `special` `coinSlots` `ammoSlots` `trashSlot` `equipment` `miscEquips` `canFly` |
 | `items` | `count` `items` |
 | `keyevents` | `lastTick` `count` `time` `stride` |
@@ -35,6 +36,7 @@
 | `path` | `from` |
 | `ping` | — |
 | `players` | `count` `players` |
+| `probe` | `from` |
 | `props` | `enumName` `name` `createTile` `createWall` `pick` `axe` `hammer` `damage` `maxStack` `headSlot` `bodySlot` `legSlot` `waistSlot` `accessory` `wingSlot` `mountType` `shoot` `buffType` `healLife` `healMana` `potion` `ammo` `useAmmo` `consumable` `useStyle` `solid` `solidTop` `tileMerge` `platform` `rope` `townNPC` `boss` `lifeMax` `aiStyle` `catchItem` `critter` |
 | `quest` | `anglerPresent` `note` |
 | `recipes` | `count` `recipes` |
@@ -69,7 +71,7 @@
 | `chat` | `text` | — |
 | `chatpost` | — | — |
 | `climb` | `dir` `ms` `tiles` | — |
-| `craft` | `item` `times` | — |
+| `craft` | `item` `guard` `times` | — |
 | `dialog` | `text` `path` `max` `maxLen` | — |
 | `drop` | `slot` `count` | — |
 | `duplicate` | `item` `count` | — |
@@ -86,12 +88,12 @@
 | `jump` | `ms` `moveMs` `count` | — |
 | `key` | `key` `ms` | — |
 | `liquidop` | `x` `y` `ms` | — |
-| `mine` | `x` `y` `ms` | — |
+| `mine` | `x` `y` `guard` `ms` | — |
 | `minion` | `slot` | — |
 | `mirror` | — | — |
 | `move` | `dir` `ms` `tiles` | — |
 | `moveto` | `x` `ms` | — |
-| `place` | `x` `y` `type` `ms` | — |
+| `place` | `x` `y` `type` `ms` `guard` | — |
 | `reel` | `ms` | — |
 | `removeblock` | `x` `y` `ms` | — |
 | `save` | — | — |

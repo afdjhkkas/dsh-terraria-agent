@@ -123,7 +123,8 @@ test('从 Commands.cs 抽出的命令表包含关键命令且参数正确', asyn
   for (const name of ['mine', 'place', 'state', 'scan', 'homeroom', 'roomcheck']) {
     assert.ok(byName.has(name), `命令表里缺 ${name}`)
   }
-  assert.deepEqual(byName.get('place').sort(), ['ms', 'type', 'x', 'y'])
+  // guard 是 mine/place/craft 共有的可选闸门参数（默认 false，不传就当没开），所以 place 的参数表里必须看得见它。
+  assert.deepEqual(byName.get('place').sort(), ['guard', 'ms', 'type', 'x', 'y'])
   assert.deepEqual(byName.get('homeroom').sort(), ['who', 'x', 'y'])
   assert.ok(cmds.length >= 50, `命令数量异常: ${cmds.length}`)
 })
