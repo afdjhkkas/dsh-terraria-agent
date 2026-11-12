@@ -31,7 +31,7 @@
 | 感知 | 游戏聊天读取 | `chatpoll {since,max}` | 🚧 代码已编译打包，待本轮游戏内验收；设计上只收原版真实发送的完整消息 |
 | 感知 | Boss / 事件状态 | `boss` / `event` | ✅ |
 | 感知 | 房屋判定 | `housing {x,y}` / `needs {x,y}` | ✅ |
-| 移动 | 逐帧方向控制 | `move {dir,ms}` / `jump {ms}` | ✅ |
+| 移动 | 逐帧方向控制 | `move {dir,ms,terrain,force}` / `jump {ms,tiles,count}` | ✅ `move` 会先预走一遍地形，见 §1 的地形闸门 |
 | 移动 | 爬绳 | `climb {dir,ms}` | ⚠️ 仅绳子 |
 | 移动 | 走到坐标 | `walkto {x,y,tol,ms}` | ⚠️ 平坦可用 |
 | 移动 | A* 寻路 | `path {x,y,ms,dig}` | ⚠️ 空腔竖井会死锁 |
@@ -228,7 +228,7 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 
 | 命令 | 说明 | 证据 / 限制 |
 |---|---|---|
-| `move {dir,ms}` | 按住原版方向键输入（速度、碰撞和台阶由游戏计算）；脚底真在绳上时先按下脱绳，再开始左右动作 | 1.4 秒顶墙位置不变，证明碰撞生效；脱绳过程看 `ropeRelease`；无绳/无翅膀时 `up` 只报告输入已发出，不承诺垂直位移 |
+| `move {dir,ms}` | 按住原版方向键输入（速度、碰撞和台阶由游戏计算）；脚底真在绳上时先按下脱绳，再开始左右动作。**发出前先沿 dir 预走一遍地形**（`terrain` 默认 true）：遇到 >2 格落差直接拒绝并给出 jump / 绕 / 搭桥三个选项，`force:true` 可硬走 | 1.4 秒顶墙位置不变，证明碰撞生效；脱绳过程看 `ropeRelease`；无绳/无翅膀时 `up` 只报告输入已发出，不承诺垂直位移 |
 | `moveto {x,ms}` | 位置闭环控制：读取原版位置/速度，按实测惯性距离提前松开方向键，必要时用反向原版输入修正 | 读 `state.exact`；只有 `active:false, stopReason:"arrived"` 且位置误差 ≤ 0.08 格、速度 ≤ 0.12 才算到位；`blocked` 表示连续 45 帧几乎不动 |
 | `jump {ms}` | 按住原版跳跃键输入（高度由按住时长和游戏物理决定）；脚底真在绳上时先按下脱绳，再开始跳跃 | 起跳/上台阶；控制证据看 `state.flagJump` |
 | `climb {dir,ms}` | **只在脚底真实绳格上**才生效；身体中段碰到绳不算挂绳 | `ropeContact.onRopeReal` 与 `tileFeetType` 先确认，再看纵坐标回读 |

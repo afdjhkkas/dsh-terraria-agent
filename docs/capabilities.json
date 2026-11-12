@@ -412,6 +412,7 @@
       "params": [
         "off",
         "action",
+        "auto",
         "ms",
         "r"
       ],
@@ -420,6 +421,7 @@
         "note",
         "untilTick",
         "radius",
+        "auto",
         "hostileInRange",
         "weaponSlot",
         "weapon"
@@ -796,7 +798,9 @@
       "params": [
         "dir",
         "ms",
-        "tiles"
+        "tiles",
+        "force",
+        "terrain"
       ],
       "returns": [
         "untilTick",
@@ -804,7 +808,8 @@
         "deferred",
         "ropeRelease",
         "note",
-        "inputOnly"
+        "inputOnly",
+        "terrainHint"
       ],
       "summary": ""
     },

@@ -1753,7 +1753,7 @@ namespace DshTerrariaBridge
 
         // ── 寻路的四个判定（与 src/path-model.js 一一对应，改一处必须同步改另一处） ──
         /// <summary>身体两格都能站人（门算能过）</summary>
-        private static bool PathBodyFree(int x, int y)
+        internal static bool PathBodyFree(int x, int y)
         {
             bool ok(int yy)
             {
@@ -1768,7 +1768,7 @@ namespace DshTerrariaBridge
         /// 门必须单独放行：门占 3 格高且自身不算可站立面，站在门格里时
         /// 脚下 1~2 格都还是门，真正的地板在门下方 —— 只查 y+1 会让所有门口
         /// 变成"无地可站"，于是 A* 连"从房里原路走出门"都算不出来（m17619 离线复现 NO PATH）。</summary>
-        private static bool PathFloorAt(int x, int y)
+        internal static bool PathFloorAt(int x, int y)
         {
             for (int k = 1; k <= 4; k++)
             {
@@ -3699,6 +3699,10 @@ namespace DshTerrariaBridge
         // 默认关：用户明确要求删掉"自动打怪"这种会干扰实验的自动行为。
         // 需要打架就显式发 guard {ms}，它只在这段时间内生效，不会自己续命。
         internal static volatile bool GuardDefault = false;
+        /// <summary>自动续期。默认关（用户要求过不要自动打怪），由 guard {auto:true} 显式打开；
+        /// 开了之后一直续到 guard {off:true}。这是“怪贴脸了还在发呆”的直接原因：
+        /// Guardian 只在 GuardUntil 有效期内工作，而 AI 很少记得每次重新开。</summary>
+        internal static volatile bool GuardAuto;
         internal static bool GuardEngaged;
         internal static volatile bool HookHeld;
         // 钩子弹幕朝**鼠标世界坐标**飞（原版用 Main.MouseWorld 算方向），不是朝 tileTargetX/Y。
@@ -3894,9 +3898,15 @@ namespace DshTerrariaBridge
             // 不再自动续期：guard 只在命令给的时长内有效（用户要求删掉自动打怪）。
             if (GuardUntil <= now)
             {
-                if (GuardEngaged) { GuardEngaged = false; GuardLastTarget = -1; }
-                GuardPrevAnim = 0;
-                return;
+                if (!GuardAuto)
+                {
+                    if (GuardEngaged) { GuardEngaged = false; GuardLastTarget = -1; }
+                    GuardPrevAnim = 0;
+                    return;
+                }
+                // auto 打开：每 30 秒续一次，直到显式关闭。这不是“自动打怪开关”，
+                // 它只在威胁进入半径且有视线时才会挥，和平常一样。
+                GuardUntil = now + Ticks(30000);
             }
             if (GuardPrevAnim > 0 && p.itemAnimation == 0) GuardSwings++;
             GuardPrevAnim = p.itemAnimation;

@@ -34,7 +34,7 @@
 | `grab` | `r` |
 | `grapple` | `x` `y` `ms` |
 | `gravity` | — |
-| `guard` | `off` `action` `ms` `r` |
+| `guard` | `off` `action` `auto` `ms` `r` |
 | `heal` | — |
 | `help` | — |
 | `homeroom` | `x` `y` `who` |
@@ -59,7 +59,7 @@
 | `minion` | `slot` |
 | `mirror` | — |
 | `mount` | `action` `ticks` `slot` |
-| `move` | `dir` `ms` `tiles` |
+| `move` | `dir` `ms` `tiles` `force` `terrain` |
 | `moveto` | `x` `ms` |
 | `navrules` | `reload` |
 | `needs` | `x` `y` |

@@ -56,7 +56,7 @@
 | `walkdiff` | `dual` `newRule` `newPriority` `newKind` `oldRule` `oldKind` `same` |
 | `walkmode` | `useNew` `reactive` `dual` |
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
-| `guard` | `off` `note` `untilTick` `radius` `hostileInRange` `weaponSlot` `weapon` |
+| `guard` | `off` `note` `untilTick` `radius` `auto` `hostileInRange` `weaponSlot` `weapon` |
 | `mount` | `activeAfter` `queued` `untilTick` `preOpenTicks` `note` `mountSlot` `mountItem` `held` `action` `active` `type` `flight` `items` |
 
 ## 二、动作能力（50 个命令）
@@ -91,7 +91,7 @@
 | `mine` | `x` `y` `guard` `ms` | — |
 | `minion` | `slot` | — |
 | `mirror` | — | — |
-| `move` | `dir` `ms` `tiles` | — |
+| `move` | `dir` `ms` `tiles` `force` `terrain` | — |
 | `moveto` | `x` `ms` | — |
 | `place` | `x` `y` `type` `ms` `guard` | — |
 | `reel` | `ms` | — |
@@ -111,7 +111,7 @@
 | `walkto` | `x` `y` `tol` `ms` `dig` | — |
 | `wall` | `x` `y` `type` `remove` `ms` | — |
 | `chest` | `action` `slot` `count` `invSlot` | — |
-| `guard` | `off` `action` `ms` `r` | — |
+| `guard` | `off` `action` `auto` `ms` `r` | — |
 | `mount` | `action` `ticks` `slot` | — |
 
 ## 三、明确做不到的（做计划前先看这里）

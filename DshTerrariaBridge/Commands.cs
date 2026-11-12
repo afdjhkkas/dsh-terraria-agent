@@ -848,6 +848,7 @@ namespace DshTerrariaBridge
                 {
                     active = BridgeSystem.GuardUntil > BridgeSystem.Now,
                     guardDefault = BridgeSystem.GuardDefault,
+                    auto = BridgeSystem.GuardAuto,
                     resetReason = BridgeSystem.LastResetReason,
                     resetCount = BridgeSystem.ResetCount,
                     latched = new
@@ -964,6 +965,140 @@ namespace DshTerrariaBridge
 
         /* ── 世界读写 ─────────────────────────────────────────────────── */
 
+        /* ── 区域分析：把 96×96 格压成十几行结论 ────────────────────────
+         * 为什么需要它：原始 tile 网格给模型消费不起（上万 token、几十秒），
+         * 但"我在什么地方、能不能出去、怪在哪"是几十毫秒能算完的。
+         * 算法是一次 BFS：从玩家位置出发，只走身体放得下的格子，
+         * 数可达格数、找接触扫描边界的缺口、量头顶和脚下的空间。
+         * 只读：不改任何 tile，不写任何东西。
+         */
+        private static string RegionReport(int cx, int cy, int r)
+        {
+            int x0 = cx - r, y0 = cy - r, side = r * 2 + 1;
+            if (cx < 0 || cy < 0 || cx >= Main.maxTilesX || cy >= Main.maxTilesY)
+                return Json.Error($"坐标超出世界范围：({cx},{cy})");
+
+            var seen = new bool[side, side];
+            var q = new Queue<int>();
+            int sx = cx - x0, sy = cy - y0;
+            if (sx >= 0 && sy >= 0 && sx < side && sy < side && BridgeSystem.PathBodyFree(cx, cy))
+            {
+                seen[sy, sx] = true;
+                q.Enqueue(sy * side + sx);
+            }
+
+            int cells = 0, standable = 0;
+            int minI = side, maxI = -1, minJ = side, maxJ = -1;
+            while (q.Count > 0)
+            {
+                int id = q.Dequeue();
+                int j = id / side, i = id % side;
+                int x = x0 + i, y = y0 + j;
+                cells++;
+                if (BridgeSystem.PathFloorAt(x, y)) standable++;
+                if (i < minI) minI = i;
+                if (i > maxI) maxI = i;
+                if (j < minJ) minJ = j;
+                if (j > maxJ) maxJ = j;
+
+                foreach (int d in new[] { -1, 1, -side, side })
+                {
+                    int nid = id + d;
+                    if (nid < 0 || nid >= side * side) continue;
+                    int nj = nid / side, ni = nid % side;
+                    // 只走上下左右，且不许跨行首尾相接
+                    if (d == -1 && ni == side - 1) continue;
+                    if (d == 1 && ni == 0) continue;
+                    if (seen[nj, ni]) continue;
+                    if (!BridgeSystem.PathBodyFree(x0 + ni, y0 + nj)) continue;
+                    seen[nj, ni] = true;
+                    q.Enqueue(nid);
+                }
+            }
+
+            // 出口 = 可达集合碰到扫描边界的地方。碰到边界说明这个空间没有在
+            // 扫描范围内被围住，是通向外面的缺口。
+            var exits = new List<object>();
+            int touchL = 0, touchR = 0, touchU = 0, touchD = 0;
+            for (int j = 0; j < side; j++)
+            {
+                for (int i = 0; i < side; i++)
+                {
+                    if (!seen[j, i]) continue;
+                    if (i == 0) touchL++;
+                    if (i == side - 1) touchR++;
+                    if (j == 0) touchU++;
+                    if (j == side - 1) touchD++;
+                }
+            }
+            if (touchL > 0) exits.Add(new { dir = "left", cells = touchL, dist = minI });
+            if (touchR > 0) exits.Add(new { dir = "right", cells = touchR, dist = side - 1 - maxI });
+            if (touchU > 0) exits.Add(new { dir = "up", cells = touchU, dist = minJ });
+            if (touchD > 0) exits.Add(new { dir = "down", cells = touchD, dist = side - 1 - maxJ });
+
+            // 脚下有多深（连续没有站脚面），头顶有多高
+            int depthBelow = 0;
+            for (int k = 1; k <= 40; k++)
+            {
+                int y = cy + k;
+                if (y >= Main.maxTilesY) break;
+                if (!BridgeSystem.PathBodyFree(cx, y)) break;
+                depthBelow++;
+                if (BridgeSystem.PathFloorAt(cx, y)) break;
+            }
+            int ceilingAbove = 0;
+            for (int k = 1; k <= 24; k++)
+            {
+                int y = cy - k;
+                if (y < 0) break;
+                if (!BridgeSystem.PathBodyFree(cx, y)) break;
+                ceilingAbove++;
+            }
+
+            bool enclosed = exits.Count == 0;
+            string verdict =
+                !enclosed ? "open" :
+                depthBelow >= 3 ? "closed_pit" :
+                cells <= 12 ? "trapped" : "closed_room";
+
+            // 威胁：半径内活着的、非友方、非小动物
+            Player pl = P;
+            var threats = new List<object>();
+            if (pl != null && pl.active)
+            {
+                for (int i = 0; i < Main.maxNPCs; i++)
+                {
+                    NPC n = Main.npc[i];
+                    if (n == null || !n.active || n.friendly || n.townNPC || n.CountsAsACritter) continue;
+                    int nx = (int)(n.Center.X / 16f), ny = (int)(n.Center.Y / 16f);
+                    int dx = nx - cx, dy = ny - cy;
+                    int dist = (int)System.Math.Round(System.Math.Sqrt(dx * dx + dy * dy));
+                    if (dist > r) continue;
+                    threats.Add(new
+                    {
+                        name = n.FullName, who = i, at = new[] { nx, ny }, dist,
+                        hp = n.life,
+                        incoming = n.velocity.Length() > 0.2f && (n.velocity.X * -dx + n.velocity.Y * -dy) > 0,
+                    });
+                }
+            }
+
+            return Json.Ok(new
+            {
+                at = new[] { cx, cy },
+                radius = r,
+                cells,
+                standable,
+                enclosed,
+                verdict,
+                exits,
+                depthBelow,
+                ceilingAbove,
+                threats,
+                note = "cells/standable 是玩家当前位置能连通的格子数；enclosed=true 表示扫描范围内没找到出口",
+            });
+        }
+
         private static string Scan(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
@@ -975,7 +1110,8 @@ namespace DshTerrariaBridge
             int r = Math.Clamp(Json.Int(p, "r", 12), 1, 48);
             bool withWalls = Json.Bool(p, "walls", true);
             string format = (Json.Str(p, "format", "rows") ?? "rows").Trim().ToLowerInvariant();
-            if (format != "rows" && format != "ascii" && format != "rle") format = "rows";
+            if (format != "rows" && format != "ascii" && format != "rle" && format != "regions") format = "rows";
+            if (format == "regions") return RegionReport(cx, cy, r);
 
             int x0 = cx - r, y0 = cy - r, w = r * 2 + 1, h = r * 2 + 1;
             var tiles = new Tile[h, w];
@@ -3810,6 +3946,43 @@ namespace DshTerrariaBridge
             return Json.Ok(new { from = MathF.Round(from, 2), target = x, delta = MathF.Round(x - from, 2), ms });
         }
 
+        /// <summary>
+        /// 只读：沿 dir 预走 steps 格，看会不会撞墙/掉坑。判据和 probe 完全一致，
+        /// 只是搬进 move 里当闸门——规则只写在提示词里，AI 长对话里必忘；
+        /// 写进命令里，它想忘也忘不掉（§0.57 的坑就是"发出去才发现人已经掉下去了"）。
+        /// 返回 false 时 issue 是 blocked / pit_N_deep / pit_deep，
+        /// reach = 安全走到的列数，drop = 那个断崖的落差格数。
+        /// </summary>
+        private static bool TerrainAhead(Player pl, string dir, int steps, out int reach, out string issue, out int drop)
+        {
+            reach = 0; issue = "none"; drop = 0;
+            int px = (int)(pl.Center.X / 16f), py = (int)(pl.Center.Y / 16f);
+            int dx = dir == "right" ? 1 : -1;
+            for (int i = 1; i <= steps; i++)
+            {
+                int nx = px + dx * i, ny = py;
+                if (!BridgeSystem.PathBodyFree(nx, ny)) { issue = "blocked"; return false; }
+                if (!BridgeSystem.PathFloorAt(nx, ny))
+                {
+                    bool found = false;
+                    int d = 0;
+                    for (int down = 1; down <= 14; down++)
+                    {
+                        if (BridgeSystem.PathBodyFree(nx, ny + down) && BridgeSystem.PathFloorAt(nx, ny + down))
+                        {
+                            d = down; found = true; break;
+                        }
+                    }
+                    if (!found) { drop = 14; issue = "pit_deep"; return false; }
+                    // AGENTS §0.57：落差 >2 格且朝下＝悬崖，不许走过去；1~2 格人自己会走下去。
+                    if (d > 2) { drop = d; issue = "pit_" + d + "_deep"; return false; }
+                    ny += d;
+                }
+                reach = i;
+            }
+            return true;
+        }
+
         private static string Move(JsonElement p)
         {
             if (!InWorld(out string err)) return Json.Error(err);
@@ -3839,6 +4012,27 @@ namespace DshTerrariaBridge
                     tick = BridgeSystem.Now, deferred = true, ropeRelease = true,
                     note = "脚底在绳上：直接执行（原版在绳子上的横向/竖直输入本就有效，不再按 Down 脱绳）",
                 });
+            }
+            // 地形闸门：ms 长到会走出好几格时，先预走一遍再决定给不给走。
+            // 病根是"摔下去回包也 ok:true"——AI 看到 ok 就以为走成了，实际人已经掉到坑底。
+            // terrain 默认开；force:true 或 terrain:false 可以照走（人自己判断的时候用）。
+            bool forceMove = Json.Bool(p, "force", false) || !Json.Bool(p, "terrain", true);
+            string terrainNote = null;
+            if (!forceMove && (dir == "left" || dir == "right") && (ms >= 300 || tiles > 0))
+            {
+                int lookAhead = tiles > 0
+                    ? Math.Clamp((int)Math.Ceiling(tiles) + 1, 3, 24)
+                    : Math.Clamp(ms / 200, 3, 12);
+                if (!TerrainAhead(P, dir, lookAhead, out int reach, out string tIssue, out int tDrop))
+                {
+                    if (tIssue.StartsWith("pit_"))
+                    {
+                        return Json.Error(
+                            $"前方第 {reach + 1} 列是 {tDrop} 格深的落差，这一步（{dir} {ms}ms）会一路走进去摔下去。" +
+                            "可选：jump 跳过去 ／ 换方向绕 ／ place 搭桥；确认要走就传 force:true。");
+                    }
+                    terrainNote = $"前方第 {reach + 1} 列被挡（{tIssue}），走到那里会停住";
+                }
             }
             switch (dir)
             {
@@ -3877,6 +4071,7 @@ namespace DshTerrariaBridge
             {
                 dir, ms, from, untilTick = until, tick = BridgeSystem.Now,
                 inputOnly = upInputOnly,
+                terrainHint = terrainNote,
                 note = upInputOnly ? "上键已按下；当前无绳、无翅膀、未骑乘，原版不会产生垂直位移" : null,
             });
         }
@@ -4197,11 +4392,15 @@ namespace DshTerrariaBridge
             if (Json.Bool(p, "off", false) || string.Equals(Json.Str(p, "action", ""), "off", StringComparison.OrdinalIgnoreCase))
             {
                 BridgeSystem.GuardDefault = false;
+                BridgeSystem.GuardAuto = false;
                 BridgeSystem.GuardUntil = 0;
                 BridgeSystem.GuardEngaged = false;
                 return Json.Ok(new { off = true, note = "自动防守已关闭（guard 不带 off 可再打开）" });
             }
             BridgeSystem.GuardDefault = true;
+            // auto:true = 到点自己续期，一直续到 off。默认关，保持“不自动打怪”的老行为；
+            // 打开它才解决“命令早返回、AI 之后在想事，怪贴脸却没人还手”。
+            BridgeSystem.GuardAuto = Json.Bool(p, "auto", false);
             int ms = Math.Clamp(Json.Int(p, "ms", 60000), 500, 1800000);
             int r = Math.Clamp(Json.Int(p, "r", 14), 4, 60);
             BridgeSystem.GuardUntil = BridgeSystem.Now + BridgeSystem.Ticks(ms);
@@ -4222,6 +4421,7 @@ namespace DshTerrariaBridge
                 untilTick = BridgeSystem.GuardUntil,
                 radius = r,
                 ms,
+                auto = BridgeSystem.GuardAuto,
                 hostileInRange = hostile,
                 weaponSlot = slot,
                 weapon = new { type = pl.inventory[slot].type, name = pl.inventory[slot].Name },
