@@ -4491,6 +4491,7 @@ namespace DshTerrariaBridge
             BridgeSystem.EscapeStartReach = reach;
             BridgeSystem.EscapeBestReach = reach;
             BridgeSystem.EscapeStalls = 0;
+            BridgeSystem.EscapeHits = 0;
             BridgeSystem.EscapeJumps = 0;
             BridgeSystem.EscapeSteps = 0;
             BridgeSystem.EscapeNextEval = 0;

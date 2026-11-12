@@ -158,11 +158,23 @@ namespace DshTerrariaBridge
                 modRef?.Logger.Error($"[dsh] bridge could not listen on 127.0.0.1:{Port}: {e.Message}. "
                     + "Another program may already use that port; DSH Terraria tools will be unavailable this session.");
             }
+
+            // 启动 WebSocket 服务（推送实时状态变化）
+            try
+            {
+                WebSocketServer.Start();
+                modRef?.Logger.Info("[dsh] WebSocket server started on ws://127.0.0.1:47778");
+            }
+            catch (Exception e)
+            {
+                modRef?.Logger.Error($"[dsh] WebSocket server failed to start: {e.Message}");
+            }
         }
 
         public override void Unload()
         {
             running = false;
+            WebSocketServer.Stop();
             try { listener?.Stop(); } catch { }
             listener = null;
             lock (pending)
@@ -985,6 +997,7 @@ namespace DshTerrariaBridge
             TickTravel();
             DrainPending();
             ApplyTalkInputAfterZoom();
+            WebSocketServer.Update();  // 推送实时状态变化
         }
 
 
@@ -3717,7 +3730,7 @@ namespace DshTerrariaBridge
         internal static bool EscapeActive;
         internal static ulong EscapeUntil, EscapeNextEval;
         internal static int EscapeStartY, EscapeStartReach, EscapeBestReach;
-        internal static int EscapeStalls, EscapeJumps, EscapeSteps;
+        internal static int EscapeStalls, EscapeJumps, EscapeSteps, EscapeHits;
         internal static string EscapeStatus = "idle", EscapeReason = "";
         internal static bool GuardEngaged;
         internal static volatile bool HookHeld;
@@ -4066,16 +4079,21 @@ namespace DshTerrariaBridge
             EscapeNextEval = now + 25;   // 约 0.4 秒评估一次，够快也不烧帧
 
             int tx = (int)(p.Center.X / 16f), ty = (int)(p.Center.Y / 16f);
-            bool grounded = Math.Abs(p.velocity.Y) < 0.6f;
+            // 站稳 = 速度≈0 **且脚下一格是实心**。只看速度不够：真机上跳到坑顶的顶点速度
+            // 正好是 0，被判成 escaped，0.4 秒后又掉回坑底，报了个假成功。
+            bool grounded = Math.Abs(p.velocity.Y) < 0.6f && TileSolid(tx, ty + 1);
             int reach = EscapeReach(tx, ty, 8);
 
             if (reach > EscapeBestReach + 4) { EscapeBestReach = reach; EscapeStalls = 0; }
             else EscapeStalls++;
 
-            // 出来了吗：比起点高 2 格且站稳，或者可达范围明显变大
-            if ((ty <= EscapeStartY - 2 && grounded) || reach >= EscapeStartReach + 10)
+            // 出来了吗：比起点高 2 格且站稳，或者可达范围明显变大。
+            // 还要连续两次评估都成立（约 0.8 秒）才算——一次采样会被"跳起来那一瞬"骗到。
+            bool outNow = (ty <= EscapeStartY - 2 && grounded) || reach >= EscapeStartReach + 10;
+            if (outNow) EscapeHits++; else EscapeHits = 0;
+            if (EscapeHits >= 2)
             {
-                EscapeFinish("escaped", $"高度 {EscapeStartY} → {ty}，可达 {EscapeStartReach} → {reach} 格");
+                EscapeFinish("escaped", $"高度 {EscapeStartY} → {ty}，可达 {EscapeStartReach} → {reach} 格（连续 2 次评估都站稳）");
                 return;
             }
             if (EscapeStalls >= 60)

@@ -107,3 +107,15 @@ test('开阔地不该开局自救，直接说清楚', () => {
   assert.match(body, /你现在不在坑里/, '拒绝时要说明为什么')
   assert.match(body, /要走路用 move[\s\S]{0,40}要上台阶用 jump/, '要给出正确的替代命令')
 })
+
+// 真机踩到的第二个坑：往左走 7 格掉进坑，escape 连跑两次都回 escaped，
+// 但每次结束后人还在坑底（report 的 nowY 一直是 287）。
+// 根因是"站稳"只判了 velocity.Y≈0——跳到顶点那一瞬速度正好是 0。
+test('站稳要脚踩实心，且连续两次评估才算出来', () => {
+  const body = escapeBody()
+  assert.match(body, /TileSolid\(tx, ty \+ 1\)/, '站稳必须检查脚下一格是实心')
+  assert.match(body, /Math\.Abs\(p\.velocity\.Y\) < 0\.6f && TileSolid/, '速度与脚下是 and 关系')
+  assert.match(body, /EscapeHits\+\+/, '要有连续计数')
+  assert.match(body, /EscapeHits >= 2/, '连续两次才判 escaped')
+  assert.match(body, /else EscapeHits = 0/, '不满足要归零')
+})
