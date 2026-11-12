@@ -2979,6 +2979,7 @@ namespace DshTerrariaBridge
             if (p == null || !p.active) return;
 
             ApplyGuard(p, now);
+            ApplyEscape(p, now);
             // 坐骑输出不在这里：见 PostUpdateInput 的 ApplyBridgeTrigger(QuickMount)。
             if (UseUntil > now)
             {
@@ -3703,6 +3704,21 @@ namespace DshTerrariaBridge
         /// 开了之后一直续到 guard {off:true}。这是“怪贴脸了还在发呆”的直接原因：
         /// Guardian 只在 GuardUntil 有效期内工作，而 AI 很少记得每次重新开。</summary>
         internal static volatile bool GuardAuto;
+
+        // ── escape：掉坑/卡死的闭环自救 ──────────────────────────────────────
+        // 由 escape 命令启动，之后每 tick 自己判断、自己动，直到确认脱困或判定出不来。
+        // 为什么不做成"命令里循环"：游戏需要 60Hz 判断，而命令一次只跑一帧就返回，
+        // 中间那几秒没人管 —— 掉坑里一小时出不来就是这么来的。
+        // 判据（三条都可算，不猜）：
+        //   ① 站稳       velocity.Y ≈ 0 且脚下有地
+        //   ② 位置变高   当前格比起点高 ≥ 2 格
+        //   ③ 连通变宽   半径 8 可达格数比起点多 10 格
+        // 连续 60 次评估（约 1.5 秒）都没有改善就放弃，回 stuck + 具体地形。
+        internal static bool EscapeActive;
+        internal static ulong EscapeUntil, EscapeNextEval;
+        internal static int EscapeStartY, EscapeStartReach, EscapeBestReach;
+        internal static int EscapeStalls, EscapeJumps, EscapeSteps;
+        internal static string EscapeStatus = "idle", EscapeReason = "";
         internal static bool GuardEngaged;
         internal static volatile bool HookHeld;
         // 钩子弹幕朝**鼠标世界坐标**飞（原版用 Main.MouseWorld 算方向），不是朝 tileTargetX/Y。
@@ -3963,6 +3979,128 @@ namespace DshTerrariaBridge
             p.direction = best.Center.X >= p.Center.X ? 1 : -1;
             Main.mouseLeft = true;
             p.controlUseItem = true;
+        }
+
+        // ── escape 实现 ──────────────────────────────────────────────────────
+        /// <summary>世界坐标边界（Commands 里的 InBounds 是同类私有，这里要自己一份）。</summary>
+        private static bool EscapeInBounds(int x, int y)
+            => x >= 0 && y >= 0 && x < Main.maxTilesX && y < Main.maxTilesY;
+
+        /// <summary>从当前位置出发、半径 r 内能靠"走+跳"到达多少格。用于判断"这地方变宽了没有"。</summary>
+        private static int EscapeReach(int cx, int cy, int r)
+        {
+            if (!EscapeInBounds(cx, cy) || !PathBodyFree(cx, cy)) return 0;
+            var seen = new HashSet<long>();
+            var q = new Queue<long>();
+            long start = ((long)cx << 32) | (uint)cy;
+            seen.Add(start);
+            q.Enqueue(start);
+            int count = 0;
+            while (q.Count > 0 && count < 400)
+            {
+                long cur = q.Dequeue();
+                int x = (int)(cur >> 32), y = (int)(cur & 0xFFFFFFFFL);
+                count++;
+                for (int d = 0; d < 4; d++)
+                {
+                    int nx = x + (d == 0 ? 1 : d == 1 ? -1 : 0);
+                    int ny = y + (d == 2 ? 1 : d == 3 ? -1 : 0);
+                    if (Math.Abs(nx - cx) > r || Math.Abs(ny - cy) > r) continue;
+                    long k = ((long)nx << 32) | (uint)ny;
+                    if (seen.Contains(k)) continue;
+                    if (!EscapeInBounds(nx, ny) || !PathBodyFree(nx, ny)) continue;
+                    seen.Add(k);
+                    q.Enqueue(k);
+                }
+            }
+            return count;
+        }
+
+        /// <summary>给命令层用的只读探针：同样的 BFS 可达格数，不启动自救。</summary>
+        internal static int EscapeProbeReach(int tx, int ty, int r) => EscapeReach(tx, ty, r);
+
+        /// <summary>从 (tx,ty) 沿 dir 连续有多少格身体能过（最多 max 格）。</summary>
+        private static int EscapeRun(int tx, int ty, int dir, int max)
+        {
+            for (int i = 1; i <= max; i++)
+            {
+                int x = tx + dir * i;
+                if (!EscapeInBounds(x, ty) || !PathBodyFree(x, ty)) return i - 1;
+            }
+            return max;
+        }
+
+        /// <summary>出不来时把地形说清楚，而不是只说一句 stuck。</summary>
+        private static string EscapeDiag(Player p)
+        {
+            int tx = (int)(p.Center.X / 16f), ty = (int)(p.Center.Y / 16f);
+            int l = EscapeRun(tx, ty, -1, 8), r = EscapeRun(tx, ty, 1, 8);
+            int up = 0;
+            while (up < 8 && EscapeInBounds(tx, ty - 1 - up) && PathBodyFree(tx, ty - 1 - up)) up++;
+            int down = 0;
+            while (down < 32 && EscapeInBounds(tx, ty + 1 + down) && !PathFloorAt(tx, ty + 1 + down)) down++;
+            return $"左 {l} 格、右 {r} 格、头顶 {up} 格空、脚下 {down} 格没地"
+                + $"；跳了 {EscapeJumps} 次、走了 {EscapeSteps} 步、起跳高度 {EscapeStartY}";
+        }
+
+        private static void EscapeFinish(string status, string reason)
+        {
+            EscapeActive = false;
+            EscapeStatus = status;
+            EscapeReason = reason;
+            LeftUntil = 0; RightUntil = 0; JumpUntil = 0;
+        }
+
+        /// <summary>每 tick 调用：到点自己动，不做一次性循环，也不写任何持久状态。</summary>
+        private static void ApplyEscape(Player p, ulong now)
+        {
+            if (!EscapeActive) return;
+            if (p == null || !p.active) { EscapeFinish("stuck", "角色没了"); return; }
+            if (p.dead) { EscapeFinish("stuck", "自救过程中死了"); return; }
+            if (now > EscapeUntil)
+            {
+                EscapeFinish("stuck", "超过时限没出来：" + EscapeDiag(p));
+                return;
+            }
+            if (now < EscapeNextEval) return;
+            EscapeNextEval = now + 25;   // 约 0.4 秒评估一次，够快也不烧帧
+
+            int tx = (int)(p.Center.X / 16f), ty = (int)(p.Center.Y / 16f);
+            bool grounded = Math.Abs(p.velocity.Y) < 0.6f;
+            int reach = EscapeReach(tx, ty, 8);
+
+            if (reach > EscapeBestReach + 4) { EscapeBestReach = reach; EscapeStalls = 0; }
+            else EscapeStalls++;
+
+            // 出来了吗：比起点高 2 格且站稳，或者可达范围明显变大
+            if ((ty <= EscapeStartY - 2 && grounded) || reach >= EscapeStartReach + 10)
+            {
+                EscapeFinish("escaped", $"高度 {EscapeStartY} → {ty}，可达 {EscapeStartReach} → {reach} 格");
+                return;
+            }
+            if (EscapeStalls >= 60)
+            {
+                EscapeFinish("stuck", "连续 60 次评估没有进展：" + EscapeDiag(p));
+                return;
+            }
+
+            // 1) 头顶有空间就先跳（大多数坑是能跳出去的）
+            if (grounded && PathBodyFree(tx, ty - 1) && PathBodyFree(tx, ty - 2))
+            {
+                JumpUntil = now + Ticks(180);
+                EscapeJumps++;
+                return;
+            }
+            // 2) 横向找路：哪边连续可走更长就往哪边走
+            int left = EscapeRun(tx, ty, -1, 8), right = EscapeRun(tx, ty, 1, 8);
+            if (left == 0 && right == 0)
+            {
+                EscapeFinish("stuck", "四面封死，走跳都过不去，需要 mine 挖开：" + EscapeDiag(p));
+                return;
+            }
+            if (right >= left) RightUntil = now + Ticks(240);
+            else LeftUntil = now + Ticks(240);
+            EscapeSteps++;
         }
 
         // 手动动作开始时，取消仍在后台运行的寻路/旅行/精确移动任务。

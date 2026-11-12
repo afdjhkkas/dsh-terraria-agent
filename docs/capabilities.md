@@ -32,6 +32,7 @@
 | 感知 | Boss / 事件状态 | `boss` / `event` | ✅ |
 | 感知 | 房屋判定 | `housing {x,y}` / `needs {x,y}` | ✅ |
 | 移动 | 逐帧方向控制 | `move {dir,ms,terrain,force}` / `jump {ms,tiles,count}` | ✅ `move` 会先预走一遍地形，见 §1 的地形闸门 |
+| 移动 | 掉坑自救 | `escape {maxMs}` / `escape {report:true}` | 🚧 桥内每 tick 自评（站稳 / 高 2 格 / 连通变宽），60 次无进展判 `stuck` 并报左右上下各几格；代码已编译、判据有测试，**未做真机验证** |
 | 移动 | 爬绳 | `climb {dir,ms}` | ⚠️ 仅绳子 |
 | 移动 | 走到坐标 | `walkto {x,y,tol,ms}` | ⚠️ 平坦可用 |
 | 移动 | A* 寻路 | `path {x,y,ms,dig}` | ⚠️ 空腔竖井会死锁 |

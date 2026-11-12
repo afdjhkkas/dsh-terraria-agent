@@ -261,6 +261,34 @@
       "summary": ""
     },
     {
+      "name": "escape",
+      "kind": "both",
+      "params": [
+        "report",
+        "action",
+        "maxMs"
+      ],
+      "returns": [
+        "status",
+        "active",
+        "reason",
+        "fromY",
+        "nowY",
+        "gainY",
+        "reach",
+        "startReach",
+        "stalls",
+        "jumps",
+        "steps",
+        "note",
+        "already",
+        "untilTick",
+        "armed",
+        "from"
+      ],
+      "summary": ""
+    },
+    {
       "name": "event",
       "kind": "read",
       "params": [],

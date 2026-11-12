@@ -744,7 +744,7 @@ node scripts/testcases.mjs --dry --baseline docs/testcases/baseline.json   # 回
 
 **动作（47）**：accessory attack buy capture castline chat chatpost climb craft dialog drop duplicate equip fill fly grab grapple gravity heal homeroom idle interact jump key liquidop mine minion mirror move moveto place reel removeblock save select sell shoot splitstack startevent stop talk trash travel unhook use walkto wall
 
-**看参数（3）**：chest guard mount
+**看参数（4）**：chest escape guard mount
 
 **明确做不到**：
 - 通用弹幕状态

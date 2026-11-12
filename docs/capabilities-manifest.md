@@ -4,7 +4,7 @@
 > 元自检的第 4、5 维（动作原语 / 状态读取）就是拿这张表对照的：
 > 表里没有的接口和命令，一律视为不存在，不许在计划里使用。
 
-## 一、状态读取能力（50 个命令）
+## 一、状态读取能力（51 个命令）
 
 | 命令 | 能读到什么（返回值顶层字段） |
 |---|---|
@@ -56,10 +56,11 @@
 | `walkdiff` | `dual` `newRule` `newPriority` `newKind` `oldRule` `oldKind` `same` |
 | `walkmode` | `useNew` `reactive` `dual` |
 | `chest` | `chest` `took` `count` `put` `chestSlot` |
+| `escape` | `status` `active` `reason` `fromY` `nowY` `gainY` `reach` `startReach` `stalls` `jumps` `steps` `note` `already` `untilTick` `armed` `from` |
 | `guard` | `off` `note` `untilTick` `radius` `auto` `hostileInRange` `weaponSlot` `weapon` |
 | `mount` | `activeAfter` `queued` `untilTick` `preOpenTicks` `note` `mountSlot` `mountItem` `held` `action` `active` `type` `flight` `items` |
 
-## 二、动作能力（50 个命令）
+## 二、动作能力（51 个命令）
 
 | 命令 | 参数 | 干什么 |
 |---|---|---|
@@ -111,6 +112,7 @@
 | `walkto` | `x` `y` `tol` `ms` `dig` | — |
 | `wall` | `x` `y` `type` `remove` `ms` | — |
 | `chest` | `action` `slot` `count` `invSlot` | — |
+| `escape` | `report` `action` `maxMs` | — |
 | `guard` | `off` `action` `auto` `ms` `r` | — |
 | `mount` | `action` `ticks` `slot` | — |
 

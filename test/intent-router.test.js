@@ -279,3 +279,12 @@ test('说 boss 打不动属于战斗数值问题，不是进度问题', () => {
     assert.ok(r.tags.includes('combat_math'), `${q} 应命中 combat_math，实际 ${r.tags}`)
   }
 })
+
+// 掉坑里空转一小时那次之后补的：说"出不来/卡住/掉坑"必须命中行为库，
+// 否则新对话读到的只有地形判断，不知道有 escape 这条自救原语。
+test('说出不来/卡住 必须命中 actor_behavior', () => {
+  for (const q of ['掉坑里出不来', '卡住了出不去', '被困在坑里', '掉坑自救']) {
+    const r = route(q)
+    assert.ok(r.tags.includes('actor_behavior'), `${q} 应命中 actor_behavior，实际 ${r.tags}`)
+  }
+})

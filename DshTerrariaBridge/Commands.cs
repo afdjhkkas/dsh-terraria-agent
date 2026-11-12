@@ -108,6 +108,7 @@ namespace DshTerrariaBridge
                 case "boss": return BossStatus(p);
                 case "event": return EventStatus(p);
                 case "equip": return EquipArmor(p);
+                case "escape": return EscapeCmd(p);
                 case "place": return Place(p);
                 case "tiledata": return TileDataCmd(p);
                 case "move": return Move(p);
@@ -566,7 +567,7 @@ namespace DshTerrariaBridge
         /// 免得再出现"实现了但提示里没有、调用方以为不存在"的误导。</summary>
         internal static readonly string[] CommandNames = new[]
         {
-            "accessory", "api", "attack", "bobber", "boss", "buy", "capture", "castline", "chat", "chatpoll", "chatpost", "chest", "climb", "craft", "dialog", "drop", "duplicate", "equip", "event", "fields", "fill", "find", "fly", "follow", "grab", "grapple", "gravity", "guard", "heal", "help", "homeroom", "hook", "hookdebug", "housediag", "housing", "humaninput", "idle", "idmap", "intent", "interact", "inventory", "items", "jump", "key", "keyevents", "liquidop", "map", "methods", "mine", "minion", "mirror", "mount", "move", "moveto", "navrules", "needs", "nodig", "npc", "path", "ping", "place", "players", "props", "quest", "recipes", "reel", "removeblock", "research", "roomcheck", "save", "scan", "select", "sell", "shoot", "shop", "shopdebug", "shops", "splitstack", "startevent", "state", "stop", "talk", "talkclose", "talkfocus", "talkoption", "tile", "tiledata", "trash", "travel", "travelstatus", "unhook", "use", "walkdiff", "walkmode", "walkto", "wall"
+            "accessory", "api", "attack", "bobber", "boss", "buy", "capture", "castline", "chat", "chatpoll", "chatpost", "chest", "climb", "craft", "dialog", "drop", "duplicate", "equip", "escape", "event", "fields", "fill", "find", "fly", "follow", "grab", "grapple", "gravity", "guard", "heal", "help", "homeroom", "hook", "hookdebug", "housediag", "housing", "humaninput", "idle", "idmap", "intent", "interact", "inventory", "items", "jump", "key", "keyevents", "liquidop", "map", "methods", "mine", "minion", "mirror", "mount", "move", "moveto", "navrules", "needs", "nodig", "npc", "path", "ping", "place", "players", "props", "quest", "recipes", "reel", "removeblock", "research", "roomcheck", "save", "scan", "select", "sell", "shoot", "shop", "shopdebug", "shops", "splitstack", "startevent", "state", "stop", "talk", "talkclose", "talkfocus", "talkoption", "tile", "tiledata", "trash", "travel", "travelstatus", "unhook", "use", "walkdiff", "walkmode", "walkto", "wall"
         };
 
         private static string Help() => Json.Ok(new
@@ -4427,6 +4428,75 @@ namespace DshTerrariaBridge
                 weapon = new { type = pl.inventory[slot].type, name = pl.inventory[slot].Name },
                 minions = pl.numMinions,
                 note = "角色会自己转向、自己换武器、自己按住开火；伤害由原版弹幕/挥击产生",
+            });
+        }
+
+        // escape：掉坑/卡死时启动桥内自救。
+        // 命令只负责"开局"和"查结果"，真正动作在 BridgeSystem.ApplyEscape 里每 tick 做。
+        // 如果命令自己循环到成功才返回，等它回来时地形早变了，中间那几秒也没人管 ——
+        // 掉坑里一小时出不来，根因就是这个。
+        private static string EscapeCmd(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int nx = (int)(pl.Center.X / 16f), ny = (int)(pl.Center.Y / 16f);
+
+            if (Json.Bool(p, "report", false)
+                || string.Equals(Json.Str(p, "action", ""), "report", StringComparison.OrdinalIgnoreCase))
+            {
+                return Json.Ok(new
+                {
+                    status = BridgeSystem.EscapeStatus,
+                    active = BridgeSystem.EscapeActive,
+                    reason = BridgeSystem.EscapeReason,
+                    fromY = BridgeSystem.EscapeStartY,
+                    nowY = ny,
+                    gainY = BridgeSystem.EscapeStartY - ny,
+                    reach = BridgeSystem.EscapeProbeReach(nx, ny, 8),
+                    startReach = BridgeSystem.EscapeStartReach,
+                    stalls = BridgeSystem.EscapeStalls,
+                    jumps = BridgeSystem.EscapeJumps,
+                    steps = BridgeSystem.EscapeSteps,
+                    note = "status: running=还在自救 / escaped=出来了 / stuck=判定出不来（reason 里有左右上下各几格）",
+                });
+            }
+
+            if (BridgeSystem.EscapeActive)
+            {
+                return Json.Ok(new
+                {
+                    already = true,
+                    untilTick = BridgeSystem.EscapeUntil,
+                    note = "已经在自救中；用 escape {report:true} 看进度",
+                });
+            }
+
+            if (pl.dead) return Json.Error("角色已经死了，先复活再自救");
+            int ms = Math.Clamp(Json.Int(p, "maxMs", 8000), 1000, 30000);
+            int reach = BridgeSystem.EscapeProbeReach(nx, ny, 8);
+            BridgeSystem.EscapeStartY = ny;
+            BridgeSystem.EscapeStartReach = reach;
+            BridgeSystem.EscapeBestReach = reach;
+            BridgeSystem.EscapeStalls = 0;
+            BridgeSystem.EscapeJumps = 0;
+            BridgeSystem.EscapeSteps = 0;
+            BridgeSystem.EscapeNextEval = 0;
+            BridgeSystem.EscapeStatus = "running";
+            BridgeSystem.EscapeReason = "";
+            BridgeSystem.EscapeUntil = BridgeSystem.Now + BridgeSystem.Ticks(ms);
+            BridgeSystem.EscapeActive = true;
+            return Json.Ok(new
+            {
+                armed = true,
+                from = new[] { nx, ny },
+                reach,
+                maxMs = ms,
+                untilTick = BridgeSystem.EscapeUntil,
+                status = "running",
+                note = "每 0.4 秒自评一次：站稳、比起点高 2 格、可达范围多 10 格；"
+                    + "连续 60 次没进展就判 stuck 并说清左/右/上/下各有多少格。"
+                    + "用 escape {report:true} 取结果。",
             });
         }
 
