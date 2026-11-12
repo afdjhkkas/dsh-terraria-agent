@@ -4462,6 +4462,18 @@ namespace DshTerrariaBridge
                 });
             }
 
+            // 开阔地上调 escape 会白跑满 maxMs 再报 stuck（真机第一次测就是这样，见 reason
+            // "左 8 格、右 8 格、头顶 8 格空"）。它本来就是给"困住"用的，先判一次要不要救：
+            // 半径 8 能到 120 格以上就不是坑，直接说清楚，别让人等 8 秒还收到一个 stuck。
+            int openReach = BridgeSystem.EscapeProbeReach(nx, ny, 8);
+            if (openReach >= 120)
+            {
+                return Json.Error(
+                    $"你现在不在坑里：半径 8 格内能走到 {openReach} 格，够开阔。escape 是给掉坑/卡死用的，"
+                    + "要走路用 move，要上台阶用 jump，要看地形用 scan {format:'regions'}。",
+                    new { reach = openReach, threshold = 120 });
+            }
+
             if (BridgeSystem.EscapeActive)
             {
                 return Json.Ok(new

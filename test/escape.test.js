@@ -98,3 +98,12 @@ test('escape 是只读世界之外的：不改 tile、不直接摆速度、不�
 test('说明：真机验证不在本文件内', () => {
   assert.ok(true);
 });
+// 真机第一次调 escape 时踩到的：人在开阔地（半径 8 能走 258 格）也叫了 escape，
+// 结果白跑 2 秒才回 stuck + "头顶 8 格空"，看着像被困住。加一道"要不要救"的预判。
+test('开阔地不该开局自救，直接说清楚', () => {
+  const body = cmdBody()
+  assert.match(body, /EscapeProbeReach\(nx, ny, 8\)/, '开局要先算一次连通格数')
+  assert.match(body, /openReach >= 120/, '连通 120 格以上判定为不在坑里')
+  assert.match(body, /你现在不在坑里/, '拒绝时要说明为什么')
+  assert.match(body, /要走路用 move[\s\S]{0,40}要上台阶用 jump/, '要给出正确的替代命令')
+})
