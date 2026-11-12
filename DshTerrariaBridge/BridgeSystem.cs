@@ -159,22 +159,11 @@ namespace DshTerrariaBridge
                     + "Another program may already use that port; DSH Terraria tools will be unavailable this session.");
             }
 
-            // 启动 WebSocket 服务（推送实时状态变化）
-            try
-            {
-                WebSocketServer.Start();
-                modRef?.Logger.Info("[dsh] WebSocket server started on ws://127.0.0.1:47778");
             }
-            catch (Exception e)
-            {
-                modRef?.Logger.Error($"[dsh] WebSocket server failed to start: {e.Message}");
-            }
-        }
 
         public override void Unload()
         {
             running = false;
-            WebSocketServer.Stop();
             try { listener?.Stop(); } catch { }
             listener = null;
             lock (pending)
@@ -997,7 +986,6 @@ namespace DshTerrariaBridge
             TickTravel();
             DrainPending();
             ApplyTalkInputAfterZoom();
-            WebSocketServer.Update();  // 推送实时状态变化
         }
 
 
