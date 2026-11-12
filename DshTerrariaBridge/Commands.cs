@@ -4102,6 +4102,8 @@ namespace DshTerrariaBridge
             reach = 0; issue = "none"; drop = 0;
             int px = (int)(pl.Center.X / 16f), py = (int)(pl.Center.Y / 16f);
             int dx = dir == "right" ? 1 : -1;
+            // 起点能连通多少格，用来跟落点比（只算一次，别在循环里重复 BFS）。
+            int hereReach = BridgeSystem.EscapeProbeReach(px, py, 8);
             for (int i = 1; i <= steps; i++)
             {
                 int nx = px + dx * i, ny = py;
@@ -4120,6 +4122,14 @@ namespace DshTerrariaBridge
                     if (!found) { drop = 14; issue = "pit_deep"; return false; }
                     // AGENTS §0.57：落差 >2 格且朝下＝悬崖，不许走过去；1~2 格人自己会走下去。
                     if (d > 2) { drop = d; issue = "pit_" + d + "_deep"; return false; }
+                    // 深度不够也照样能是个出不去的小井：实测 (1796,309) 深 2 格、宽 3 格、头顶是半砖，
+                    // 落进去 regions 回 verdict=trapped / cells=0，escape 只能报 stuck。
+                    // 所以判据不看深度，看"落进去以后还能不能走开"。
+                    int landedReach = BridgeSystem.EscapeProbeReach(nx, ny + d, 8);
+                    if (landedReach < 40 && landedReach * 2 < hereReach)
+                    {
+                        drop = landedReach; issue = "trap"; return false;
+                    }
                     ny += d;
                 }
                 reach = i;
@@ -4174,6 +4184,13 @@ namespace DshTerrariaBridge
                         return Json.Error(
                             $"前方第 {reach + 1} 列是 {tDrop} 格深的落差，这一步（{dir} {ms}ms）会一路走进去摔下去。" +
                             "可选：jump 跳过去 ／ 换方向绕 ／ place 搭桥；确认要走就传 force:true。");
+                    }
+                    if (tIssue == "trap")
+                    {
+                        return Json.Error(
+                            $"前方第 {reach + 1} 列的落脚点落进去就走不开了：从那里只连通 {tDrop} 格。" +
+                            "落差不大，但四周封死／头顶有盖，掉进去跳不出来。" +
+                            "可选：jump 跳过去 ／ place 垫路 ／ 换方向绕；确认要走就传 force:true。");
                     }
                     terrainNote = $"前方第 {reach + 1} 列被挡（{tIssue}），走到那里会停住";
                 }
