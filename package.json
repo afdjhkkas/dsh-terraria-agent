@@ -51,6 +51,7 @@
   ],
   "scripts": {
     "test": "node --test",
+    "test:v2": "node --test test/v2/*.test.js",
     "pack:check": "npm pack --dry-run",
     "install:mod": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\install-mod.ps1",
     "smoke": "node scripts/live-smoke.mjs",

@@ -206,6 +206,46 @@ test('假操作：不许出现直接写 velocity / position / pulley 的赋值',
   }
 })
 
+// craft 必须走原版合成路径，不许手动扣材料/手动加产物。
+// 曾经的写法：ConsumeRequirement 手动 it.stack -= take、AddToInventory 手动 it.SetDefaults + it.stack =。
+// 那是替引擎算结果（§0.55），且 QuickSpawnItem 凭空造物。改为 recipe.Create() + pl.GetItem()。
+test('craft 走原版合成路径：recipe.Create 消耗材料、pl.GetItem 给产物', async () => {
+  const src = await read(CMDS)
+  const craft = src.slice(src.indexOf('private static string Craft('))
+  const body = craft.slice(0, craft.indexOf('\n        }'))
+  // 必须存在：原版消耗
+  assert.match(body, /\.Create\(\)/,
+    'Craft 必须调 recipe.Create() 让原版消耗材料（处理配方组 + mod 钩子）')
+  assert.match(body, /pl\.GetItem\(/,
+    'Craft 必须用 pl.GetItem() 走原版拾取管线给产物，不再手动写 inventory')
+  // 必须不存在：手动扣材料/手动加产物
+  assert.doesNotMatch(body, /ConsumeRequirement\(/,
+    'Craft 不许再手动 ConsumeRequirement（it.stack -= take 是替引擎算结果）')
+  assert.doesNotMatch(body, /AddToInventory\(/,
+    'Craft 不许再手动 AddToInventory（it.SetDefaults + it.stack = 是直接写背包）')
+})
+
+// 参数校验：传了但没人读的参数名必须出现在回包里，不能静默吞掉。
+// 曾经的后果：move 传 direction（应为 dir）静默走默认 right、trash 不带 count 吃掉整栈。
+test('参数校验：Handle 必须追踪已读参数并回传 ignoredParams', async () => {
+  const json = await read(join(ROOT, 'DshTerrariaBridge', 'Json.cs'))
+  const cmds = await read(CMDS)
+  // Json.cs 必须有参数追踪机制
+  assert.match(json, /BeginParamTracking\(\)/,
+    'Json.cs 必须有 BeginParamTracking：每条命令开始前重置已读参数集')
+  assert.match(json, /EndParamTracking\(\)/,
+    'Json.cs 必须有 EndParamTracking：命令结束后取出已读参数集')
+  assert.match(json, /WithIgnoredParams\(/,
+    'Json.cs 必须有 WithIgnoredParams：把"传了但没人读"的参数名附进回包')
+  // Commands.cs 的 Handle 必须调用追踪
+  assert.match(cmds, /Json\.BeginParamTracking\(\)/,
+    'Handle 必须调 Json.BeginParamTracking()')
+  assert.match(cmds, /Json\.EndParamTracking\(\)/,
+    'Handle 必须调 Json.EndParamTracking()')
+  assert.match(cmds, /Json\.WithIgnoredParams\(/,
+    'Handle 必须调 Json.WithIgnoredParams() 把未读参数名附进成功回包')
+})
+
 // fly 必须按坐骑类型分流用键。
 // 原版 Player.cs:25783 是 if (mount.CanHover()) { mount.Hover(this); }
 //                      else if (mount.CanFly() && controlJump && ...)
@@ -219,4 +259,29 @@ test('fly 必须区分悬停坐骑与翅膀，不能用同一个键', async () =
   assert.match(body, /UpUntil\s*=/, '悬停坐骑要走上键时间窗')
   assert.match(body, /BeginJump\(/, '翅膀/普通飞行坐骑要走上跳键')
   assert.match(body, /key\s*=\s*hovering\s*\?\s*"up"\s*:\s*"jump"/, '回包要说清这次用的是哪个键')
+})
+
+test('probe 命令必须存在并只读预判，不实际移动', async () => {
+  const src = await read(CMDS)
+  assert.match(src, /case\s+"probe"\s*:\s*return\s+Probe\(p\)/,
+    'Dispatch 必须有 probe 命令分支')
+  assert.match(src, /private static string Probe\s*\(JsonElement p\)/,
+    '必须有 Probe 函数实现')
+  const probe = src.match(/private static string Probe\s*\(JsonElement p\)\s*\{([\s\S]*?)\n\s{8}\}/)
+  assert.ok(probe, '找不到 Probe 函数体')
+  const body = probe[1]
+  assert.match(body, /PathBodyFree/,
+    'probe 必须调 PathBodyFree 判断通行')
+  assert.match(body, /PathFloorAt/,
+    'probe 必须调 PathFloorAt 判断地板')
+  assert.doesNotMatch(body, /BeginWalk|PathActive|controlLeft|controlRight/,
+    'probe 是只读预判，不许实际移动或设置控制标志')
+})
+
+test('WebSocket 推送必须在 PostUpdateEverything 里调用', async () => {
+  const src = await read(BRIDGE)
+  const post = src.match(/public override void PostUpdateEverything\s*\(\)\s*\{([\s\S]*?)\n\s{8}\}/)
+  assert.ok(post, '找不到 PostUpdateEverything 函数体')
+  assert.match(post[1], /WebSocketServer\.Update\s*\(\)/,
+    'PostUpdateEverything 必须调 WebSocketServer.Update() 推送状态变化')
 })

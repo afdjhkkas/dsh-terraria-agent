@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { classifyIntent } from './v2/intent-classifier.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const KB_DIR = join(HERE, '..', 'docs', 'kb')
@@ -215,6 +216,11 @@ const KEYWORDS = {
     '悬崖', '落差', '掉下去', '走空', '先判断', '地形判断', '移动前', '看不清路',
     '探路', '能不能走', '跳得过', '跳不过', '走之前', '前方地形',
     '掉下去了', '摔下去', '没判断', '没做判断', '不做判断', '冲过头', '走过头', '跳下去',
+    // 探索推进（技能 #14，2026-11-04 补）
+    // 用户说"探索"时没有命中 skills，导致没有加载探图循环步骤
+    '探索', '探图', '往右探索', '往左探索', '往东探索', '往西探索',
+    '一路向右', '一路向左', '路过', '遇到坑', '遇到箱子', '路上',
+    '看到什么', '路边', '发现东西', '卡住了原因', '位移不变',
   ],
   atomic_action: [
     '原子动作', '动作', '操作步骤', '先后顺序', '先做什么', '执行', '判定', '算不算成功',
@@ -314,11 +320,30 @@ const STRONG = new Set([
 ])
 
 /**
- * 判标签。
+ * v2 意图分类器的接线阈值：置信度低于它就完全不采信，走关键词老路。
+ * 实测（59 句玩家原话）：v2 在"能不能飞/装备够不够"这类问题上会把 abilities
+ * 换成 atomic_action+skills，所以这里**只做并集补齐、绝不替换**关键词的结论。
+ */
+export const V2_MIN_CONFIDENCE = 0.5
+
+/**
+ * 只跑 v2 意图分类，失败就返回 null（分类器不能把路由搞挂）。
+ * @param {string} text
+ */
+function tryClassify(text) {
+  try {
+    return classifyIntent(text)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 纯关键词判定（原文逻辑，一行没动）。`route(text, {classifier:'keyword'})` 走这条。
  * @param {string} text 玩家原话
  * @returns {{tags: string[], scores: Record<string, number>, hits: Record<string, string[]>}}
  */
-export function route(text) {
+export function routeKeyword(text) {
   const t = String(text ?? '')
   const scores = {}
   const hits = {}
@@ -347,6 +372,52 @@ export function route(text) {
   }
   const ordered = ALWAYS.concat(expanded.filter((x) => !ALWAYS.includes(x)))
   return { tags: ordered, scores, hits }
+}
+
+/**
+ * 判标签（对外入口）。
+ *
+ * v2 意图分类器只做**并集补齐**：关键词的结论原样保留，v2 的 requiredKB 只往上加。
+ * 理由（实测 59 句玩家原话）：v2 会在「能飞吗 / 装备够了没」这类问题上把 abilities
+ * 换成 atomic_action+skills，直接替换会丢正确库；而补齐不会让任何已有结论变差。
+ *
+ * @param {string} text 玩家原话
+ * @param {{classifier?: 'keyword'|'merged', v2?: boolean}} [opts]
+ *   - `classifier:'keyword'` 强制走老路（A/B 对比、排障用）
+ *   - 默认 'merged'：v2 置信度 ≥ V2_MIN_CONFIDENCE 时补库，否则等同 keyword
+ * @returns {{tags: string[], scores: Record<string, number>, hits: Record<string, string[]>,
+ *            classifier: 'keyword'|'merged', classify?: object}}
+ */
+export function route(text, opts = {}) {
+  const base = routeKeyword(text)
+  const mode = opts.classifier ?? (opts.v2 === false ? 'keyword' : 'merged')
+  if (mode === 'keyword') return { ...base, classifier: 'keyword' }
+
+  const c = tryClassify(text)
+  if (!c || typeof c.confidence !== 'number' || c.confidence < V2_MIN_CONFIDENCE) {
+    return { ...base, classifier: 'keyword', classify: c ?? undefined }
+  }
+
+  // 只取 requiredKB（details[].required），optionalKB 一律不补 —— 控制加载量。
+  const required = [...new Set((c.details ?? []).flatMap((d) => d.required ?? []))]
+  const added = required.filter((kb) => LIBRARIES[kb] && !base.tags.includes(kb))
+  if (!added.length) return { ...base, classifier: 'merged', classify: c }
+
+  // 插在 safety_limit 之后：意图驱动的库排前面，但绝不动 ALWAYS；
+  // 玩家纠错时 task_correct 必须仍是安全库之后第一位（硬规则），v2 的库只能排在它后面。
+  const head = base.tags.filter((x) => ALWAYS.includes(x))
+  const rest = base.tags.filter((x) => !ALWAYS.includes(x))
+  const corrected = rest[0] === 'task_correct'
+  const tags = corrected
+    ? [...head, 'task_correct', ...added, ...rest.slice(1)]
+    : [...head, ...added, ...rest]
+  return {
+    tags,
+    scores: base.scores,
+    hits: base.hits,
+    classifier: 'merged',
+    classify: c,
+  }
 }
 
 function order(tag) {

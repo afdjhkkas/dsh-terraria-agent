@@ -1,4 +1,4 @@
-# 项目状态（截至第 196 轮）
+# 项目状态（截至第 197 轮）
 
 一个人工智能体玩泰拉瑞亚的工程记录。本文只写**有证据的结论**，
 没验证过的不写、测不准的标注"未验证"。
@@ -8,6 +8,36 @@
 > 还需要哪些能力见 [`docs/capability-roadmap.md`](docs/capability-roadmap.md)，
 > 逐轮过程见 [`docs/playthrough.md`](docs/playthrough.md)，
 > 世界硬知识见 [`docs/terraria-mechanics.md`](docs/terraria-mechanics.md)。
+
+---
+
+## 零-丁、第 197 轮：v2 意图分类器接进路由（只补不换）
+
+**背景**：`src/v2/intent-classifier.js` 此前是孤立模块（全仓库无引用）。本轮把它接进 `src/kb-router.js` 的 `route()`。
+
+**接线契约（写在 `src/kb-router.js` 的 `route()` 注释里）**：
+
+1. **只并集、不替换**。先跑 `routeKeyword()` 拿到关键词结论，再把 v2 的 `requiredKB`（`classifyIntent().details[].required`）里、`LIBRARIES` 认识的库追加进去；`optionalKB` 一律不补，控制加载量。
+   - 依据：实测 59 句玩家原话，「我能飞多高」「我这身装备能飞吗」这类说法 v2 会把 `abilities` 换成 `atomic_action+skills`，直接替换会丢正确库。
+   - 代价：平均命中库 2.8 → 4.0 个（+43%），换来的是不漏库。
+2. **顺序硬规则**：`safety_limit` 永远第一位；玩家纠错时 `task_correct` 必须是第二位，v2 补的库只能排在它后面（这条一开始写错了，被 `test/kb-router.test.js` 的纠错用例挡下来）。
+3. **v2 置信度 < 0.5 → 完全等同关键词**；分类器抛错由 `tryClassify()` 兜住，路由不会因为分类器故障而挂。
+4. **A/B 开关**：`route(text, { classifier: 'keyword' })` 回到旧行为，排障用。
+
+**实测（接线后）**：
+
+| 原话 | 结果 |
+|---|---|
+| 挖这个猩红石 | `safety_limit, atomic_action, item_operation, game_rule` |
+| 我这身装备能飞吗 | `safety_limit, atomic_action, skills, abilities`（abilities 保住，v2 的两个库补进来） |
+| 打克苏鲁之眼 | `safety_limit, combat_math, abilities, progression_boss, loot_source, item_operation`（补 combat_math/abilities） |
+| 回家 | `safety_limit, atomic_action`（v2 新意图 move.home） |
+
+**新增测试**：`test/kb-router-v2.test.js`（8 条），锁住"只增不减""safety_limit 首位""task_correct 次位""v2 弃权时等于关键词""不出现 `navigation` 这类幻影库名""怪值不崩"。
+
+**校验**：`npm test` = **408 tests / 406 pass / 0 fail / 2 skipped**；`npm run test:v2` = 26/26；`npm run kb:lint` = 15 个文件干净。
+
+**仍留的问题**：`src/v2/capability-profile.js` 是 17 行废弃声明（未删，历史遗留）；`ARCHITECTURE_REDESIGN_V2.md` 里「预期提升」数字仍是纸面估计，没有基准测试支撑。
 
 ---
 

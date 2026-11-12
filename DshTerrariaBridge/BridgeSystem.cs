@@ -149,6 +149,7 @@ namespace DshTerrariaBridge
                 acceptThread = new Thread(AcceptLoop) { IsBackground = true, Name = "dsh-bridge" };
                 acceptThread.Start();
                 modRef?.Logger.Info($"[dsh] bridge listening on 127.0.0.1:{Port}");
+                WebSocketServer.Start();
             }
             catch (Exception e)
             {
@@ -163,6 +164,7 @@ namespace DshTerrariaBridge
 
         public override void Unload()
         {
+            WebSocketServer.Stop();
             running = false;
             try { listener?.Stop(); } catch { }
             listener = null;
@@ -986,6 +988,7 @@ namespace DshTerrariaBridge
             TickTravel();
             DrainPending();
             ApplyTalkInputAfterZoom();
+            WebSocketServer.Update();
         }
 
 

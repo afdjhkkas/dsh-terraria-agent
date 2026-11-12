@@ -68,7 +68,13 @@
 **输出**：safety_limit, atomic_action, item_operation
 
 **玩家**：往东走，路上有怪就打
-**输出**：safety_limit, actor_behavior
+**输出**：safety_limit, actor_behavior, skills
+
+**玩家**：往右探索
+**输出**：safety_limit, world_biome, loot_source, actor_behavior, skills
+
+**玩家**：往左走，遇到箱子就打开，遇到坑就跳过去
+**输出**：safety_limit, loot_source, actor_behavior, atomic_action, skills
 
 **玩家**：从这里往下挖一条到矿层的竖井
 **输出**：safety_limit, build_standard, atomic_action
@@ -121,7 +127,8 @@
 | 帮我造一间护士的房子 | `game_rule` `item_operation` `build_standard` `atomic_action` `safety_limit` |
 | 为什么我建的房子 NPC 不住进去 | `game_rule` `build_standard` `safety_limit` |
 | 把这把铁镐换成银镐，然后继续挖 | `item_operation` `atomic_action` `safety_limit` |
-| 往东走，路上有怪就打 | `actor_behavior` `safety_limit` |
+| 往东走，路上有怪就打 | `actor_behavior` `safety_limit` `skills` |
+| 往右探索 | `world_biome` `loot_source` `actor_behavior` `skills` `safety_limit` |
 | 你上次说我听不懂人话吗，我说的是铺背景墙不是挖 | `task_correct` `atomic_action` `safety_limit` |
 | 这个方块放上去没反应，怎么回事 | `item_operation` `atomic_action` `safety_limit` |
 | 我现在在洞穴层还是地下层，这个高度会不会有水 | `world_biome` `safety_limit` |
