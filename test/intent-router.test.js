@@ -288,3 +288,12 @@ test('说出不来/卡住 必须命中 actor_behavior', () => {
     assert.ok(r.tags.includes('actor_behavior'), `${q} 应命中 actor_behavior，实际 ${r.tags}`)
   }
 })
+
+// 找坑那次之后补的：说"找坑/坑在哪/落差"必须命中行为库，
+// 否则新对话只知道怎么自救，不知道有 findpit 这个只读判据、也不知道 ascii 里树不是墙。
+test('说找坑/坑在哪/落差 必须命中 actor_behavior', () => {
+  for (const q of ['帮我找坑', '这附近坑在哪', '哪有深坑', '前面有落差吗']) {
+    const r = route(q)
+    assert.ok(r.tags.includes('actor_behavior'), `${q} 应命中 actor_behavior，实际 ${r.tags}`)
+  }
+})

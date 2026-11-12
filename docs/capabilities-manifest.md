@@ -4,7 +4,7 @@
 > 元自检的第 4、5 维（动作原语 / 状态读取）就是拿这张表对照的：
 > 表里没有的接口和命令，一律视为不存在，不许在计划里使用。
 
-## 一、状态读取能力（51 个命令）
+## 一、状态读取能力（52 个命令）
 
 | 命令 | 能读到什么（返回值顶层字段） |
 |---|---|
@@ -15,6 +15,7 @@
 | `event` | `dayTime` `time` `day` `bloodMoon` `eclipse` `invasionType` `invasionSize` `pumpkinMoon` `snowMoon` `raining` `hardMode` `downedEye` `downedEater` `downedSkeletron` `downedWall` `downedPlantera` `downedGolem` |
 | `fields` | `type` `found` `count` `fields` |
 | `find` | `scanned` |
+| `findpit` | `center` |
 | `follow` | `follow` `target` `targetIndex` `guard` `range` `dist` `note` |
 | `help` | — |
 | `hook` | — |
@@ -109,7 +110,7 @@
 | `travel` | `stop` `dir` `distance` `ms` `dig` | — |
 | `unhook` | — | — |
 | `use` | `slot` `right` `ms` `x` `y` | — |
-| `walkto` | `x` `y` `tol` `ms` `dig` | — |
+| `walkto` | `x` `y` `force` `tol` `ms` `dig` | — |
 | `wall` | `x` `y` `type` `remove` `ms` | — |
 | `chest` | `action` `slot` `count` `invSlot` | — |
 | `escape` | `report` `action` `maxMs` | — |

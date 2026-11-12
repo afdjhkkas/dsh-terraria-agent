@@ -21,6 +21,7 @@
 |---|---|---|---|
 | 感知 | 角色/世界状态 | `state` | ✅ |
 | 感知 | 区域方块快照 | `scan {x,y,r,walls}` | ✅ |
+| 感知 | 找掉进去出不来的坑 | `findpit {x,y,r,minDepth}` | 🚧 代码已编译、测试已加，**未做真机验证** |
 | 感知 | 单格方块 | `tile {x,y}` | ✅ |
 | 感知 | 按类型找方块 | `find {type,x1,x2,y1,y2,max}` | ✅ |
 | 感知 | 附近生物 | `npc {r}` | ✅ |
@@ -166,6 +167,15 @@ minions,minionSlots,grapCount,hookType,mounted,wingTime,hasWings,itemAnimation,p
 ### `scan {x,y,r,walls}` — 网格快照
 返回 `(2r+1)²` 网格，每格 `[type,wall,liquid,shape]`，`r ≤ 48`。**只覆盖已加载区段**（约玩家周围 ±100 格）。
 
+`format:"ascii"` 的符号区分类型：`#` 实心（`tileSolid`）· `^` 半砖/斜坡 · `T` 树 · `,` 草/植物 · `-` 平台 · `+` 门 · `o` 火把 · `v` 藤蔓 · `;` 其他非实心 · `~` 水 · `L` 岩浆 · `.` 空。
+
+**读地形必须看符号（或 `rows`/`tile` 的 `type`），不能把 `#` 一律当墙。** 以前所有非空格都画 `#`，树、平台、门和石墙长得一模一样：照图读会把整片树林当墙、把树干顶当成地表高度、把树间的空当成坑——同一条错判连续发生过三次（砍错树、误报 7~9 格落差、找不到脚边的坑）。
+
+### `findpit {x,y,r,minDepth}` — 找"掉进去出不来的坑"
+默认 `x/y` = 玩家位置，`r` = 24（≤48），`minDepth` = 6（裸跳约 5.5 格）。
+判据全部用 `tileSolid`，不看形状：**连续空 ≥ minDepth + 下面有实心底 + 下半段至少一侧有 ≥ max(2, 深度/2) 格连续实心壁**；树/草/火把/平台按非实心处理，不算壁。
+返回 `{count, pits:[{x0,x1,center,depth,floorY,dist}]}`。为什么要有它：ascii 丢类型，树干会盖住坑口，靠读图找坑会连错。
+
 ### `tile {x,y}` — 单格详情
 `{hasTile,type,name,wall,liquid,slope,halfBlock,actuator,solid,solidTop,frameX,frameY}`。
 注意 `type: -1` = 空气，**`0` 是泥土不是空气**。
@@ -233,7 +243,7 @@ flood fill 出房间空气格，逐项给 `walled / floorRatio / ceilRatio / lef
 | `moveto {x,ms}` | 位置闭环控制：读取原版位置/速度，按实测惯性距离提前松开方向键，必要时用反向原版输入修正 | 读 `state.exact`；只有 `active:false, stopReason:"arrived"` 且位置误差 ≤ 0.08 格、速度 ≤ 0.12 才算到位；`blocked` 表示连续 45 帧几乎不动 |
 | `jump {ms}` | 按住原版跳跃键输入（高度由按住时长和游戏物理决定）；脚底真在绳上时先按下脱绳，再开始跳跃 | 起跳/上台阶；控制证据看 `state.flagJump` |
 | `climb {dir,ms}` | **只在脚底真实绳格上**才生效；身体中段碰到绳不算挂绳 | `ropeContact.onRopeReal` 与 `tileFeetType` 先确认，再看纵坐标回读 |
-| `walkto {x,y,tol,ms}` | 走到坐标。内部是 **感知→决策→执行** 三层：每 tick 扫 8 列地面（落差/墙高/是否建材/是否门/是否坑），执行层只发方向/跳跃/右键交互输入 | 已能穿过自建房的关门（右键交互由原版处理）、跳过 1~6 格台阶、跨 ≤3 格坑；⚠️「地面→实心屋顶」这种组合仍需实机复测 |
+| `walkto {x,y,tol,ms}` | 走到坐标。内部是 **感知→决策→执行** 三层：每 tick 扫 8 列地面（落差/墙高/是否建材/是否门/是否坑），执行层只发方向/跳跃/右键交互输入。**出发前先验目标格**：不能站（身体被挡或脚下没地板）就直接拒绝并给出最近可站点，`force:true` 跳过校验 | 已能穿过自建房的关门（右键交互由原版处理）、跳过 1~6 格台阶、跨 ≤3 格坑；⚠️「地面→实心屋顶」这种组合仍需实机复测。目标不可站时 A* 只会回 `no-path`，看起来像"没路/被墙挡住"——实测因此把 8 格深的坑口当成走不过去 |
 | `walkmode {mode}` | `legacy` / `reactive` / `new` 切换走路实现，用来同场景对比两套 | 回包带当前模式；层级为首次改动的隔离用 |
 | `path {x,y,ms,dig}` | A* 寻路（离线镜像 `src/path-model.js` 的 C# 版，四类边：走/跨/跳/落） | 失败时回 `why`（含起点终点是否可站、`opened` 计数）。⚠️ 兜底包围盒 ±10 |
 | `travelstatus` | 走路的实时内部状态（`active/stop/rule/kind/wp/lu/ru/greedy`） | 诊断"路点在左、控制却向右"这类问题的唯一手段 |

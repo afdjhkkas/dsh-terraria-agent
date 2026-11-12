@@ -109,6 +109,7 @@ namespace DshTerrariaBridge
                 case "event": return EventStatus(p);
                 case "equip": return EquipArmor(p);
                 case "escape": return EscapeCmd(p);
+                case "findpit": return FindPit(p);
                 case "place": return Place(p);
                 case "tiledata": return TileDataCmd(p);
                 case "move": return Move(p);
@@ -567,7 +568,7 @@ namespace DshTerrariaBridge
         /// 免得再出现"实现了但提示里没有、调用方以为不存在"的误导。</summary>
         internal static readonly string[] CommandNames = new[]
         {
-            "accessory", "api", "attack", "bobber", "boss", "buy", "capture", "castline", "chat", "chatpoll", "chatpost", "chest", "climb", "craft", "dialog", "drop", "duplicate", "equip", "escape", "event", "fields", "fill", "find", "fly", "follow", "grab", "grapple", "gravity", "guard", "heal", "help", "homeroom", "hook", "hookdebug", "housediag", "housing", "humaninput", "idle", "idmap", "intent", "interact", "inventory", "items", "jump", "key", "keyevents", "liquidop", "map", "methods", "mine", "minion", "mirror", "mount", "move", "moveto", "navrules", "needs", "nodig", "npc", "path", "ping", "place", "players", "props", "quest", "recipes", "reel", "removeblock", "research", "roomcheck", "save", "scan", "select", "sell", "shoot", "shop", "shopdebug", "shops", "splitstack", "startevent", "state", "stop", "talk", "talkclose", "talkfocus", "talkoption", "tile", "tiledata", "trash", "travel", "travelstatus", "unhook", "use", "walkdiff", "walkmode", "walkto", "wall"
+            "accessory", "api", "attack", "bobber", "boss", "buy", "capture", "castline", "chat", "chatpoll", "chatpost", "chest", "climb", "craft", "dialog", "drop", "duplicate", "equip", "escape", "event", "findpit", "fields", "fill", "find", "fly", "follow", "grab", "grapple", "gravity", "guard", "heal", "help", "homeroom", "hook", "hookdebug", "housediag", "housing", "humaninput", "idle", "idmap", "intent", "interact", "inventory", "items", "jump", "key", "keyevents", "liquidop", "map", "methods", "mine", "minion", "mirror", "mount", "move", "moveto", "navrules", "needs", "nodig", "npc", "path", "ping", "place", "players", "props", "quest", "recipes", "reel", "removeblock", "research", "roomcheck", "save", "scan", "select", "sell", "shoot", "shop", "shopdebug", "shops", "splitstack", "startevent", "state", "stop", "talk", "talkclose", "talkfocus", "talkoption", "tile", "tiledata", "trash", "travel", "travelstatus", "unhook", "use", "walkdiff", "walkmode", "walkto", "wall"
         };
 
         private static string Help() => Json.Ok(new
@@ -973,6 +974,104 @@ namespace DshTerrariaBridge
          * 数可达格数、找接触扫描边界的缺口、量头顶和脚下的空间。
          * 只读：不改任何 tile，不写任何东西。
          */
+        /// <summary>实心判定：有 tile 且 tileSolid(树/草/火把/平台/门都不算)。</summary>
+        private static bool SolidAt(int x, int y)
+        {
+            if (!InBounds(x, y)) return true;
+            Tile t = Main.tile[x, y];
+            return t.HasTile && Main.tileSolid[t.TileType];
+        }
+
+        /// <summary>
+        /// 找"掉进去出不来的坑"：竖井判据全部用 tileSolid，不看形状。
+        /// 为什么要这条命令：ascii 只能看形状、丢类型，树干会被当成墙/地面，
+        /// 坑藏在树底下看不见（实测连错三次）。这里直接返回坐标，不再靠读图。
+        /// 判据：连续空 >= minDepth（裸跳约 5.5 格，默认 6）、下面有实心底、
+        ///       下半段至少一侧有 >= max(2, 深度/2) 格连续实心壁。
+        /// </summary>
+        private static string FindPit(JsonElement p)
+        {
+            if (!InWorld(out string err)) return Json.Error(err);
+            if (!HasPlayer(out string perr)) return Json.Error(perr);
+            Player pl = P;
+            int cx = Json.Int(p, "x", (int)(pl.Center.X / 16f));
+            int cy = Json.Int(p, "y", (int)(pl.Center.Y / 16f));
+            int rad = Math.Clamp(Json.Int(p, "r", 24), 1, 48);
+            int minDepth = Math.Clamp(Json.Int(p, "minDepth", 6), 2, 40);
+            int x0 = cx - rad, y0 = cy - rad, w = rad * 2 + 1, h = rad * 2 + 1;
+
+            var raw = new List<int[]>();   // x, top, depth, floorY, wallL, wallR
+            for (int i = 0; i < w; i++)
+            {
+                int x = x0 + i;
+                if (!InBounds(x, cy)) continue;
+                for (int j = 0; j < h; j++)
+                {
+                    int top = y0 + j;
+                    if (!InBounds(x, top) || SolidAt(x, top)) continue;
+                    int d = 0;
+                    while (d < h - j)
+                    {
+                        int yy = top + d;
+                        if (!InBounds(x, yy) || SolidAt(x, yy)) break;
+                        d++;
+                    }
+                    int bottom = top + d;
+                    if (d >= minDepth && InBounds(x, bottom) && SolidAt(x, bottom))
+                    {
+                        int mid = top + d / 2;
+                        int lw = 0, rw = 0;
+                        for (int k = mid; k < bottom; k++) { if (SolidAt(x - 1, k)) lw++; else break; }
+                        for (int k = mid; k < bottom; k++) { if (SolidAt(x + 1, k)) rw++; else break; }
+                        int need = Math.Max(2, d / 2);
+                        if (Math.Max(lw, rw) >= need) raw.Add(new[] { x, top, d, bottom, lw, rw });
+                    }
+                    j += Math.Max(d, 1) - 1;
+                }
+            }
+
+            // 相邻列合并成"井口"
+            raw.Sort((a, b) => a[0] != b[0] ? a[0] - b[0] : b[2] - a[2]);
+            var groups = new List<int[]>();   // x0, x1, depth, floorY
+            foreach (var q in raw)
+            {
+                if (groups.Count > 0)
+                {
+                    int[] g = groups[groups.Count - 1];
+                    if (q[0] - g[1] <= 1 && Math.Abs(q[2] - g[2]) <= 2)
+                    {
+                        g[1] = q[0];
+                        if (q[2] > g[2]) { g[2] = q[2]; g[3] = q[3]; }
+                        continue;
+                    }
+                }
+                groups.Add(new[] { q[0], q[0], q[2], q[3] });
+            }
+
+            var pits = new List<object>();
+            foreach (var g in groups)
+            {
+                int gx = (g[0] + g[1]) / 2;
+                pits.Add(new { x0 = g[0], x1 = g[1], center = gx, depth = g[2], floorY = g[3], dist = Math.Abs(gx - cx) });
+            }
+            return Json.Ok(new
+            {
+                center = new { x = cx, y = cy },
+                r = rad,
+                minDepth,
+                count = pits.Count,
+                pits,
+                note = count_note(pits.Count, minDepth),
+            });
+        }
+
+        private static string count_note(int n, int minDepth)
+        {
+            return n == 0
+                ? $"半径内没有 >= {minDepth} 格深、有底的竖井。想找洞穴竖井可以把 minDepth 降到 4，或先 scan regions 看 depthBelow。"
+                : "pits 里 x0..x1 是井口横向范围，depth 是深度，floorY 是坑底；掉进去前先 walkto 到 center 附近。";
+        }
+
         private static string RegionReport(int cx, int cy, int r)
         {
             int x0 = cx - r, y0 = cy - r, side = r * 2 + 1;
@@ -1182,14 +1281,30 @@ namespace DshTerrariaBridge
                     {
                         if (!InBounds(x0 + i, y0 + j)) { sb.Append(' '); continue; }
                         Tile t = tiles[j, i];
-                        if (t.LiquidAmount > 0) sb.Append(t.LiquidType == LiquidID.Lava ? 'L' : '~');
-                        else if (t.HasTile) sb.Append(t.IsHalfBlock || t.Slope != SlopeType.Solid ? '^' : '#');
-                        else sb.Append('.');
+                        if (t.LiquidAmount > 0) { sb.Append(t.LiquidType == LiquidID.Lava ? 'L' : '~'); continue; }
+                        if (!t.HasTile) { sb.Append('.'); continue; }
+                        // 非实心方块不能画成 '#':否则树/草/门/平台看起来和石墙一样,
+                        // 读到图的人会把整片树林当成墙(实测因此砍错树、把树干读成断崖)。
+                        if (!Main.tileSolid[t.TileType])
+                        {
+                            int tt = t.TileType;
+                            char ch;
+                            if (tt == TileID.Trees) ch = 'T';
+                            else if (tt == TileID.Plants || tt == TileID.Plants2) ch = ',';
+                            else if (tt == TileID.Platforms) ch = '-';
+                            else if (tt == TileID.ClosedDoor || tt == TileID.OpenDoor) ch = '+';
+                            else if (tt == TileID.Torches) ch = 'o';
+                            else if (tt == TileID.Vines) ch = 'v';
+                            else ch = ';';
+                            sb.Append(ch);
+                            continue;
+                        }
+                        sb.Append(t.IsHalfBlock || t.Slope != SlopeType.Solid ? '^' : '#');
                     }
                     lines[j] = sb.ToString();
                 }
                 data["map"] = string.Join("\n", lines);
-                data["legend"] = ". 空 · # 实心 · ^ 半砖/斜坡 · ~ 水/其他液体 · L 岩浆（方块类型请用 terraria_tile）";
+                data["legend"] = ". 空 · # 实心(可挡可站) · ^ 半砖/斜坡 · T 树 · , 草/植物 · - 平台 · + 门 · o 火把 · v 藤蔓 · ; 其他非实心 · ~ 水 · L 岩浆";
             }
             else
             {
@@ -3568,6 +3683,34 @@ namespace DshTerrariaBridge
             if (!HasPlayer(out string perr)) return Json.Error(perr);
             int x = Json.Int(p, "x", -1), y = Json.Int(p, "y", -1);
             if (x < 0 || y < 0) return Json.Error("walkto 需要 x,y");
+            // 目标格先验：不能站的格子 A* 一定算不出路，最后只回一句 no-path，
+            // 看起来像"左边没路/被墙挡住"（实测把 8 格深的坑口当成"走不过去"）。
+            // 默认拒绝并给出最近可站点；force:true 跳过校验。
+            bool walkForce = Json.Bool(p, "force", false);
+            if (!walkForce && (!BridgeSystem.PathBodyFree(x, y) || !BridgeSystem.PathFloorAt(x, y)))
+            {
+                int bx = -1, by = -1, best = int.MaxValue;
+                for (int dy = -8; dy <= 8; dy++)
+                {
+                    for (int dx = -8; dx <= 8; dx++)
+                    {
+                        int nx = x + dx, ny = y + dy;
+                        if (!BridgeSystem.PathBodyFree(nx, ny)) continue;
+                        if (!BridgeSystem.PathFloorAt(nx, ny)) continue;
+                        int d = Math.Abs(dx) + Math.Abs(dy);
+                        if (d < best) { best = d; bx = nx; by = ny; }
+                    }
+                }
+                if (bx < 0)
+                    return Json.Error(
+                        $"walkto 的目标 ({x},{y}) 不能站立：身体格被挡或脚下没有地板，附近 8 格内也没找到可站的格子。"
+                        + "先用 scan {format:'regions'} 看 standable / verdict，或 tile {x,y} 确认那里是什么。",
+                        new { target = new { x, y }, bodyFree = BridgeSystem.PathBodyFree(x, y), floorAt = BridgeSystem.PathFloorAt(x, y) });
+                return Json.Error(
+                    $"walkto 的目标 ({x},{y}) 不能站立；最近能站的是 ({bx},{by})，距 {best} 格。"
+                    + $"改用 walkto {{x:{bx},y:{by}}}；如果确实要去那个格子（例如要掉进去），传 force:true。",
+                    new { target = new { x, y }, nearest = new { x = bx, y = by, dist = best } });
+            }
             int tol = Json.Int(p, "tol", 1);
             // 默认 15 秒对"穿两间房 + 上屋顶 + 绕路"这种 90 多步的路线远远不够：
             // 实测 94 步走到第 60 步就撞死线，回包只说 timeout，看着像"卡住"。

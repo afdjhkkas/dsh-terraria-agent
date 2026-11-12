@@ -361,6 +361,20 @@
       "summary": ""
     },
     {
+      "name": "findpit",
+      "kind": "read",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "minDepth"
+      ],
+      "returns": [
+        "center"
+      ],
+      "summary": ""
+    },
+    {
       "name": "fly",
       "kind": "act",
       "params": [
@@ -1543,6 +1557,7 @@
       "params": [
         "x",
         "y",
+        "force",
         "tol",
         "ms",
         "dig"
